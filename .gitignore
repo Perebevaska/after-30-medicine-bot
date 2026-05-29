@@ -1,0 +1,5 @@
+.env
+med_bot.db
+venv/
+__pycache__/
+*.pyc
