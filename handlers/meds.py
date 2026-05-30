@@ -186,7 +186,8 @@ async def handle_edit_select(update: Update, context: ContextTypes.DEFAULT_TYPE)
         f"Приём: {MEAL_LABELS[med['meal_relation']]}\n"
         f"Времена: {times}\n\n"
         f"Введи новое название (или `-` чтобы оставить `{med['name']}`):",
-        parse_mode="Markdown"
+        parse_mode="Markdown",
+        reply_markup=_CANCEL_BTN
     )
     return EDIT_NAME
 
@@ -196,7 +197,8 @@ async def edit_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     val = update.message.text.strip()
     context.user_data["edit_name"] = med["name"] if val == "-" else val
     await update.message.reply_text(
-        f"Введи новую дозировку (или `-` чтобы оставить `{med['dosage']}`):"
+        f"Введи новую дозировку (или `-` чтобы оставить `{med['dosage']}`):",
+        reply_markup=_CANCEL_BTN
     )
     return EDIT_DOSAGE
 
@@ -209,10 +211,8 @@ async def edit_dosage(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton(label, callback_data=f"editmeal:{key}")]
         for key, label in MEAL_LABELS.items()
     ]
-    await update.message.reply_text(
-        "Выбери способ приёма:",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+    keyboard.append([InlineKeyboardButton("❌ Отмена", callback_data="cancel_add")])
+    await update.message.reply_text("Выбери способ приёма:", reply_markup=InlineKeyboardMarkup(keyboard))
     return EDIT_MEAL
 
 
@@ -220,7 +220,10 @@ async def edit_meal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     context.user_data["edit_meal"] = query.data.split(":")[1]
-    keyboard = [[InlineKeyboardButton(str(i), callback_data=f"edittimes:{i}") for i in range(1, 5)]]
+    keyboard = [
+        [InlineKeyboardButton(str(i), callback_data=f"edittimes:{i}") for i in range(1, 5)],
+        [InlineKeyboardButton("❌ Отмена", callback_data="cancel_add")],
+    ]
     await query.edit_message_text("Сколько раз в день?", reply_markup=InlineKeyboardMarkup(keyboard))
     return EDIT_TIMES
 
@@ -231,7 +234,7 @@ async def edit_times(update: Update, context: ContextTypes.DEFAULT_TYPE):
     times = int(query.data.split(":")[1])
     context.user_data["edit_times"] = times
     context.user_data["edit_collected"] = []
-    await query.edit_message_text(f"Введи время 1 из {times} (формат ЧЧ:ММ):")
+    await query.edit_message_text(f"Введи время 1 из {times} (формат ЧЧ:ММ):", reply_markup=_CANCEL_BTN)
     return EDIT_SCHEDULE
 
 
@@ -251,7 +254,8 @@ async def edit_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if len(collected) < total:
         await update.message.reply_text(
-            f"Время {len(collected)} из {total} принято. Введи время {len(collected)+1}:"
+            f"Время {len(collected)} из {total} принято. Введи время {len(collected)+1}:",
+            reply_markup=_CANCEL_BTN
         )
         return EDIT_SCHEDULE
 
@@ -301,5 +305,8 @@ def get_edit_handler(cancel_handler):
             EDIT_TIMES: [CallbackQueryHandler(edit_times, pattern="^edittimes:")],
             EDIT_SCHEDULE: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_schedule)],
         },
-        fallbacks=[cancel_handler],
+        fallbacks=[
+            cancel_handler,
+            CallbackQueryHandler(cancel_add, pattern="^cancel_add$"),
+        ],
     )
