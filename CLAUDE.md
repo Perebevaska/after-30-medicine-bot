@@ -108,3 +108,31 @@ TIMEZONE=Asia/Yekaterinburg
 - Часовой пояс запрашивается при `/start` если не задан (геолокация или город)
 - Напоминания в local time пользователя (хранится в `users.timezone`)
 - Режим напоминаний: `once` или `repeat` (каждые 5 минут до подтверждения)
+
+## Known Issues & Bug Tracker
+
+### ✅ Исправлено
+
+| # | Файл | Проблема |
+|---|------|----------|
+| 1 | `scheduler.py` | Scheduler использовал серверный TZ вместо TZ каждого пользователя |
+| 2 | `scheduler.py` | Режим "повтор каждые 5 минут" не был реализован |
+| 3 | `database.py` | `get_today_stats` / `get_history_detailed` использовали `date('now')` (UTC) вместо TZ пользователя |
+| 4 | `handlers/meds.py`, `handlers/timezone.py` | Многие DB-функции без `@handle_db_errors` |
+| 5 | `handlers/timezone.py` | Нет обработки таймаута geopy |
+| 6 | `handlers/meds.py` | Лишние DB-запросы в цепочке edit (`get_or_create_user` × 5) |
+| 7 | `scheduler.py` | `handle_intake_callback` без try/except вокруг `log_intake` |
+| 8 | `handlers/meds.py` | TIMES/MEAL состояния без паттернов — ловили любой callback (в т.ч. `add_med`) |
+
+### 🔲 К исправлению
+
+| # | Файл | Строка | Проблема | Приоритет |
+|---|------|--------|----------|-----------|
+| 9 | `database.py`, `scheduler.py` | `log_intake()` | `log_intake` делает `INSERT` при каждом нажатии — дубли если нажать дважды или repeat прислал повтор | Средний |
+| 10 | `scheduler.py` | `_pending` dict | Ключи удалённых лекарств висят в `_pending` до 2 часов | Низкий |
+| 11 | `handlers/meds.py` | `keep_edit_times` | При смене количества приёмов показываются старые времена в подсказке — может запутать | Низкий (UX) |
+
+### Порядок работы с багами
+1. Найти баг → добавить в таблицу "К исправлению"
+2. Исправить → перенести в "Исправлено"
+3. После каждой серии правок — запустить бота и проверить основной флоу: `/start` → `/meds` → добавить → изменить → `/stats`
