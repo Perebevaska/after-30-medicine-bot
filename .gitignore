@@ -3,3 +3,8 @@ med_bot.db
 venv/
 __pycache__/
 *.pyc
+
+# Claude Code / Cloud
+.claude/
+*.log
+db_errors.log

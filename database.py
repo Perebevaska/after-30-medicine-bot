@@ -1,17 +1,39 @@
 import sqlite3
+import logging
 from contextlib import contextmanager
 
 DB_PATH = "med_bot.db"
+
+# Логгер для ошибок БД — пишет в файл
+db_logger = logging.getLogger("db_errors")
+db_logger.setLevel(logging.ERROR)
+_fh = logging.FileHandler("db_errors.log", encoding="utf-8")
+_fh.setFormatter(logging.Formatter("%(asctime)s — %(message)s"))
+db_logger.addHandler(_fh)
+
+
+class DatabaseError(Exception):
+    """Ошибка при работе с базой данных."""
+    pass
 
 
 @contextmanager
 def get_connection():
     """Контекстный менеджер для подключения к БД."""
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row  # результаты как словари
+    try:
+        conn = sqlite3.connect(DB_PATH)
+    except sqlite3.Error as e:
+        db_logger.error("Не удалось подключиться к БД: %s", e)
+        raise DatabaseError("База данных недоступна") from e
+
+    conn.row_factory = sqlite3.Row
     try:
         yield conn
         conn.commit()
+    except sqlite3.Error as e:
+        conn.rollback()
+        db_logger.error("Ошибка БД: %s", e)
+        raise DatabaseError("Ошибка при работе с базой данных") from e
     except Exception:
         conn.rollback()
         raise
