@@ -99,7 +99,11 @@ async def add_meal(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton(str(i), callback_data=str(i)) for i in range(1, 5)],
         [InlineKeyboardButton("❌ Отмена", callback_data="cancel_add")],
     ]
-    await query.edit_message_text("Сколько раз в день?", reply_markup=InlineKeyboardMarkup(keyboard))
+    await query.edit_message_text(
+        "Сколько раз в день?\n_Или введи своё число:_",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
     return TIMES
 
 
@@ -110,6 +114,22 @@ async def add_times(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["times"] = times
     context.user_data["collected_times"] = []
     await query.edit_message_text(
+        f"Укажи время 1 из {times} приёмов (формат ЧЧ:ММ, например 08:00):",
+        reply_markup=_CANCEL_BTN
+    )
+    return SCHEDULE
+
+
+async def add_times_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        times = int(update.message.text.strip())
+        assert 1 <= times <= 10
+    except (ValueError, AssertionError):
+        await update.message.reply_text("Введи число от 1 до 10:", reply_markup=_CANCEL_BTN)
+        return TIMES
+    context.user_data["times"] = times
+    context.user_data["collected_times"] = []
+    await update.message.reply_text(
         f"Укажи время 1 из {times} приёмов (формат ЧЧ:ММ, например 08:00):",
         reply_markup=_CANCEL_BTN
     )
@@ -224,7 +244,11 @@ async def edit_meal(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton(str(i), callback_data=f"edittimes:{i}") for i in range(1, 5)],
         [InlineKeyboardButton("❌ Отмена", callback_data="cancel_add")],
     ]
-    await query.edit_message_text("Сколько раз в день?", reply_markup=InlineKeyboardMarkup(keyboard))
+    await query.edit_message_text(
+        "Сколько раз в день?\n_Или введи своё число:_",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
     return EDIT_TIMES
 
 
@@ -235,6 +259,19 @@ async def edit_times(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["edit_times"] = times
     context.user_data["edit_collected"] = []
     await query.edit_message_text(f"Введи время 1 из {times} (формат ЧЧ:ММ):", reply_markup=_CANCEL_BTN)
+    return EDIT_SCHEDULE
+
+
+async def edit_times_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        times = int(update.message.text.strip())
+        assert 1 <= times <= 10
+    except (ValueError, AssertionError):
+        await update.message.reply_text("Введи число от 1 до 10:", reply_markup=_CANCEL_BTN)
+        return EDIT_TIMES
+    context.user_data["edit_times"] = times
+    context.user_data["edit_collected"] = []
+    await update.message.reply_text(f"Введи время 1 из {times} (формат ЧЧ:ММ):", reply_markup=_CANCEL_BTN)
     return EDIT_SCHEDULE
 
 
@@ -284,7 +321,10 @@ def get_add_handler(cancel_handler):
             NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_name)],
             DOSAGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_dosage)],
             MEAL: [CallbackQueryHandler(add_meal, pattern="^(before|after|with|any)$")],
-            TIMES: [CallbackQueryHandler(add_times, pattern="^[1-4]$")],
+            TIMES: [
+                CallbackQueryHandler(add_times, pattern="^[1-4]$"),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, add_times_text),
+            ],
             SCHEDULE: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_schedule_time)],
         },
         fallbacks=[
@@ -302,7 +342,10 @@ def get_edit_handler(cancel_handler):
             EDIT_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_name)],
             EDIT_DOSAGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_dosage)],
             EDIT_MEAL: [CallbackQueryHandler(edit_meal, pattern="^editmeal:")],
-            EDIT_TIMES: [CallbackQueryHandler(edit_times, pattern="^edittimes:")],
+            EDIT_TIMES: [
+                CallbackQueryHandler(edit_times, pattern="^edittimes:"),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, edit_times_text),
+            ],
             EDIT_SCHEDULE: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_schedule)],
         },
         fallbacks=[
