@@ -86,7 +86,12 @@ async def handle_intake_callback(update, context):
         logger.error("Некорректный callback: %s", query.data)
         return
 
-    log_intake(medication_id, scheduled_time, status)
+    try:
+        log_intake(medication_id, scheduled_time, status)
+    except Exception as e:
+        logger.error("Ошибка записи приёма: %s", e)
+        await query.edit_message_text("⚠️ Не удалось записать приём. Попробуй ещё раз.")
+        return
 
     key = (update.effective_user.id, medication_id, scheduled_time)
     _pending.pop(key, None)

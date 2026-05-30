@@ -170,11 +170,13 @@ async def handle_edit_select(update: Update, context: ContextTypes.DEFAULT_TYPE)
     query = update.callback_query
     await query.answer()
     medication_id = int(query.data.split(":")[1])
-    context.user_data["edit_id"] = medication_id
     user = update.effective_user
     user_id = get_or_create_user(user.id, user.username)
     med = get_medication_by_id(medication_id, user_id)
     schedules = get_schedules_by_medication(medication_id)
+    context.user_data["edit_id"] = medication_id
+    context.user_data["edit_user_id"] = user_id
+    context.user_data["edit_med"] = {"name": med["name"], "dosage": med["dosage"]}
     times = ", ".join([s["reminder_time"] for s in schedules])
     await query.edit_message_text(
         f"Редактируем: *{med['name']}*\n"
@@ -187,11 +189,8 @@ async def handle_edit_select(update: Update, context: ContextTypes.DEFAULT_TYPE)
     return EDIT_NAME
 
 
-@handle_db_errors
 async def edit_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    user_id = get_or_create_user(user.id, user.username)
-    med = get_medication_by_id(context.user_data["edit_id"], user_id)
+    med = context.user_data["edit_med"]
     val = update.message.text.strip()
     context.user_data["edit_name"] = med["name"] if val == "-" else val
     await update.message.reply_text(
@@ -200,11 +199,8 @@ async def edit_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return EDIT_DOSAGE
 
 
-@handle_db_errors
 async def edit_dosage(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    user_id = get_or_create_user(user.id, user.username)
-    med = get_medication_by_id(context.user_data["edit_id"], user_id)
+    med = context.user_data["edit_med"]
     val = update.message.text.strip()
     context.user_data["edit_dosage"] = med["dosage"] if val == "-" else val
     keyboard = [
@@ -257,8 +253,7 @@ async def edit_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return EDIT_SCHEDULE
 
-    user = update.effective_user
-    user_id = get_or_create_user(user.id, user.username)
+    user_id = context.user_data["edit_user_id"]
     update_medication(context.user_data["edit_id"], user_id,
                       context.user_data["edit_name"], context.user_data["edit_dosage"],
                       context.user_data["edit_meal"], total, collected)

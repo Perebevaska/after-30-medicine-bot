@@ -2,6 +2,7 @@ from telegram import Update, KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardR
 from telegram.ext import ContextTypes, ConversationHandler
 from timezonefinder import TimezoneFinder
 from geopy.geocoders import Nominatim
+from geopy.exc import GeocoderTimedOut, GeocoderServiceError
 from database import get_or_create_user, get_user_timezone, set_user_timezone
 from constants import SETUP_TZ, SETUP_CITY
 from utils import handle_db_errors
@@ -105,8 +106,12 @@ async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @handle_db_errors
 async def handle_city_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     city = update.message.text.strip()
-    geolocator = Nominatim(user_agent="med_bot")
-    location = geolocator.geocode(city)
+    try:
+        geolocator = Nominatim(user_agent="med_bot")
+        location = geolocator.geocode(city, timeout=10)
+    except (GeocoderTimedOut, GeocoderServiceError):
+        await update.message.reply_text("Сервис геолокации недоступен. Попробуй ещё раз:")
+        return SETUP_CITY
     if location:
         tf = TimezoneFinder()
         tz_name = tf.timezone_at(lat=location.latitude, lng=location.longitude)
