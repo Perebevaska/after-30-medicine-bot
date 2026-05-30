@@ -7,8 +7,10 @@ from database import (get_or_create_user, add_medication, add_schedule,
 from constants import (NAME, DOSAGE, MEAL, TIMES, SCHEDULE,
                        EDIT_NAME, EDIT_DOSAGE, EDIT_MEAL, EDIT_TIMES, EDIT_SCHEDULE,
                        MEAL_LABELS, CANCEL_TIP)
+from utils import handle_db_errors
 
 
+@handle_db_errors
 async def meds_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     user_id = get_or_create_user(user.id, user.username)
@@ -113,6 +115,7 @@ async def add_times(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return SCHEDULE
 
 
+@handle_db_errors
 async def add_schedule_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
     time_str = update.message.text.strip()
     try:
@@ -151,6 +154,7 @@ async def add_schedule_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
+@handle_db_errors
 async def handle_delete_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -161,6 +165,7 @@ async def handle_delete_callback(update: Update, context: ContextTypes.DEFAULT_T
     await query.edit_message_text("✅ Лекарство удалено из списка, напоминания отключены.")
 
 
+@handle_db_errors
 async def handle_edit_select(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -182,6 +187,7 @@ async def handle_edit_select(update: Update, context: ContextTypes.DEFAULT_TYPE)
     return EDIT_NAME
 
 
+@handle_db_errors
 async def edit_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     user_id = get_or_create_user(user.id, user.username)
@@ -194,6 +200,7 @@ async def edit_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return EDIT_DOSAGE
 
 
+@handle_db_errors
 async def edit_dosage(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     user_id = get_or_create_user(user.id, user.username)
@@ -230,6 +237,7 @@ async def edit_times(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return EDIT_SCHEDULE
 
 
+@handle_db_errors
 async def edit_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE):
     time_str = update.message.text.strip()
     try:
@@ -274,8 +282,8 @@ def get_add_handler(cancel_handler):
         states={
             NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_name)],
             DOSAGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_dosage)],
-            MEAL: [CallbackQueryHandler(add_meal)],
-            TIMES: [CallbackQueryHandler(add_times)],
+            MEAL: [CallbackQueryHandler(add_meal, pattern="^(before|after|with|any)$")],
+            TIMES: [CallbackQueryHandler(add_times, pattern="^[1-4]$")],
             SCHEDULE: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_schedule_time)],
         },
         fallbacks=[cancel_handler],

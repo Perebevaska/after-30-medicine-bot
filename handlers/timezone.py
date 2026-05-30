@@ -4,6 +4,7 @@ from timezonefinder import TimezoneFinder
 from geopy.geocoders import Nominatim
 from database import get_or_create_user, get_user_timezone, set_user_timezone
 from constants import SETUP_TZ, SETUP_CITY
+from utils import handle_db_errors
 
 
 def _geo_keyboard() -> ReplyKeyboardMarkup:
@@ -27,6 +28,7 @@ async def show_main_menu(update, first_name):
     )
 
 
+@handle_db_errors
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     get_or_create_user(user.id, user.username)
@@ -74,6 +76,7 @@ async def handle_tz_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return await handle_city_input(update, context)
 
 
+@handle_db_errors
 async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
     loc = update.message.location
     if loc is None:
@@ -99,6 +102,7 @@ async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return SETUP_CITY
 
 
+@handle_db_errors
 async def handle_city_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     city = update.message.text.strip()
     geolocator = Nominatim(user_agent="med_bot")
