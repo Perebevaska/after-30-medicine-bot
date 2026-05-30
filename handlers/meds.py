@@ -10,6 +10,14 @@ from constants import (NAME, DOSAGE, MEAL, TIMES, SCHEDULE,
 from utils import handle_db_errors
 
 _CANCEL_BTN = InlineKeyboardMarkup([[InlineKeyboardButton("❌ Отмена", callback_data="cancel_add")]])
+_EDIT_NAME_KB = InlineKeyboardMarkup([
+    [InlineKeyboardButton("➡️ Оставить текущее", callback_data="keep_edit_name")],
+    [InlineKeyboardButton("❌ Отмена", callback_data="cancel_add")],
+])
+_EDIT_DOSAGE_KB = InlineKeyboardMarkup([
+    [InlineKeyboardButton("➡️ Оставить текущее", callback_data="keep_edit_dosage")],
+    [InlineKeyboardButton("❌ Отмена", callback_data="cancel_add")],
+])
 
 
 @handle_db_errors
@@ -205,28 +213,54 @@ async def handle_edit_select(update: Update, context: ContextTypes.DEFAULT_TYPE)
         f"Дозировка: {med['dosage']}\n"
         f"Приём: {MEAL_LABELS[med['meal_relation']]}\n"
         f"Времена: {times}\n\n"
-        f"Введи новое название (или `-` чтобы оставить `{med['name']}`):",
+        f"Введи новое название:",
         parse_mode="Markdown",
-        reply_markup=_CANCEL_BTN
+        reply_markup=_EDIT_NAME_KB
     )
     return EDIT_NAME
+
+
+async def keep_edit_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    med = context.user_data["edit_med"]
+    context.user_data["edit_name"] = med["name"]
+    await query.edit_message_text(
+        f"Введи новую дозировку\n(текущая: *{med['dosage']}*):",
+        parse_mode="Markdown",
+        reply_markup=_EDIT_DOSAGE_KB
+    )
+    return EDIT_DOSAGE
+
+
+async def keep_edit_dosage(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    context.user_data["edit_dosage"] = context.user_data["edit_med"]["dosage"]
+    keyboard = [
+        [InlineKeyboardButton(label, callback_data=f"editmeal:{key}")]
+        for key, label in MEAL_LABELS.items()
+    ]
+    keyboard.append([InlineKeyboardButton("❌ Отмена", callback_data="cancel_add")])
+    await query.edit_message_text("Выбери способ приёма:", reply_markup=InlineKeyboardMarkup(keyboard))
+    return EDIT_MEAL
 
 
 async def edit_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     med = context.user_data["edit_med"]
     val = update.message.text.strip()
-    context.user_data["edit_name"] = med["name"] if val == "-" else val
+    context.user_data["edit_name"] = val
     await update.message.reply_text(
-        f"Введи новую дозировку (или `-` чтобы оставить `{med['dosage']}`):",
-        reply_markup=_CANCEL_BTN
+        f"Введи новую дозировку\n(текущая: *{med['dosage']}*):",
+        parse_mode="Markdown",
+        reply_markup=_EDIT_DOSAGE_KB
     )
     return EDIT_DOSAGE
 
 
 async def edit_dosage(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    med = context.user_data["edit_med"]
     val = update.message.text.strip()
-    context.user_data["edit_dosage"] = med["dosage"] if val == "-" else val
+    context.user_data["edit_dosage"] = val
     keyboard = [
         [InlineKeyboardButton(label, callback_data=f"editmeal:{key}")]
         for key, label in MEAL_LABELS.items()
@@ -339,8 +373,14 @@ def get_edit_handler(cancel_handler):
     return ConversationHandler(
         entry_points=[CallbackQueryHandler(handle_edit_select, pattern="^edit:\\d+$")],
         states={
-            EDIT_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_name)],
-            EDIT_DOSAGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_dosage)],
+            EDIT_NAME: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, edit_name),
+                CallbackQueryHandler(keep_edit_name, pattern="^keep_edit_name$"),
+            ],
+            EDIT_DOSAGE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, edit_dosage),
+                CallbackQueryHandler(keep_edit_dosage, pattern="^keep_edit_dosage$"),
+            ],
             EDIT_MEAL: [CallbackQueryHandler(edit_meal, pattern="^editmeal:")],
             EDIT_TIMES: [
                 CallbackQueryHandler(edit_times, pattern="^edittimes:"),
