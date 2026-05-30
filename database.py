@@ -67,6 +67,8 @@ def migrate():
         cols = [r[1] for r in conn.execute("PRAGMA table_info(users)")]
         if "timezone" not in cols:
             conn.execute("ALTER TABLE users ADD COLUMN timezone TEXT DEFAULT 'UTC'")
+        if "reminder_mode" not in cols:
+            conn.execute("ALTER TABLE users ADD COLUMN reminder_mode TEXT DEFAULT 'once'")
 
 
 def get_or_create_user(telegram_id: int, username: str = None) -> int:
@@ -84,6 +86,24 @@ def get_or_create_user(telegram_id: int, username: str = None) -> int:
         return conn.execute(
             "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
         ).fetchone()["id"]
+
+
+def get_reminder_mode(telegram_id: int) -> str:
+    """Возвращает режим напоминаний: once | repeat."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT reminder_mode FROM users WHERE telegram_id = ?", (telegram_id,)
+        ).fetchone()
+        return row["reminder_mode"] if row else "once"
+
+
+def set_reminder_mode(telegram_id: int, mode: str):
+    """Устанавливает режим напоминаний."""
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE users SET reminder_mode = ? WHERE telegram_id = ?",
+            (mode, telegram_id)
+        )
 
 
 def set_user_timezone(telegram_id: int, timezone: str):
@@ -175,6 +195,43 @@ def get_today_stats(user_id: int) -> list:
                AND date(i.taken_at) = date('now')
                ORDER BY i.taken_at""",
             (user_id,)
+        ).fetchall()
+
+
+def get_history_detailed(user_id: int, days: int = 7) -> list:
+    """Возвращает детальную историю: каждый приём с датой, временем и статусом."""
+    with get_connection() as conn:
+        return conn.execute(
+            """SELECT m.name, m.dosage, m.id as med_id,
+                      i.scheduled_time,
+                      date(i.taken_at) as day,
+                      i.status,
+                      i.taken_at
+               FROM intake_log i
+               JOIN medications m ON m.id = i.medication_id
+               WHERE m.user_id = ?
+               AND i.taken_at >= date('now', ? || ' days')
+               ORDER BY m.name, day DESC, i.scheduled_time""",
+            (user_id, f"-{days}")
+        ).fetchall()
+
+
+def get_history_by_days(user_id: int, days: int = 7) -> list:
+    """Возвращает статистику по дням для каждого лекарства."""
+    with get_connection() as conn:
+        return conn.execute(
+            """SELECT m.name, m.dosage,
+                      date(i.taken_at) as day,
+                      SUM(CASE WHEN i.status = 'taken' THEN 1 ELSE 0 END) as taken,
+                      SUM(CASE WHEN i.status = 'skipped' THEN 1 ELSE 0 END) as skipped,
+                      COUNT(*) as total
+               FROM intake_log i
+               JOIN medications m ON m.id = i.medication_id
+               WHERE m.user_id = ?
+               AND i.taken_at >= date('now', ? || ' days')
+               GROUP BY m.id, m.name, date(i.taken_at)
+               ORDER BY m.name, day DESC""",
+            (user_id, f"-{days}")
         ).fetchall()
 
 

@@ -9,8 +9,10 @@ from telegram.ext import (
 )
 from database import (init_db, migrate, get_or_create_user, add_medication, add_schedule,
                       get_user_medications, deactivate_medication, get_today_stats,
-                      get_history, get_medication_by_id, get_schedules_by_medication,
-                      update_medication, set_user_timezone, get_user_timezone)
+                      get_history, get_history_by_days, get_history_detailed, get_medication_by_id,
+                      get_schedules_by_medication, update_medication,
+                      set_user_timezone, get_user_timezone,
+                      get_reminder_mode, set_reminder_mode)
 from scheduler import send_reminders, handle_intake_callback
 
 load_dotenv()
@@ -64,45 +66,55 @@ async def show_main_menu(update, first_name):
         f"Привет, {first_name}! 💊\n\n"
         "Я помогу тебе не забывать принимать лекарства.\n\n"
         "Команды:\n"
-        "/add — добавить лекарство\n"
-        "/list — мои лекарства\n"
-        "/edit — редактировать лекарство\n"
-        "/delete — удалить лекарство\n"
-        "/stats — статистика за сегодня\n"
-        "/history — история за 7 дней\n"
-        "/timezone — изменить часовой пояс\n",
+        "/meds — мои лекарства\n"
+        "/stats — статистика\n"
+        "/settings — настройки\n"
+        "/about — о проекте\n",
         reply_markup=ReplyKeyboardRemove()
     )
 
 
 async def handle_tz_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обрабатывает нажатие кнопки 'Ввести город' или любой текст в состоянии SETUP_TZ."""
+    """Обрабатывает нажатие кнопки 'Ввести город' — переходим к вводу города."""
     from telegram import ReplyKeyboardRemove
-    await update.message.reply_text(
-        "Введи название города (можно на русском):",
-        reply_markup=ReplyKeyboardRemove()
-    )
-    return SETUP_CITY
+    if update.message.text == "✍️ Ввести город вручную":
+        await update.message.reply_text(
+            "Введи название города (можно на русском):",
+            reply_markup=ReplyKeyboardRemove()
+        )
+        return SETUP_CITY
+    # Если пользователь сразу написал город — обрабатываем его
+    return await handle_city_input(update, context)
 
 
 async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
     from timezonefinder import TimezoneFinder
     from telegram import ReplyKeyboardRemove
     loc = update.message.location
+    if loc is None:
+        # Геолокация недоступна (Desktop) — предлагаем город
+        await update.message.reply_text(
+            "📍 Геолокация недоступна на этом устройстве.\n"
+            "Введи название своего города:",
+            reply_markup=ReplyKeyboardRemove()
+        )
+        return SETUP_CITY
     tf = TimezoneFinder()
     tz_name = tf.timezone_at(lat=loc.latitude, lng=loc.longitude)
     if tz_name:
         set_user_timezone(update.effective_user.id, tz_name)
         await update.message.reply_text(
-            f"✅ Часовой пояс определён: *{tz_name}*",
+            f"✅ Часовой пояс определён: *{tz_name}*\n\nТеперь можешь пользоваться ботом! Используй /add чтобы добавить лекарство.",
             parse_mode="Markdown",
             reply_markup=ReplyKeyboardRemove()
         )
-        await show_main_menu(update, update.effective_user.first_name)
+        return ConversationHandler.END
     else:
-        await update.message.reply_text("Не удалось определить часовой пояс. Введи город:")
+        await update.message.reply_text(
+            "Не удалось определить часовой пояс. Введи город:",
+            reply_markup=ReplyKeyboardRemove()
+        )
         return SETUP_CITY
-    return ConversationHandler.END
 
 
 async def handle_city_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -118,13 +130,12 @@ async def handle_city_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if tz_name:
             set_user_timezone(update.effective_user.id, tz_name)
             await update.message.reply_text(
-                f"✅ Часовой пояс: *{tz_name}*",
+                f"✅ Часовой пояс: *{tz_name}*\n\nТеперь можешь пользоваться ботом! Используй /add чтобы добавить лекарство.",
                 parse_mode="Markdown",
                 reply_markup=ReplyKeyboardRemove()
             )
-            await show_main_menu(update, update.effective_user.first_name)
             return ConversationHandler.END
-    await update.message.reply_text("Город не найден. Попробуй ещё раз (на английском):")
+    await update.message.reply_text("Город не найден. Попробуй ещё раз:")
     return SETUP_CITY
 
 
@@ -154,6 +165,17 @@ def get_tz_for_user(telegram_id: int) -> pytz.timezone:
         return pytz.timezone(tz_name)
     except Exception:
         return pytz.utc
+
+
+async def handle_add_med_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обрабатывает нажатие кнопки ➕ Добавить лекарство."""
+    query = update.callback_query
+    await query.answer()
+    await query.message.reply_text(
+        f"Как называется лекарство?\n{CANCEL_TIP}",
+        parse_mode="Markdown"
+    )
+    return NAME
 
 
 async def add_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -261,6 +283,75 @@ async def add_schedule_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
+async def settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    tz = get_user_timezone(user.id)
+    mode = get_reminder_mode(user.id)
+    mode_label = "🔔 Один раз" if mode == "once" else "🔁 Повторять каждые 5 минут"
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🌍 Изменить часовой пояс", callback_data="settings:timezone")],
+        [InlineKeyboardButton(f"Напоминания: {mode_label}", callback_data="settings:reminder")],
+    ])
+    await update.message.reply_text(
+        f"⚙️ *Настройки*\n\n"
+        f"🌍 Часовой пояс: `{tz}`\n"
+        f"🔔 Напоминания: {mode_label}",
+        parse_mode="Markdown",
+        reply_markup=keyboard
+    )
+
+
+async def handle_settings_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    action = query.data.split(":")[1]
+    user = update.effective_user
+
+    if action == "timezone":
+        from telegram import KeyboardButton, ReplyKeyboardMarkup
+        keyboard = ReplyKeyboardMarkup(
+            [[KeyboardButton("📍 Отправить геолокацию", request_location=True)],
+             [KeyboardButton("✍️ Ввести город вручную")]],
+            resize_keyboard=True, one_time_keyboard=True
+        )
+        await query.message.reply_text(
+            "Отправь геолокацию или введи город:",
+            reply_markup=keyboard
+        )
+        return SETUP_TZ
+
+    elif action == "reminder":
+        mode = get_reminder_mode(user.id)
+        new_mode = "repeat" if mode == "once" else "once"
+        set_reminder_mode(user.id, new_mode)
+        new_label = "🔁 Повторять каждые 5 минут" if new_mode == "repeat" else "🔔 Один раз"
+        tz = get_user_timezone(user.id)
+
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🌍 Изменить часовой пояс", callback_data="settings:timezone")],
+            [InlineKeyboardButton(f"Напоминания: {new_label}", callback_data="settings:reminder")],
+        ])
+        await query.edit_message_text(
+            f"⚙️ *Настройки*\n\n"
+            f"🌍 Часовой пояс: `{tz}`\n"
+            f"🔔 Напоминания: {new_label}",
+            parse_mode="Markdown",
+            reply_markup=keyboard
+        )
+
+
+async def about(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "ℹ️ *О проекте*\n\n"
+        "Этот бот — вайб-кодинг проект: написан за один вечер в паре с AI (Claude).\n\n"
+        "Код живой, рабочий, итерируем дальше 🚀\n\n"
+        "📦 GitHub: [after-38-medicine-bot](https://github.com/Perebevaska/after-38-medicine-bot)",
+        parse_mode="Markdown",
+        disable_web_page_preview=True
+    )
+
+
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     await update.message.reply_text("Отменено.")
@@ -302,59 +393,145 @@ async def handle_delete_callback(update: Update, context: ContextTypes.DEFAULT_T
 
 
 async def stats_today(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показывает кнопки выбора периода статистики."""
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton("📅 За сегодня", callback_data="stats:today"),
+        InlineKeyboardButton("📈 За 7 дней", callback_data="stats:week"),
+    ]])
+    await update.message.reply_text("Выбери период:", reply_markup=keyboard)
+
+
+async def show_stats_today(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показывает статистику за сегодня — Вариант В с итогом дня."""
+    query = update.callback_query
+    await query.answer()
     user = update.effective_user
     user_id = get_or_create_user(user.id, user.username)
     rows = get_today_stats(user_id)
 
     if not rows:
-        await update.message.reply_text("За сегодня нет записей о приёмах.")
+        await query.edit_message_text("За сегодня нет записей о приёмах.")
         return
 
-    header = f"{'Время':<6} {'Лекарство':<22} Статус"
-    divider = "-" * 36
-    table_lines = [header, divider]
+    from collections import defaultdict, OrderedDict
+    from datetime import datetime as dt
+
+    user_tz = get_tz_for_user(user.id)
+    today_str = dt.now(user_tz).strftime("%-d %B").replace(
+        "January","января").replace("February","февраля").replace("March","марта"
+        ).replace("April","апреля").replace("May","мая").replace("June","июня"
+        ).replace("July","июля").replace("August","августа").replace("September","сентября"
+        ).replace("October","октября").replace("November","ноября").replace("December","декабря")
+
+    # Группируем по лекарству
+    meds = OrderedDict()
+    total_taken = 0
+    total_all = 0
+
     for r in rows:
-        status_text = "OK " if r["status"] == "taken" else "---"
-        name = f"{r['name']} {r['dosage']}"[:22].ljust(22)
+        key = f"{r['name']} {r['dosage']}"
         t = r["taken_at"] or r["scheduled_time"]
         if len(t) > 10:
-            # конвертируем UTC -> локальный часовой пояс
-            from datetime import datetime
-            user_tz = get_tz_for_user(update.effective_user.id)
-            utc_dt = datetime.strptime(t, "%Y-%m-%d %H:%M:%S").replace(tzinfo=pytz.utc)
-            local_dt = utc_dt.astimezone(user_tz)
-            time = local_dt.strftime("%H:%M").ljust(6)
+            utc_dt = dt.strptime(t, "%Y-%m-%d %H:%M:%S").replace(tzinfo=pytz.utc)
+            time_str = utc_dt.astimezone(user_tz).strftime("%H:%M")
         else:
-            time = (t if ":" in t else t + ":00").ljust(6)
-        table_lines.append(f"{time} {name} {status_text}")
+            time_str = t if ":" in t else t + ":00"
 
-    await update.message.reply_text(
-        f"📊 Статистика за сегодня\n\n```\n{chr(10).join(table_lines)}\n```",
-        parse_mode="Markdown"
+        icon = "✅" if r["status"] == "taken" else "❌"
+        if key not in meds:
+            meds[key] = {"intakes": [], "taken": 0, "total": 0}
+        meds[key]["intakes"].append(f"{time_str} {icon}")
+        meds[key]["total"] += 1
+        if r["status"] == "taken":
+            meds[key]["taken"] += 1
+            total_taken += 1
+        total_all += 1
+
+    blocks = [f"📊 <b>Сегодня, {today_str}</b>\n"]
+    for med_name, data in meds.items():
+        pct = int(data["taken"] / data["total"] * 100) if data["total"] else 0
+        color = "🟢" if pct >= 80 else ("🟡" if pct >= 50 else "🔴")
+        intakes_str = "  ".join(data["intakes"])
+        blocks.append(f"💊 <b>{med_name}</b> — {pct}% {color}")
+        blocks.append(f"{intakes_str}\n")
+
+    day_pct = int(total_taken / total_all * 100) if total_all else 0
+    day_color = "🟢" if day_pct >= 80 else ("🟡" if day_pct >= 50 else "🔴")
+    blocks.append(f"──────────────────")
+    blocks.append(f"<b>Итог дня: {total_taken}/{total_all} ({day_pct}%) {day_color}</b>")
+
+    await query.edit_message_text(
+        "\n".join(blocks),
+        parse_mode="HTML"
     )
 
 
-async def history(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def show_stats_week(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показывает детальную статистику за 7 дней."""
+    query = update.callback_query
+    await query.answer()
     user = update.effective_user
     user_id = get_or_create_user(user.id, user.username)
-    rows = get_history(user_id, days=7)
+    rows = get_history_detailed(user_id, days=7)
 
     if not rows:
-        await update.message.reply_text("За последние 7 дней нет данных.")
+        await query.edit_message_text("За последние 7 дней нет данных.")
         return
 
-    header = f"{'Лекарство':<20} {'Принято':>10} {'Пропущено':>10}"
-    divider = "-" * len(header)
-    table_lines = [header, divider]
-    for r in rows:
-        name = r["name"][:20].ljust(20)
-        pct = int(r["taken"] / r["total"] * 100) if r["total"] else 0
-        taken = f"{r['taken']}/{r['total']} ({pct}%)"
-        table_lines.append(f"{name} {taken:>10} {r['skipped']:>10}")
+    from collections import defaultdict, OrderedDict
+    from datetime import datetime
 
-    await update.message.reply_text(
-        f"📈 История за 7 дней\n\n```\n{chr(10).join(table_lines)}\n```",
-        parse_mode="Markdown"
+    MONTHS = ["янв","фев","мар","апр","мая","июн","июл","авг","сен","окт","ноя","дек"]
+    user_tz = get_tz_for_user(user.id)
+
+    # Структура: { "Аспирин 500мг": { "29 мая": [("08:00", "taken"), ...] } }
+    meds = OrderedDict()
+    meds_totals = defaultdict(lambda: {"taken": 0, "total": 0})
+
+    for r in rows:
+        key = f"{r['name']} {r['dosage']}"
+        d = datetime.strptime(r["day"], "%Y-%m-%d")
+        day_str = f"{d.day} {MONTHS[d.month-1]}"
+
+        # Берём реальное время приёма из taken_at
+        t = r["taken_at"] or r["scheduled_time"]
+        if len(t) > 10:
+            from datetime import datetime as dt
+            utc_dt = dt.strptime(t, "%Y-%m-%d %H:%M:%S").replace(tzinfo=pytz.utc)
+            time_str = utc_dt.astimezone(user_tz).strftime("%H:%M")
+        else:
+            time_str = t if ":" in t else t + ":00"
+
+        icon = "✅" if r["status"] == "taken" else "❌"
+
+        if key not in meds:
+            meds[key] = OrderedDict()
+        if day_str not in meds[key]:
+            meds[key][day_str] = []
+        meds[key][day_str].append(f"{time_str} {icon}")
+
+        meds_totals[key]["total"] += 1
+        if r["status"] == "taken":
+            meds_totals[key]["taken"] += 1
+
+    # Формируем HTML
+    blocks = ["📈 <b>История за 7 дней</b>\n"]
+    for med_name, days_dict in meds.items():
+        taken = meds_totals[med_name]["taken"]
+        total = meds_totals[med_name]["total"]
+        pct = int(taken / total * 100) if total else 0
+        color = "🟢" if pct >= 80 else ("🟡" if pct >= 50 else "🔴")
+
+        blocks.append(f"💊 <b>{med_name}</b> — {pct}% {color}\n")
+        for day_str, intakes in days_dict.items():
+            intakes_str = "  ".join(intakes)
+            blocks.append(f"{day_str}  {intakes_str}")
+        blocks.append(f"\n<i>Итого: {taken}/{total} ({pct}%)</i>")
+        blocks.append("──────────────────")
+
+    await query.edit_message_text(
+        "\n".join(blocks),
+        parse_mode="HTML"
     )
 
 
@@ -496,25 +673,42 @@ async def edit_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
-async def list_medications(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def meds_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     user_id = get_or_create_user(user.id, user.username)
     meds = get_user_medications(user_id)
 
     if not meds:
-        await update.message.reply_text("У тебя пока нет лекарств. Добавь через /add")
+        await update.message.reply_text(
+            "У тебя пока нет лекарств.",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("➕ Добавить лекарство", callback_data="add_med")
+            ]])
+        )
         return
 
-    text = "💊 Твои лекарства:\n\n"
+    await update.message.reply_text("💊 Твои лекарства:")
     for med in meds:
         times = med["times"] or "не указано"
         meal = MEAL_LABELS.get(med["meal_relation"], med["meal_relation"])
-        text += (
-            f"• {med['name']} — {med['dosage']}\n"
-            f"  {meal}\n"
-            f"  ⏰ {times}\n\n"
+        keyboard = InlineKeyboardMarkup([[
+            InlineKeyboardButton("✏️ Изменить", callback_data=f"edit:{med['id']}"),
+            InlineKeyboardButton("🗑 Удалить", callback_data=f"delete:{med['id']}"),
+        ]])
+        await update.message.reply_text(
+            f"*{med['name']}* — {med['dosage']}\n"
+            f"🍽 {meal}\n"
+            f"⏰ {times}",
+            parse_mode="Markdown",
+            reply_markup=keyboard
         )
-    await update.message.reply_text(text)
+
+    await update.message.reply_text(
+        "➕ Хочешь добавить ещё?",
+        reply_markup=InlineKeyboardMarkup([[
+            InlineKeyboardButton("➕ Добавить лекарство", callback_data="add_med")
+        ]])
+    )
 
 
 def main():
@@ -536,11 +730,16 @@ def main():
                 MessageHandler(filters.TEXT & ~filters.COMMAND, handle_city_input),
             ],
         },
-        fallbacks=[CommandHandler("cancel", cancel)],
+        fallbacks=[
+            CommandHandler("cancel", cancel),
+        ],
     )
 
     conv_handler = ConversationHandler(
-        entry_points=[CommandHandler("add", add_start)],
+        entry_points=[
+            CommandHandler("add", add_start),
+            CallbackQueryHandler(handle_add_med_callback, pattern="^add_med$"),
+        ],
         states={
             NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_name)],
             DOSAGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_dosage)],
@@ -553,7 +752,7 @@ def main():
 
     app.add_handler(setup_tz_handler)
     app.add_handler(conv_handler)
-    app.add_handler(CommandHandler("list", list_medications))
+    app.add_handler(CommandHandler("meds", meds_command))
     edit_handler = ConversationHandler(
         entry_points=[CallbackQueryHandler(handle_edit_select, pattern="^edit:\\d+$")],
         states={
@@ -568,8 +767,12 @@ def main():
 
     app.add_handler(CommandHandler("edit", edit_start))
     app.add_handler(edit_handler)
-    app.add_handler(CommandHandler("history", history))
+    app.add_handler(CommandHandler("about", about))
     app.add_handler(CommandHandler("stats", stats_today))
+    app.add_handler(CommandHandler("settings", settings))
+    app.add_handler(CallbackQueryHandler(show_stats_today, pattern="^stats:today$"))
+    app.add_handler(CallbackQueryHandler(show_stats_week, pattern="^stats:week$"))
+    app.add_handler(CallbackQueryHandler(handle_settings_callback, pattern="^settings:"))
     app.add_handler(CommandHandler("delete", delete_medication))
     app.add_handler(CallbackQueryHandler(handle_delete_callback, pattern="^delete:"))
     app.add_handler(CallbackQueryHandler(handle_intake_callback, pattern="^(taken|skipped):"))
