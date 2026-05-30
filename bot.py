@@ -1,13 +1,21 @@
 import os
 import logging
+import warnings
 import pytz
+from telegram.warnings import PTBUserWarning
+from collections import defaultdict, OrderedDict
+from datetime import datetime
 from dotenv import load_dotenv
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from geopy.geocoders import Nominatim
+from timezonefinder import TimezoneFinder
+from telegram import (Update, InlineKeyboardButton, InlineKeyboardMarkup,
+                      KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove)
 from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler,
     ConversationHandler, MessageHandler, filters, ContextTypes
 )
-from database import (init_db, migrate, get_or_create_user, add_medication, add_schedule,
+from database import (DatabaseError,
+                      init_db, migrate, get_or_create_user, add_medication, add_schedule,
                       get_user_medications, deactivate_medication, get_today_stats,
                       get_history, get_history_by_days, get_history_detailed, get_medication_by_id,
                       get_schedules_by_medication, update_medication,
@@ -20,12 +28,24 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 TZ = pytz.timezone(os.getenv("TIMEZONE", "UTC"))
 
 logging.basicConfig(level=logging.INFO)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+warnings.filterwarnings("ignore", category=PTBUserWarning)
 logger = logging.getLogger(__name__)
 
-# Состояния диалога добавления лекарства
-NAME, DOSAGE, MEAL, TIMES, SCHEDULE = range(5)
-# Состояния диалога редактирования
-EDIT_NAME, EDIT_DOSAGE, EDIT_MEAL, EDIT_TIMES, EDIT_SCHEDULE = range(5, 10)
+
+def handle_db_errors(func):
+    """Декоратор: ловит DatabaseError и отвечает пользователю."""
+    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        try:
+            return await func(update, context)
+        except DatabaseError:
+            msg = update.message or (
+                update.callback_query and update.callback_query.message
+            )
+            if msg:
+                await msg.reply_text("⚠️ Ошибка базы данных. Попробуй позже.")
+    return wrapper
+
 
 MEAL_LABELS = {
     "before": "Натощак (до еды)",
@@ -34,15 +54,27 @@ MEAL_LABELS = {
     "any": "Независимо от еды",
 }
 
+# Состояния диалогов
+NAME, DOSAGE, MEAL, TIMES, SCHEDULE = range(5)
+EDIT_NAME, EDIT_DOSAGE, EDIT_MEAL, EDIT_TIMES, EDIT_SCHEDULE = range(5, 10)
+SETUP_TZ, SETUP_CITY = range(10, 12)
+CANCEL_TIP = "_(/cancel для отмены)_"
 
+MONTHS_GEN = {
+    1: "января", 2: "февраля", 3: "марта", 4: "апреля",
+    5: "мая", 6: "июня", 7: "июля", 8: "августа",
+    9: "сентября", 10: "октября", 11: "ноября", 12: "декабря"
+}
+MONTHS_SHORT = ["янв","фев","мар","апр","мая","июн","июл","авг","сен","окт","ноя","дек"]
+
+
+@handle_db_errors
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    from telegram import KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove
     user = update.effective_user
     get_or_create_user(user.id, user.username)
     tz = get_user_timezone(user.id)
 
     if tz == "UTC":
-        from telegram import KeyboardButton, ReplyKeyboardMarkup
         keyboard = ReplyKeyboardMarkup(
             [[KeyboardButton("📍 Отправить геолокацию", request_location=True)],
              [KeyboardButton("✍️ Ввести город вручную")]],
@@ -61,7 +93,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def show_main_menu(update, first_name):
-    from telegram import ReplyKeyboardRemove
     await update.message.reply_text(
         f"Привет, {first_name}! 💊\n\n"
         "Я помогу тебе не забывать принимать лекарства.\n\n"
@@ -76,7 +107,6 @@ async def show_main_menu(update, first_name):
 
 async def handle_tz_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обрабатывает нажатие кнопки 'Ввести город' — переходим к вводу города."""
-    from telegram import ReplyKeyboardRemove
     if update.message.text == "✍️ Ввести город вручную":
         await update.message.reply_text(
             "Введи название города (можно на русском):",
@@ -87,9 +117,8 @@ async def handle_tz_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return await handle_city_input(update, context)
 
 
+@handle_db_errors
 async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    from timezonefinder import TimezoneFinder
-    from telegram import ReplyKeyboardRemove
     loc = update.message.location
     if loc is None:
         # Геолокация недоступна (Desktop) — предлагаем город
@@ -117,10 +146,8 @@ async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return SETUP_CITY
 
 
+@handle_db_errors
 async def handle_city_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    from geopy.geocoders import Nominatim
-    from timezonefinder import TimezoneFinder
-    from telegram import ReplyKeyboardRemove
     city = update.message.text.strip()
     geolocator = Nominatim(user_agent="med_bot")
     location = geolocator.geocode(city)
@@ -141,7 +168,6 @@ async def handle_city_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def timezone_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Позволяет пользователю изменить часовой пояс."""
-    from telegram import KeyboardButton, ReplyKeyboardMarkup
     keyboard = ReplyKeyboardMarkup(
         [[KeyboardButton("📍 Отправить геолокацию", request_location=True)],
          [KeyboardButton("✍️ Ввести город вручную")]],
@@ -155,7 +181,6 @@ async def timezone_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 CANCEL_TIP = "_(/cancel для отмены)_"
-SETUP_TZ, SETUP_CITY = range(10, 12)
 
 
 def get_tz_for_user(telegram_id: int) -> pytz.timezone:
@@ -167,6 +192,7 @@ def get_tz_for_user(telegram_id: int) -> pytz.timezone:
         return pytz.utc
 
 
+@handle_db_errors
 async def handle_add_med_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обрабатывает нажатие кнопки ➕ Добавить лекарство."""
     query = update.callback_query
@@ -236,6 +262,7 @@ async def add_times(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return SCHEDULE
 
 
+@handle_db_errors
 async def add_schedule_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
     time_str = update.message.text.strip()
 
@@ -283,6 +310,7 @@ async def add_schedule_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
+@handle_db_errors
 async def settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     tz = get_user_timezone(user.id)
@@ -302,43 +330,46 @@ async def settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+async def handle_settings_timezone(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Entry point для смены timezone из Settings — запускает ConversationHandler."""
+    query = update.callback_query
+    await query.answer()
+    keyboard = ReplyKeyboardMarkup(
+        [[KeyboardButton("📍 Отправить геолокацию", request_location=True)],
+         [KeyboardButton("✍️ Ввести город вручную")]],
+        resize_keyboard=True, one_time_keyboard=True
+    )
+    await query.message.reply_text(
+        "Отправь геолокацию или введи город:",
+        reply_markup=keyboard
+    )
+    return SETUP_TZ
+
+
+@handle_db_errors
 async def handle_settings_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     action = query.data.split(":")[1]
     user = update.effective_user
 
-    if action == "timezone":
-        from telegram import KeyboardButton, ReplyKeyboardMarkup
-        keyboard = ReplyKeyboardMarkup(
-            [[KeyboardButton("📍 Отправить геолокацию", request_location=True)],
-             [KeyboardButton("✍️ Ввести город вручную")]],
-            resize_keyboard=True, one_time_keyboard=True
-        )
-        await query.message.reply_text(
-            "Отправь геолокацию или введи город:",
-            reply_markup=keyboard
-        )
-        return SETUP_TZ
+    mode = get_reminder_mode(user.id)
+    new_mode = "repeat" if mode == "once" else "once"
+    set_reminder_mode(user.id, new_mode)
+    new_label = "🔁 Повторять каждые 5 минут" if new_mode == "repeat" else "🔔 Один раз"
+    tz = get_user_timezone(user.id)
 
-    elif action == "reminder":
-        mode = get_reminder_mode(user.id)
-        new_mode = "repeat" if mode == "once" else "once"
-        set_reminder_mode(user.id, new_mode)
-        new_label = "🔁 Повторять каждые 5 минут" if new_mode == "repeat" else "🔔 Один раз"
-        tz = get_user_timezone(user.id)
-
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🌍 Изменить часовой пояс", callback_data="settings:timezone")],
-            [InlineKeyboardButton(f"Напоминания: {new_label}", callback_data="settings:reminder")],
-        ])
-        await query.edit_message_text(
-            f"⚙️ *Настройки*\n\n"
-            f"🌍 Часовой пояс: `{tz}`\n"
-            f"🔔 Напоминания: {new_label}",
-            parse_mode="Markdown",
-            reply_markup=keyboard
-        )
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🌍 Изменить часовой пояс", callback_data="settings:timezone")],
+        [InlineKeyboardButton(f"Напоминания: {new_label}", callback_data="settings:reminder")],
+    ])
+    await query.edit_message_text(
+        f"⚙️ *Настройки*\n\n"
+        f"🌍 Часовой пояс: `{tz}`\n"
+        f"🔔 Напоминания: {new_label}",
+        parse_mode="Markdown",
+        reply_markup=keyboard
+    )
 
 
 async def about(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -358,6 +389,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
+@handle_db_errors
 async def delete_medication(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     user_id = get_or_create_user(user.id, user.username)
@@ -380,6 +412,7 @@ async def delete_medication(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+@handle_db_errors
 async def handle_delete_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -401,6 +434,7 @@ async def stats_today(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Выбери период:", reply_markup=keyboard)
 
 
+@handle_db_errors
 async def show_stats_today(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Показывает статистику за сегодня — Вариант В с итогом дня."""
     query = update.callback_query
@@ -413,15 +447,9 @@ async def show_stats_today(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("За сегодня нет записей о приёмах.")
         return
 
-    from collections import defaultdict, OrderedDict
-    from datetime import datetime as dt
-
     user_tz = get_tz_for_user(user.id)
-    today_str = dt.now(user_tz).strftime("%-d %B").replace(
-        "January","января").replace("February","февраля").replace("March","марта"
-        ).replace("April","апреля").replace("May","мая").replace("June","июня"
-        ).replace("July","июля").replace("August","августа").replace("September","сентября"
-        ).replace("October","октября").replace("November","ноября").replace("December","декабря")
+    now = datetime.now(user_tz)
+    today_str = f"{now.day} {MONTHS_GEN[now.month]}"
 
     # Группируем по лекарству
     meds = OrderedDict()
@@ -466,6 +494,7 @@ async def show_stats_today(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+@handle_db_errors
 async def show_stats_week(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Показывает детальную статистику за 7 дней."""
     query = update.callback_query
@@ -478,10 +507,6 @@ async def show_stats_week(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("За последние 7 дней нет данных.")
         return
 
-    from collections import defaultdict, OrderedDict
-    from datetime import datetime
-
-    MONTHS = ["янв","фев","мар","апр","мая","июн","июл","авг","сен","окт","ноя","дек"]
     user_tz = get_tz_for_user(user.id)
 
     # Структура: { "Аспирин 500мг": { "29 мая": [("08:00", "taken"), ...] } }
@@ -491,13 +516,12 @@ async def show_stats_week(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for r in rows:
         key = f"{r['name']} {r['dosage']}"
         d = datetime.strptime(r["day"], "%Y-%m-%d")
-        day_str = f"{d.day} {MONTHS[d.month-1]}"
+        day_str = f"{d.day} {MONTHS_SHORT[d.month-1]}"
 
         # Берём реальное время приёма из taken_at
         t = r["taken_at"] or r["scheduled_time"]
         if len(t) > 10:
-            from datetime import datetime as dt
-            utc_dt = dt.strptime(t, "%Y-%m-%d %H:%M:%S").replace(tzinfo=pytz.utc)
+            utc_dt = datetime.strptime(t, "%Y-%m-%d %H:%M:%S").replace(tzinfo=pytz.utc)
             time_str = utc_dt.astimezone(user_tz).strftime("%H:%M")
         else:
             time_str = t if ":" in t else t + ":00"
@@ -535,6 +559,7 @@ async def show_stats_week(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+@handle_db_errors
 async def edit_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     user_id = get_or_create_user(user.id, user.username)
@@ -557,6 +582,7 @@ async def edit_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+@handle_db_errors
 async def handle_edit_select(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -580,6 +606,7 @@ async def handle_edit_select(update: Update, context: ContextTypes.DEFAULT_TYPE)
     return EDIT_NAME
 
 
+@handle_db_errors
 async def edit_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     user_id = get_or_create_user(user.id, user.username)
@@ -592,6 +619,7 @@ async def edit_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return EDIT_DOSAGE
 
 
+@handle_db_errors
 async def edit_dosage(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     user_id = get_or_create_user(user.id, user.username)
@@ -635,6 +663,7 @@ async def edit_times(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return EDIT_SCHEDULE
 
 
+@handle_db_errors
 async def edit_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE):
     time_str = update.message.text.strip()
     try:
@@ -673,6 +702,7 @@ async def edit_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
+@handle_db_errors
 async def meds_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     user_id = get_or_create_user(user.id, user.username)
@@ -720,6 +750,7 @@ def main():
         entry_points=[
             CommandHandler("start", start),
             CommandHandler("timezone", timezone_command),
+            CallbackQueryHandler(handle_settings_timezone, pattern="^settings:timezone$"),
         ],
         states={
             SETUP_TZ: [
@@ -765,15 +796,13 @@ def main():
         fallbacks=[CommandHandler("cancel", cancel)],
     )
 
-    app.add_handler(CommandHandler("edit", edit_start))
     app.add_handler(edit_handler)
     app.add_handler(CommandHandler("about", about))
     app.add_handler(CommandHandler("stats", stats_today))
     app.add_handler(CommandHandler("settings", settings))
     app.add_handler(CallbackQueryHandler(show_stats_today, pattern="^stats:today$"))
     app.add_handler(CallbackQueryHandler(show_stats_week, pattern="^stats:week$"))
-    app.add_handler(CallbackQueryHandler(handle_settings_callback, pattern="^settings:"))
-    app.add_handler(CommandHandler("delete", delete_medication))
+    app.add_handler(CallbackQueryHandler(handle_settings_callback, pattern="^settings:reminder$"))
     app.add_handler(CallbackQueryHandler(handle_delete_callback, pattern="^delete:"))
     app.add_handler(CallbackQueryHandler(handle_intake_callback, pattern="^(taken|skipped):"))
 
