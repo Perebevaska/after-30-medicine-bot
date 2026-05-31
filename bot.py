@@ -15,7 +15,7 @@ from database import init_db, migrate
 from scheduler import send_reminders, handle_intake_callback
 from handlers import meds
 from handlers import timezone as tz_handler
-from handlers import stats, settings, admin
+from handlers import stats, settings, admin, export
 from utils import cancel
 from constants import SETUP_TZ, SETUP_CITY
 
@@ -81,6 +81,8 @@ def main():
     app.add_handler(CommandHandler("settings", settings.settings_command))
     app.add_handler(CommandHandler("about", settings.about_command))
     for h in stats.get_handlers():
+        app.add_handler(h)
+    for h in export.get_handlers():
         app.add_handler(h)
     app.add_handler(settings.get_handler())
     app.add_handler(settings.get_preset_handler(cancel_handler))

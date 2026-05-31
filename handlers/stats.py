@@ -134,7 +134,12 @@ async def show_stats_week(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = "\n".join(blocks)
     if len(text) > 4000:
         text = text[:3900] + "\n\n⚠️ <i>Показаны не все данные — слишком большая история.</i>"
-    await query.edit_message_text(text, parse_mode="HTML")
+    await query.edit_message_text(
+        text, parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup([[
+            InlineKeyboardButton("📄 Скачать PDF", callback_data="export:week")
+        ]])
+    )
 
 
 @handle_db_errors
@@ -185,7 +190,12 @@ async def show_week_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = "\n".join(blocks).rstrip()
     if len(text) > 4000:
         text = text[:3900] + "\n\n⚠️ <i>Показаны не все данные.</i>"
-    await query.edit_message_text(text, parse_mode="HTML")
+    await query.edit_message_text(
+        text, parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup([[
+            InlineKeyboardButton("📄 Скачать PDF", callback_data="export:plan")
+        ]])
+    )
 
 
 def get_handlers():
