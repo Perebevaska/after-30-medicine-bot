@@ -111,6 +111,17 @@ def _format_schedule_rule(rule) -> str:
     return time
 
 
+def _current_schedule_summary(rules: list) -> str:
+    """Форматирует текущее расписание для отображения в шапке шага редактирования."""
+    if not rules:
+        return "не указано"
+    has_adv = any(r["frequency"] != "daily" for r in rules)
+    if not has_adv:
+        times = ", ".join(r["reminder_time"] for r in rules)
+        return f"{times} (каждый день)"
+    return " | ".join(_format_schedule_rule(r) for r in rules)
+
+
 def _freq_label(freq: str, interval_days, weekdays_str, month_day) -> str:
     if freq == "daily":
         return "каждый день"
@@ -553,15 +564,21 @@ async def keep_edit_dosage(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     context.user_data["edit_dosage"] = context.user_data["edit_med"]["dosage"]
-    await query.edit_message_text("📅 *Расписание* — выбери тип:", parse_mode="Markdown",
-                                  reply_markup=_edit_freq_type_keyboard())
+    rules = context.user_data["edit_med"]["schedule_rules"]
+    await query.edit_message_text(
+        f"📅 *Расписание* — выбери тип:\nТекущее: {_current_schedule_summary(rules)}",
+        parse_mode="Markdown", reply_markup=_edit_freq_type_keyboard()
+    )
     return EDIT_FREQ_TYPE
 
 
 async def edit_dosage(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["edit_dosage"] = update.message.text.strip()
-    await update.message.reply_text("📅 *Расписание* — выбери тип:", parse_mode="Markdown",
-                                    reply_markup=_edit_freq_type_keyboard())
+    rules = context.user_data["edit_med"]["schedule_rules"]
+    await update.message.reply_text(
+        f"📅 *Расписание* — выбери тип:\nТекущее: {_current_schedule_summary(rules)}",
+        parse_mode="Markdown", reply_markup=_edit_freq_type_keyboard()
+    )
     return EDIT_FREQ_TYPE
 
 
