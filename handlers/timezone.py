@@ -3,7 +3,7 @@ from telegram.ext import ContextTypes, ConversationHandler
 from timezonefinder import TimezoneFinder
 from geopy.geocoders import Nominatim
 from geopy.exc import GeocoderTimedOut, GeocoderServiceError
-from database import get_or_create_user, get_user_timezone, set_user_timezone, get_reminder_mode
+from database import get_or_create_user, get_user_timezone, set_user_timezone, get_reminder_mode, get_user_time_presets
 from constants import SETUP_TZ, SETUP_CITY
 from utils import handle_db_errors
 
@@ -59,15 +59,20 @@ async def handle_menu_callback(update, context):
     elif action == "settings":
         tz = get_user_timezone(user.id)
         mode = get_reminder_mode(user.id)
+        presets = get_user_time_presets(user.id)
         mode_label = "🔔 Один раз" if mode == "once" else "🔁 Повторять каждые 5 минут"
+        p = presets
+        presets_line = f"🌅{p['morning']}  ☀️{p['lunch']}  🌇{p['evening']}  🌙{p['night']}"
         await msg.reply_text(
             f"⚙️ *Настройки*\n\n"
             f"🌍 Часовой пояс: `{tz}`\n"
-            f"🔔 Напоминания: {mode_label}",
+            f"🔔 Напоминания: {mode_label}\n"
+            f"⏰ Время приёмов: {presets_line}",
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("🌍 Изменить часовой пояс", callback_data="settings:timezone")],
                 [InlineKeyboardButton(f"Напоминания: {mode_label}", callback_data="settings:reminder")],
+                [InlineKeyboardButton("⏰ Настроить время приёмов", callback_data="settings:presets")],
             ])
         )
 

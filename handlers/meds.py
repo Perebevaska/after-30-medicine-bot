@@ -6,13 +6,13 @@ from telegram.ext import (ContextTypes, ConversationHandler, CommandHandler,
 from database import (get_or_create_user, add_medication, add_schedule_rule,
                       get_user_medications, deactivate_medication,
                       get_medication_by_id, get_schedules_by_medication, update_medication,
-                      count_active_medications)
+                      count_active_medications, get_user_time_presets)
 from scheduler import clear_pending_for_medication
 from constants import (NAME, DOSAGE, MEAL, TIMES, SCHEDULE,
                        EDIT_NAME, EDIT_DOSAGE, EDIT_MEAL, EDIT_TIMES, EDIT_SCHEDULE,
                        FREQ_TYPE, FREQ_INTERVAL, FREQ_WEEKDAYS, FREQ_MONTHDAY,
                        EDIT_FREQ_TYPE, EDIT_FREQ_INTERVAL, EDIT_FREQ_WEEKDAYS, EDIT_FREQ_MONTHDAY,
-                       MEAL_LABELS, MAX_MEDICATIONS_PER_USER)
+                       MEAL_LABELS, MAX_MEDICATIONS_PER_USER, SLOT_ORDER, SLOT_LABELS)
 from utils import handle_db_errors
 
 logger = logging.getLogger(__name__)
@@ -90,11 +90,35 @@ def _edit_meal_keyboard(current_label: str) -> InlineKeyboardMarkup:
     )
 
 
-def _edit_times_keyboard(current_times: int) -> InlineKeyboardMarkup:
+def _timeslots_keyboard(selected: set, presets: dict) -> InlineKeyboardMarkup:
+    btns = [
+        InlineKeyboardButton(
+            f"{'✅ ' if s in selected else ''}{SLOT_LABELS[s]} ({presets[s]})",
+            callback_data=f"timeslot:{s}"
+        )
+        for s in SLOT_ORDER
+    ]
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton(f"➡️ Оставить ({current_times} раз)", callback_data="keep_edit_times")],
-        [InlineKeyboardButton(str(i), callback_data=f"edittimes:{i}") for i in range(1, 5)],
-        [InlineKeyboardButton("❌ Отмена", callback_data="cancel_add")],
+        [btns[0], btns[1]],
+        [btns[2], btns[3]],
+        [InlineKeyboardButton("✔️ Готово", callback_data="timeslots_confirm"),
+         InlineKeyboardButton("❌ Отмена", callback_data="cancel_add")],
+    ])
+
+
+def _edit_timeslots_keyboard(selected: set, presets: dict) -> InlineKeyboardMarkup:
+    btns = [
+        InlineKeyboardButton(
+            f"{'✅ ' if s in selected else ''}{SLOT_LABELS[s]} ({presets[s]})",
+            callback_data=f"edittimeslot:{s}"
+        )
+        for s in SLOT_ORDER
+    ]
+    return InlineKeyboardMarkup([
+        [btns[0], btns[1]],
+        [btns[2], btns[3]],
+        [InlineKeyboardButton("✔️ Готово", callback_data="edit_timeslots_confirm"),
+         InlineKeyboardButton("❌ Отмена", callback_data="cancel_add")],
     ])
 
 
@@ -247,14 +271,12 @@ async def add_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def add_dosage(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["dosage"] = update.message.text.strip()
-    keyboard = [
-        [InlineKeyboardButton(str(i), callback_data=str(i)) for i in range(1, 5)],
-        [InlineKeyboardButton("❌ Отмена", callback_data="cancel_add")],
-    ]
+    context.user_data["selected_slots"] = set()
+    presets = get_user_time_presets(update.effective_user.id)
     await update.message.reply_text(
-        "Сколько раз в день?\n_Или введи своё число:_",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode="Markdown"
+        "⏰ *Когда принимать?* — выбери один или несколько:",
+        parse_mode="Markdown",
+        reply_markup=_timeslots_keyboard(set(), presets)
     )
     return TIMES
 
@@ -268,61 +290,34 @@ async def add_meal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return FREQ_TYPE
 
 
-# ── Add flow: times → schedule ─────────────────────────────────────────────
+# ── Add flow: slot toggle → meal ───────────────────────────────────────────
 
-async def add_times(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def add_timeslot_toggle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    times = int(query.data)
-    context.user_data["times"] = times
-    context.user_data["collected_times"] = []
-    await query.edit_message_text(
-        f"⏰ *Время приёма 1 из {times}* (ЧЧ:ММ, например 08:00):",
-        parse_mode="Markdown", reply_markup=_CANCEL_BTN
-    )
-    return SCHEDULE
+    slot = query.data.split(":")[1]
+    selected = context.user_data.setdefault("selected_slots", set())
+    selected.discard(slot) if slot in selected else selected.add(slot)
+    presets = get_user_time_presets(update.effective_user.id)
+    await query.edit_message_reply_markup(reply_markup=_timeslots_keyboard(selected, presets))
+    return TIMES
 
 
-async def add_times_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        times = int(update.message.text.strip())
-        assert 1 <= times <= 10
-    except (ValueError, AssertionError):
-        await update.message.reply_text("Введи число от 1 до 10:", reply_markup=_CANCEL_BTN)
+async def add_timeslots_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    selected = context.user_data.get("selected_slots", set())
+    if not selected:
+        await query.answer("Выбери хотя бы один приём", show_alert=True)
         return TIMES
-    context.user_data["times"] = times
-    context.user_data["collected_times"] = []
-    await update.message.reply_text(
-        f"⏰ *Время приёма 1 из {times}* (ЧЧ:ММ, например 08:00):",
-        parse_mode="Markdown", reply_markup=_CANCEL_BTN
-    )
-    return SCHEDULE
-
-
-async def add_schedule_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        time_str = _parse_time(update.message.text.strip())
-    except Exception:
-        await update.message.reply_text("Неверный формат. Введи время как ЧЧ:ММ, например 09:30:")
-        return SCHEDULE
-
-    context.user_data["collected_times"].append(time_str)
-    collected = context.user_data["collected_times"]
-    total = context.user_data["times"]
-
-    if len(collected) < total:
-        await update.message.reply_text(
-            f"✅ Принято. ⏰ *Время приёма {len(collected) + 1} из {total}* (ЧЧ:ММ):",
-            parse_mode="Markdown", reply_markup=_CANCEL_BTN
-        )
-        return SCHEDULE
-
+    await query.answer()
+    presets = get_user_time_presets(update.effective_user.id)
+    context.user_data["collected_times"] = [presets[s] for s in SLOT_ORDER if s in selected]
     keyboard = [
         [InlineKeyboardButton(label, callback_data=key)]
         for key, label in MEAL_LABELS.items()
     ]
     keyboard.append([InlineKeyboardButton("❌ Отмена", callback_data="cancel_add")])
-    await update.message.reply_text(
+    await query.edit_message_text(
         "🍽 *Как принимать с пищей?*",
         parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard)
     )
@@ -622,10 +617,14 @@ async def choose_edit_freq_type(update: Update, context: ContextTypes.DEFAULT_TY
     freq = query.data.split(":")[1]
     context.user_data["edit_freq_type"] = freq
     edit_med = context.user_data["edit_med"]
+    presets = get_user_time_presets(update.effective_user.id)
+    current_times = {r["reminder_time"] for r in edit_med["schedule_rules"]}
+    preselected = {s for s in SLOT_ORDER if presets[s] in current_times}
+    context.user_data["edit_selected_slots"] = preselected
     await query.edit_message_text(
-        "🔢 *Количество приёмов в день* — выбери или введи:",
+        "⏰ *Когда принимать?* — выбери один или несколько:",
         parse_mode="Markdown",
-        reply_markup=_edit_times_keyboard(edit_med["times_per_day"])
+        reply_markup=_edit_timeslots_keyboard(preselected, presets)
     )
     return EDIT_TIMES
 
@@ -691,76 +690,31 @@ async def _route_after_edit_meal(query, context):
     return ConversationHandler.END
 
 
-# ── Edit flow: standard daily ──────────────────────────────────────────────
+# ── Edit flow: slot toggle → meal ─────────────────────────────────────────
 
-async def edit_times(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def edit_timeslot_toggle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    times = int(query.data.split(":")[1])
-    context.user_data["edit_times"] = times
-    context.user_data["edit_collected"] = []
-    await query.edit_message_text(
-        f"⏰ *Время приёма 1 из {times}* (ЧЧ:ММ, например 08:00):",
-        parse_mode="Markdown",
-        reply_markup=_CANCEL_BTN
-    )
-    return EDIT_SCHEDULE
+    slot = query.data.split(":")[1]
+    selected = context.user_data.setdefault("edit_selected_slots", set())
+    selected.discard(slot) if slot in selected else selected.add(slot)
+    presets = get_user_time_presets(update.effective_user.id)
+    await query.edit_message_reply_markup(reply_markup=_edit_timeslots_keyboard(selected, presets))
+    return EDIT_TIMES
 
 
-async def edit_times_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        times = int(update.message.text.strip())
-        assert 1 <= times <= 10
-    except (ValueError, AssertionError):
-        await update.message.reply_text("Введи число от 1 до 10:", reply_markup=_CANCEL_BTN)
+async def edit_timeslots_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    selected = context.user_data.get("edit_selected_slots", set())
+    if not selected:
+        await query.answer("Выбери хотя бы один приём", show_alert=True)
         return EDIT_TIMES
-    context.user_data["edit_times"] = times
-    context.user_data["edit_collected"] = []
-    await update.message.reply_text(
-        f"⏰ *Время приёма 1 из {times}* (ЧЧ:ММ, например 08:00):",
-        parse_mode="Markdown",
-        reply_markup=_CANCEL_BTN
-    )
-    return EDIT_SCHEDULE
-
-
-async def keep_edit_times(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
     await query.answer()
-    edit_med = context.user_data["edit_med"]
-    context.user_data["edit_times"] = edit_med["times_per_day"]
-    context.user_data["edit_collected"] = []
-    schedules_str = ", ".join(r["reminder_time"] for r in edit_med["schedule_rules"])
-    await query.edit_message_text(
-        f"⏰ *Время приёма 1 из {edit_med['times_per_day']}* (ЧЧ:ММ)\nТекущие: {schedules_str}",
-        parse_mode="Markdown",
-        reply_markup=_CANCEL_BTN
-    )
-    return EDIT_SCHEDULE
-
-
-async def edit_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        time_str = _parse_time(update.message.text.strip())
-    except Exception:
-        await update.message.reply_text("Неверный формат. Введи время как ЧЧ:ММ:")
-        return EDIT_SCHEDULE
-
-    context.user_data["edit_collected"].append(time_str)
-    collected = context.user_data["edit_collected"]
-    total = context.user_data["edit_times"]
-
-    if len(collected) < total:
-        await update.message.reply_text(
-            f"✅ Принято. ⏰ *Время приёма {len(collected) + 1} из {total}* (ЧЧ:ММ):",
-            parse_mode="Markdown",
-            reply_markup=_CANCEL_BTN
-        )
-        return EDIT_SCHEDULE
-
+    presets = get_user_time_presets(update.effective_user.id)
+    context.user_data["edit_collected"] = [presets[s] for s in SLOT_ORDER if s in selected]
     edit_med = context.user_data["edit_med"]
     current_label = MEAL_LABELS.get(edit_med["meal_relation"], edit_med["meal_relation"])
-    await update.message.reply_text(
+    await query.edit_message_text(
         "🍽 *Приём с пищей* — выбери:",
         parse_mode="Markdown",
         reply_markup=_edit_meal_keyboard(current_label)
@@ -874,12 +828,11 @@ def get_add_handler(cancel_handler):
         states={
             NAME:          [MessageHandler(filters.TEXT & ~filters.COMMAND, add_name)],
             DOSAGE:        [MessageHandler(filters.TEXT & ~filters.COMMAND, add_dosage)],
-            MEAL:          [CallbackQueryHandler(add_meal, pattern="^(before|after|with|any)$")],
             TIMES:         [
-                CallbackQueryHandler(add_times, pattern="^[1-4]$"),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, add_times_text),
+                CallbackQueryHandler(add_timeslot_toggle, pattern="^timeslot:"),
+                CallbackQueryHandler(add_timeslots_confirm, pattern="^timeslots_confirm$"),
             ],
-            SCHEDULE:      [MessageHandler(filters.TEXT & ~filters.COMMAND, add_schedule_time)],
+            MEAL:          [CallbackQueryHandler(add_meal, pattern="^(before|after|with|any)$")],
             FREQ_TYPE:     [CallbackQueryHandler(choose_freq_type, pattern="^freq:")],
             FREQ_INTERVAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_freq_interval)],
             FREQ_WEEKDAYS: [
@@ -911,16 +864,14 @@ def get_edit_handler(cancel_handler):
                 CallbackQueryHandler(keep_edit_schedule, pattern="^keep_edit_schedule$"),
                 CallbackQueryHandler(choose_edit_freq_type, pattern="^editfreq:"),
             ],
+            EDIT_TIMES:         [
+                CallbackQueryHandler(edit_timeslot_toggle, pattern="^edittimeslot:"),
+                CallbackQueryHandler(edit_timeslots_confirm, pattern="^edit_timeslots_confirm$"),
+            ],
             EDIT_MEAL:          [
                 CallbackQueryHandler(edit_meal, pattern="^editmeal:"),
                 CallbackQueryHandler(keep_edit_meal, pattern="^keep_edit_meal$"),
             ],
-            EDIT_TIMES:         [
-                CallbackQueryHandler(edit_times, pattern="^edittimes:"),
-                CallbackQueryHandler(keep_edit_times, pattern="^keep_edit_times$"),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, edit_times_text),
-            ],
-            EDIT_SCHEDULE:      [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_schedule)],
             EDIT_FREQ_INTERVAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_freq_interval)],
             EDIT_FREQ_WEEKDAYS: [
                 CallbackQueryHandler(toggle_edit_weekday, pattern="^editweekday:\\d+$"),

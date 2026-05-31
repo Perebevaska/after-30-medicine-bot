@@ -31,7 +31,7 @@ med-bot/
 
 ### Схема БД
 5 таблиц:
-- `users` (telegram_id, username, timezone, reminder_mode)
+- `users` (telegram_id, username, timezone, reminder_mode, time_morning, time_lunch, time_evening, time_night)
 - `medications` (user_id FK, name, dosage, meal_relation, times_per_day, active)
 - `schedules` (medication_id FK, reminder_time HH:MM) — устаревшая, оставлена для совместимости
 - `schedule_rules` (medication_id FK, reminder_time, frequency, interval_days, weekdays, month_day, anchor_date)
@@ -52,22 +52,22 @@ med-bot/
 
 ### Флоу добавления лекарства
 ```
-Название → Дозировка → Сколько раз в день → Время × N → Как принимать с пищей → Тип расписания:
+Название → Дозировка → Когда принимать (multi-select: Утро/Обед/Вечер/Ночь) → Как принимать с пищей → Тип расписания:
   📅 Каждый день   → сохранить
   🔄 Через N дней  → N дней → сохранить
   📆 По дням недели → Дни (toggle) → сохранить
   🗓 Раз в месяц   → Число → сохранить
 ```
 
-Время всегда собирается сразу после "сколько раз", до выбора типа расписания.
-Каждое время сохраняется отдельной строкой в `schedule_rules` с одинаковыми frequency-параметрами.
+Время выбирается через multi-select по пресетам (Утро/Обед/Вечер/Ночь). Пресеты настраиваются в /settings.
+Каждое выбранное время сохраняется отдельной строкой в `schedule_rules` с одинаковыми frequency-параметрами.
 
 ### Флоу редактирования лекарства
 ```
 Название → Дозировка → Тип расписания:
   Оставить расписание → сохранить (имя/дозировка, прочее без изменений)
   Каждый день / Через N / По дням / Раз в месяц →
-    Кол-во раз → Время × N → Как принимать с пищей →
+    Когда принимать (multi-select слоты, с пре-выбором совпадающих пресетов) → Как принимать с пищей →
       Каждый день   → сохранить
       Через N дней  → N дней → сохранить
       По дням недели → Дни → сохранить
@@ -106,13 +106,14 @@ pip install -r requirements.txt
 
 ## Conversational States
 Состояния определены в `constants.py`:
-- `NAME, DOSAGE, MEAL, TIMES, SCHEDULE` (0-4) — добавление лекарства
-- `EDIT_NAME, EDIT_DOSAGE, EDIT_MEAL, EDIT_TIMES, EDIT_SCHEDULE` (5-9) — редактирование
+- `NAME, DOSAGE, MEAL, TIMES, SCHEDULE` (0-4) — добавление лекарства (SCHEDULE не используется)
+- `EDIT_NAME, EDIT_DOSAGE, EDIT_MEAL, EDIT_TIMES, EDIT_SCHEDULE` (5-9) — редактирование (EDIT_SCHEDULE не используется)
 - `SETUP_TZ, SETUP_CITY` (10-11) — настройка часового пояса
 - `FREQ_TYPE, FREQ_INTERVAL, FREQ_WEEKDAYS, FREQ_MONTHDAY` (12-15) — тип расписания при добавлении
 - `EDIT_FREQ_TYPE, EDIT_FREQ_INTERVAL, EDIT_FREQ_WEEKDAYS, EDIT_FREQ_MONTHDAY` (17-20) — тип расписания при редактировании
+- `PRESET_TIME` (22) — ввод времени пресета в настройках
 
-Примечание: `FREQ_TIME` (16) и `EDIT_FREQ_TIME` (21) определены в constants.py для совместимости, но не используются в handlers — время собирается в SCHEDULE/EDIT_SCHEDULE до выбора типа расписания.
+Неиспользуемые: `FREQ_TIME` (16), `EDIT_FREQ_TIME` (21) — оставлены для совместимости.
 
 Все диалоги поддерживают `/cancel` для выхода.
 
@@ -141,6 +142,9 @@ TIMEZONE=Asia/Yekaterinburg
 - Время нормализуется через `_parse_time()` → формат `ЧЧ:ММ` с ведущим нулём (гарантирует совпадение с `strftime("%H:%M")` в планировщике)
 - `handle_intake_callback` парсит `callback_data` как `status:med_id:HH:MM` → время восстанавливается через `":".join(parts[2:])`
 - **Перезапуск после рефакторинга обязателен**: ConversationHandler хранит состояния в памяти; старые сессии могут блокировать новые handlers до перезапуска
+- Пресеты времени (🌅 Утро/☀️ Обед/🌇 Вечер/🌙 Ночь): хранятся в `users.time_morning/lunch/evening/night`, редактируются через `/settings` → "⏰ Настроить время приёмов"
+- При добавлении/редактировании лекарства вместо числа "сколько раз" — multi-select по слотам; `times_per_day` = кол-во выбранных слотов
+- `SLOT_ORDER`, `SLOT_LABELS` определены в `constants.py`; `get_user_time_presets()` / `set_user_time_preset()` в `database.py`
 
 ## Known Issues & Bug Tracker
 
@@ -167,7 +171,7 @@ TIMEZONE=Asia/Yekaterinburg
 
 ### 🔲 К исправлению
 
-Багов нет.
+Нет.
 
 ### Порядок работы с багами
 1. Найти баг → добавить в таблицу "К исправлению"

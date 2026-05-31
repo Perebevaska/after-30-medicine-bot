@@ -6,8 +6,17 @@ EDIT_NAME, EDIT_DOSAGE, EDIT_MEAL, EDIT_TIMES, EDIT_SCHEDULE = range(5, 10)
 SETUP_TZ, SETUP_CITY = range(10, 12)
 FREQ_TYPE, FREQ_INTERVAL, FREQ_WEEKDAYS, FREQ_MONTHDAY, FREQ_TIME = range(12, 17)
 EDIT_FREQ_TYPE, EDIT_FREQ_INTERVAL, EDIT_FREQ_WEEKDAYS, EDIT_FREQ_MONTHDAY, EDIT_FREQ_TIME = range(17, 22)
+PRESET_TIME = 22  # состояние ввода времени пресета в настройках
 
 CANCEL_TIP = "_(/cancel для отмены)_"
+
+SLOT_ORDER = ["morning", "lunch", "evening", "night"]
+SLOT_LABELS = {
+    "morning": "🌅 Утро",
+    "lunch":   "☀️ Обед",
+    "evening": "🌇 Вечер",
+    "night":   "🌙 Ночь",
+}
 
 MEAL_LABELS = {
     "before": "До еды",

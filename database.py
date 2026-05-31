@@ -50,6 +50,11 @@ def init_db():
                 telegram_id INTEGER UNIQUE NOT NULL,
                 username TEXT,
                 timezone TEXT DEFAULT 'UTC',
+                reminder_mode TEXT DEFAULT 'once',
+                time_morning TEXT DEFAULT '09:00',
+                time_lunch TEXT DEFAULT '12:00',
+                time_evening TEXT DEFAULT '18:00',
+                time_night TEXT DEFAULT '22:00',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
 
@@ -103,6 +108,12 @@ def migrate():
             conn.execute("ALTER TABLE users ADD COLUMN timezone TEXT DEFAULT 'UTC'")
         if "reminder_mode" not in cols:
             conn.execute("ALTER TABLE users ADD COLUMN reminder_mode TEXT DEFAULT 'once'")
+        for col, default in [
+            ("time_morning", "09:00"), ("time_lunch", "12:00"),
+            ("time_evening", "18:00"), ("time_night", "22:00"),
+        ]:
+            if col not in cols:
+                conn.execute(f"ALTER TABLE users ADD COLUMN {col} TEXT DEFAULT '{default}'")
 
         # Мигрируем schedules → schedule_rules
         existing = conn.execute(
@@ -168,6 +179,34 @@ def get_user_timezone(telegram_id: int) -> str:
             "SELECT timezone FROM users WHERE telegram_id = ?", (telegram_id,)
         ).fetchone()
         return row["timezone"] if row else "UTC"
+
+
+def get_user_time_presets(telegram_id: int) -> dict:
+    """Возвращает пресеты времени пользователя {morning, lunch, evening, night}."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT time_morning, time_lunch, time_evening, time_night FROM users WHERE telegram_id = ?",
+            (telegram_id,)
+        ).fetchone()
+        if row:
+            return {
+                "morning": row["time_morning"] or "09:00",
+                "lunch":   row["time_lunch"]   or "12:00",
+                "evening": row["time_evening"] or "18:00",
+                "night":   row["time_night"]   or "22:00",
+            }
+        return {"morning": "09:00", "lunch": "12:00", "evening": "18:00", "night": "22:00"}
+
+
+def set_user_time_preset(telegram_id: int, slot: str, time: str):
+    """Обновляет один пресет времени пользователя."""
+    col_map = {"morning": "time_morning", "lunch": "time_lunch",
+               "evening": "time_evening", "night": "time_night"}
+    col = col_map.get(slot)
+    if not col:
+        raise ValueError(f"Unknown slot: {slot}")
+    with get_connection() as conn:
+        conn.execute(f"UPDATE users SET {col} = ? WHERE telegram_id = ?", (time, telegram_id))
 
 
 def count_active_medications(user_id: int) -> int:
