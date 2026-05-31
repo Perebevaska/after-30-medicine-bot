@@ -219,7 +219,12 @@ ADMIN_ID=telegram_id_админа
 
 | # | Файл | Проблема |
 |---|------|----------|
-| 34 | `database.py`, `handlers/meds.py`, `scheduler.py`, `constants.py` | **Caregiver-режим**: новая таблица `dependents (id, user_id FK, name)` + колонка `medications.dependent_id FK NULL`. UX: шаг "Для кого?" в начале add-флоу → `[👤 Для себя] [👧 Маша] [➕ Новый подопечный]`. Список `/meds` разбит на секции. Напоминание: `💊 Амоксициллин (для Маши) — 250 мг`. Лимит 10 лекарств считается отдельно на каждого. Новое состояние `SELECT_DEPENDENT = 36`. |
+
+### ✅ Исправлено (caregiver)
+
+| # | Файл | Проблема |
+|---|------|----------|
+| 34 | `database.py`, `handlers/meds.py`, `handlers/caregiver.py`, `scheduler.py`, `constants.py` | **Caregiver-режим**: таблица `dependents`, `medications.dependent_id`, `/settings` кнопка с вкл/выкл, шаг «Для кого?» в add-флоу, лимит 10 лекарств на каждого подопечного, напоминания с «(для Маши)», `MAX_DEPENDENTS=2` |
 
 ### Порядок работы с багами
 1. Найти баг → добавить в таблицу "К исправлению"

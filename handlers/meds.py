@@ -6,15 +6,17 @@ from telegram.ext import (ContextTypes, ConversationHandler, CommandHandler,
 from database import (get_or_create_user, add_medication, add_schedule_rule,
                       get_user_medications, deactivate_medication,
                       get_medication_by_id, get_schedules_by_medication, update_medication,
-                      count_active_medications, get_user_time_presets)
+                      count_active_medications, get_user_time_presets,
+                      get_caregiver_mode, get_dependents, add_dependent, count_dependents)
 from scheduler import clear_pending_for_medication
 from constants import (NAME, DOSAGE, MEAL, TIMES, SCHEDULE,
                        EDIT_NAME, EDIT_DOSAGE, EDIT_MEAL, EDIT_TIMES, EDIT_SCHEDULE,
                        FREQ_TYPE, FREQ_INTERVAL, FREQ_WEEKDAYS, FREQ_MONTHDAY,
                        EDIT_FREQ_TYPE, EDIT_FREQ_INTERVAL, EDIT_FREQ_WEEKDAYS, EDIT_FREQ_MONTHDAY,
                        DOSAGE_B, TIMES_B, FREQ_TYPE_B, FREQ_INTERVAL_B, FREQ_WEEKDAYS_B, FREQ_MONTHDAY_B,
-                       EDIT_DOSAGE_B,
-                       MEAL_LABELS, MAX_MEDICATIONS_PER_USER, SLOT_ORDER, SLOT_LABELS, MONTHS_SHORT)
+                       EDIT_DOSAGE_B, SELECT_DEPENDENT, ADD_DEPENDENT_NAME,
+                       MEAL_LABELS, MAX_MEDICATIONS_PER_USER, MAX_DEPENDENTS,
+                       DEPENDENT_NAME_MAX_LEN, SLOT_ORDER, SLOT_LABELS, MONTHS_SHORT)
 from utils import handle_db_errors, get_tz_for_user, escape_md, NAME_MAX_LEN, DOSAGE_MAX_LEN
 
 logger = logging.getLogger(__name__)
@@ -446,6 +448,100 @@ async def meds_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await show_meds_list(update.message, update.effective_user)
 
 
+# ── Caregiver: «Для кого?» ─────────────────────────────────────────────────
+
+def _dependent_select_keyboard(dependents: list) -> InlineKeyboardMarkup:
+    """Клавиатура выбора «для кого» в начале add-флоу."""
+    rows = [[InlineKeyboardButton("👤 Для себя", callback_data="select_dep:self")]]
+    for d in dependents:
+        rows.append([InlineKeyboardButton(f"👧 {d['name']}", callback_data=f"select_dep:{d['id']}")])
+    rows.append([InlineKeyboardButton("➕ Новый подопечный", callback_data="select_dep:new")])
+    rows.append([InlineKeyboardButton("❌ Отмена", callback_data="cancel_add")])
+    return InlineKeyboardMarkup(rows)
+
+
+def _dependent_select_keyboard_no_add(dependents: list) -> InlineKeyboardMarkup:
+    """Клавиатура выбора без кнопки «Новый» (когда достигнут лимит подопечных)."""
+    rows = [[InlineKeyboardButton("👤 Для себя", callback_data="select_dep:self")]]
+    for d in dependents:
+        rows.append([InlineKeyboardButton(f"👧 {d['name']}", callback_data=f"select_dep:{d['id']}")])
+    rows.append([InlineKeyboardButton("❌ Отмена", callback_data="cancel_add")])
+    return InlineKeyboardMarkup(rows)
+
+
+@handle_db_errors
+async def handle_select_dependent(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обрабатывает выбор «для кого» в add-флоу."""
+    query = update.callback_query
+    await query.answer()
+    data = query.data  # select_dep:self | select_dep:<id> | select_dep:new
+    user = update.effective_user
+    user_id = context.user_data.get("_add_user_id") or get_or_create_user(user.id, user.username)
+    context.user_data["_add_user_id"] = user_id
+
+    if data == "select_dep:new":
+        if count_dependents(user.id) >= MAX_DEPENDENTS:
+            await query.answer(f"Максимум {MAX_DEPENDENTS} подопечных", show_alert=True)
+            return SELECT_DEPENDENT
+        await query.edit_message_text(
+            f"Как зовут подопечного? (не более {DEPENDENT_NAME_MAX_LEN} символов):",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("❌ Отмена", callback_data="cancel_add")
+            ]])
+        )
+        return ADD_DEPENDENT_NAME
+
+    if data == "select_dep:self":
+        dep_id = None
+    else:
+        dep_id = int(data.split(":")[1])
+    context.user_data["dependent_id"] = dep_id
+
+    if count_active_medications(user_id, dep_id) >= MAX_MEDICATIONS_PER_USER:
+        entity = "у тебя" if dep_id is None else "у подопечного"
+        await query.edit_message_text(
+            f"⚠️ {entity.capitalize()} достигнут лимит: максимум {MAX_MEDICATIONS_PER_USER} лекарств."
+        )
+        context.user_data.clear()
+        return ConversationHandler.END
+
+    await query.edit_message_text("Как называется лекарство?", reply_markup=_CANCEL_BTN)
+    return NAME
+
+
+@handle_db_errors
+async def handle_new_dependent_name_in_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Принимает имя нового подопечного в середине add-флоу, сохраняет и переходит к NAME."""
+    name = update.message.text.strip()
+    if not name:
+        await update.message.reply_text("Имя не может быть пустым. Введи ещё раз:")
+        return ADD_DEPENDENT_NAME
+    if len(name) > DEPENDENT_NAME_MAX_LEN:
+        await update.message.reply_text(
+            f"Имя не может быть длиннее {DEPENDENT_NAME_MAX_LEN} символов. Попробуй ещё раз:"
+        )
+        return ADD_DEPENDENT_NAME
+    user = update.effective_user
+    user_id = context.user_data.get("_add_user_id") or get_or_create_user(user.id, user.username)
+    context.user_data["_add_user_id"] = user_id
+    dep_id = add_dependent(user.id, name)
+    context.user_data["dependent_id"] = dep_id
+
+    if count_active_medications(user_id, dep_id) >= MAX_MEDICATIONS_PER_USER:
+        await update.message.reply_text(
+            f"⚠️ У подопечного достигнут лимит: максимум {MAX_MEDICATIONS_PER_USER} лекарств."
+        )
+        context.user_data.clear()
+        return ConversationHandler.END
+
+    await update.message.reply_text(
+        f"✅ Подопечный *{escape_md(name)}* добавлен.\n\nКак называется лекарство?",
+        parse_mode="Markdown",
+        reply_markup=_CANCEL_BTN
+    )
+    return NAME
+
+
 # ── Common ─────────────────────────────────────────────────────────────────
 
 async def cancel_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -465,6 +561,16 @@ async def handle_add_med_callback(update: Update, context: ContextTypes.DEFAULT_
     await query.answer()
     user = update.effective_user
     user_id = get_or_create_user(user.id, user.username)
+    context.user_data["_add_user_id"] = user_id
+
+    if get_caregiver_mode(user.id):
+        dependents = get_dependents(user.id)
+        kb = (_dependent_select_keyboard(dependents)
+              if len(dependents) < MAX_DEPENDENTS
+              else _dependent_select_keyboard_no_add(dependents))
+        await query.message.reply_text("👨‍👩‍👧 Для кого добавляем лекарство?", reply_markup=kb)
+        return SELECT_DEPENDENT
+
     if count_active_medications(user_id) >= MAX_MEDICATIONS_PER_USER:
         await query.message.reply_text(
             f"⚠️ Достигнут лимит: максимум {MAX_MEDICATIONS_PER_USER} лекарств."
@@ -478,6 +584,16 @@ async def add_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Entry point добавления лекарства через команду /add; проверяет лимит."""
     user = update.effective_user
     user_id = get_or_create_user(user.id, user.username)
+    context.user_data["_add_user_id"] = user_id
+
+    if get_caregiver_mode(user.id):
+        dependents = get_dependents(user.id)
+        kb = (_dependent_select_keyboard(dependents)
+              if len(dependents) < MAX_DEPENDENTS
+              else _dependent_select_keyboard_no_add(dependents))
+        await update.message.reply_text("👨‍👩‍👧 Для кого добавляем лекарство?", reply_markup=kb)
+        return SELECT_DEPENDENT
+
     if count_active_medications(user_id) >= MAX_MEDICATIONS_PER_USER:
         await update.message.reply_text(
             f"⚠️ Достигнут лимит: максимум {MAX_MEDICATIONS_PER_USER} лекарств."
@@ -709,8 +825,9 @@ async def choose_freq_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data["freq_a"] = {"type": "daily"}
             return await _go_to_freq_type_b(query, context)
         user = update.effective_user
-        user_id = get_or_create_user(user.id, user.username)
-        if count_active_medications(user_id) >= MAX_MEDICATIONS_PER_USER:
+        user_id = context.user_data.get("_add_user_id") or get_or_create_user(user.id, user.username)
+        dep_id = context.user_data.get("dependent_id")
+        if count_active_medications(user_id, dep_id) >= MAX_MEDICATIONS_PER_USER:
             await query.message.reply_text(
                 f"⚠️ Достигнут лимит: максимум {MAX_MEDICATIONS_PER_USER} лекарств.")
             context.user_data.clear()
@@ -718,7 +835,8 @@ async def choose_freq_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
         collected = context.user_data["collected_times"]
         total = len(collected)
         med_id = add_medication(user_id, context.user_data["name"],
-                                context.user_data["dosage"], context.user_data["meal"], total)
+                                context.user_data["dosage"], context.user_data["meal"], total,
+                                dependent_id=dep_id)
         for t in collected:
             add_schedule_rule(med_id, t, "daily")
         await query.edit_message_text(
@@ -769,8 +887,9 @@ async def add_freq_interval(update: Update, context: ContextTypes.DEFAULT_TYPE):
         }
         return await _go_to_freq_type_b(update.message, context, from_message=True)
     user = update.effective_user
-    user_id = get_or_create_user(user.id, user.username)
-    if count_active_medications(user_id) >= MAX_MEDICATIONS_PER_USER:
+    user_id = context.user_data.get("_add_user_id") or get_or_create_user(user.id, user.username)
+    dep_id = context.user_data.get("dependent_id")
+    if count_active_medications(user_id, dep_id) >= MAX_MEDICATIONS_PER_USER:
         await update.message.reply_text(
             f"⚠️ Достигнут лимит: максимум {MAX_MEDICATIONS_PER_USER} лекарств.")
         context.user_data.clear()
@@ -779,7 +898,8 @@ async def add_freq_interval(update: Update, context: ContextTypes.DEFAULT_TYPE):
     total = len(collected)
     anchor_date = date.today().isoformat()
     med_id = add_medication(user_id, context.user_data["name"],
-                            context.user_data["dosage"], context.user_data["meal"], total)
+                            context.user_data["dosage"], context.user_data["meal"], total,
+                            dependent_id=dep_id)
     for t in collected:
         add_schedule_rule(med_id, t, "interval", interval_days=n, anchor_date=anchor_date)
     await update.message.reply_text(
@@ -818,8 +938,9 @@ async def confirm_weekdays(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["freq_a"] = {"type": "weekdays", "weekdays": weekdays}
         return await _go_to_freq_type_b(query, context)
     user = update.effective_user
-    user_id = get_or_create_user(user.id, user.username)
-    if count_active_medications(user_id) >= MAX_MEDICATIONS_PER_USER:
+    user_id = context.user_data.get("_add_user_id") or get_or_create_user(user.id, user.username)
+    dep_id = context.user_data.get("dependent_id")
+    if count_active_medications(user_id, dep_id) >= MAX_MEDICATIONS_PER_USER:
         await query.message.reply_text(
             f"⚠️ Достигнут лимит: максимум {MAX_MEDICATIONS_PER_USER} лекарств.")
         context.user_data.clear()
@@ -827,7 +948,8 @@ async def confirm_weekdays(update: Update, context: ContextTypes.DEFAULT_TYPE):
     collected = context.user_data["collected_times"]
     total = len(collected)
     med_id = add_medication(user_id, context.user_data["name"],
-                            context.user_data["dosage"], context.user_data["meal"], total)
+                            context.user_data["dosage"], context.user_data["meal"], total,
+                            dependent_id=dep_id)
     for t in collected:
         add_schedule_rule(med_id, t, "weekdays", weekdays=weekdays)
     await query.edit_message_text(
@@ -854,8 +976,9 @@ async def add_freq_monthday(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["freq_a"] = {"type": "monthly", "month_day": day}
         return await _go_to_freq_type_b(update.message, context, from_message=True)
     user = update.effective_user
-    user_id = get_or_create_user(user.id, user.username)
-    if count_active_medications(user_id) >= MAX_MEDICATIONS_PER_USER:
+    user_id = context.user_data.get("_add_user_id") or get_or_create_user(user.id, user.username)
+    dep_id = context.user_data.get("dependent_id")
+    if count_active_medications(user_id, dep_id) >= MAX_MEDICATIONS_PER_USER:
         await update.message.reply_text(
             f"⚠️ Достигнут лимит: максимум {MAX_MEDICATIONS_PER_USER} лекарств.")
         context.user_data.clear()
@@ -863,7 +986,8 @@ async def add_freq_monthday(update: Update, context: ContextTypes.DEFAULT_TYPE):
     collected = context.user_data["collected_times"]
     total = len(collected)
     med_id = add_medication(user_id, context.user_data["name"],
-                            context.user_data["dosage"], context.user_data["meal"], total)
+                            context.user_data["dosage"], context.user_data["meal"], total,
+                            dependent_id=dep_id)
     for t in collected:
         add_schedule_rule(med_id, t, "monthly", month_day=day)
     warning = _monthday_warning(day)
@@ -1035,7 +1159,8 @@ async def _save_multi_medication(edit_target, context, user_id: int,
     """
     ud = context.user_data
     is_edit_mode = "edit_id" in ud
-    if not is_edit_mode and count_active_medications(user_id) >= MAX_MEDICATIONS_PER_USER:
+    dep_id = ud.get("dependent_id")
+    if not is_edit_mode and count_active_medications(user_id, dep_id) >= MAX_MEDICATIONS_PER_USER:
         text = f"⚠️ Достигнут лимит: максимум {MAX_MEDICATIONS_PER_USER} лекарств."
         if from_message:
             await edit_target.reply_text(text)
@@ -1074,7 +1199,7 @@ async def _save_multi_medication(edit_target, context, user_id: int,
         clear_pending_for_medication(ud["edit_id"])
         _update_med(ud["edit_id"], user_id, name, dosage_a, meal, total, rules_for_db)
     else:
-        med_id = add_medication(user_id, name, dosage_a, meal, total)
+        med_id = add_medication(user_id, name, dosage_a, meal, total, dependent_id=dep_id)
         for r in rules_for_db:
             add_schedule_rule(
                 med_id, r["reminder_time"], r["frequency"],
@@ -1830,6 +1955,12 @@ def get_add_handler(cancel_handler):
             CallbackQueryHandler(handle_add_med_callback, pattern="^add_med$"),
         ],
         states={
+            SELECT_DEPENDENT: [
+                CallbackQueryHandler(handle_select_dependent, pattern="^select_dep:"),
+            ],
+            ADD_DEPENDENT_NAME: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_new_dependent_name_in_flow),
+            ],
             NAME: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, add_name),
             ],

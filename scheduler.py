@@ -88,12 +88,13 @@ async def send_reminders(app):
         ]])
 
         dosage = row["rule_dosage"] or row["med_dosage"]
+        dep_suffix = f" _(для {escape_md(row['dependent_name'])})_" if row["dependent_name"] else ""
         try:
             await app.bot.send_message(
                 chat_id=row["telegram_id"],
                 text=(
                     f"💊 Время принять лекарство!\n\n"
-                    f"*{escape_md(row['name'])}* — {escape_md(dosage)}\n"
+                    f"*{escape_md(row['name'])}*{dep_suffix} — {escape_md(dosage)}\n"
                     f"🍽 Принимать {_MEAL_LABELS.get(row['meal_relation'], row['meal_relation'])}"
                 ),
                 parse_mode="Markdown",

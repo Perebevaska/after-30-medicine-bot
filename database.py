@@ -57,7 +57,15 @@ def init_db():
                 time_night TEXT DEFAULT '22:00',
                 daily_plan_enabled INTEGER DEFAULT 1,
                 daily_plan_time TEXT DEFAULT '08:00',
+                caregiver_enabled INTEGER DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS dependents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES users(id)
             );
 
             CREATE TABLE IF NOT EXISTS medications (
@@ -68,8 +76,10 @@ def init_db():
                 meal_relation TEXT NOT NULL CHECK(meal_relation IN ('before', 'after', 'with', 'any')),
                 times_per_day INTEGER NOT NULL,
                 active INTEGER DEFAULT 1,
+                dependent_id INTEGER DEFAULT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users(id)
+                FOREIGN KEY (user_id) REFERENCES users(id),
+                FOREIGN KEY (dependent_id) REFERENCES dependents(id)
             );
 
             CREATE TABLE IF NOT EXISTS intake_log (
@@ -118,6 +128,22 @@ def migrate():
         sr_cols = [r[1] for r in conn.execute("PRAGMA table_info(schedule_rules)")]
         if "dosage" not in sr_cols:
             conn.execute("ALTER TABLE schedule_rules ADD COLUMN dosage TEXT DEFAULT NULL")
+
+        if "caregiver_enabled" not in cols:
+            conn.execute("ALTER TABLE users ADD COLUMN caregiver_enabled INTEGER DEFAULT 0")
+
+        med_cols = [r[1] for r in conn.execute("PRAGMA table_info(medications)")]
+        if "dependent_id" not in med_cols:
+            conn.execute("ALTER TABLE medications ADD COLUMN dependent_id INTEGER DEFAULT NULL REFERENCES dependents(id)")
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS dependents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            )
+        """)
 
         # Дропаем устаревшую таблицу schedules (данные давно в schedule_rules)
         conn.execute("DROP TABLE IF EXISTS schedules")
@@ -204,24 +230,120 @@ def set_user_time_preset(telegram_id: int, slot: str, time: str):
         conn.execute(f"UPDATE users SET {col} = ? WHERE telegram_id = ?", (time, telegram_id))
 
 
-def count_active_medications(user_id: int) -> int:
-    """Возвращает количество активных лекарств пользователя."""
+def count_active_medications(user_id: int, dependent_id: int = None) -> int:
+    """Возвращает количество активных лекарств для user_id (dependent_id=None — для себя)."""
     with get_connection() as conn:
-        row = conn.execute(
-            "SELECT COUNT(*) FROM medications WHERE user_id = ? AND active = 1",
-            (user_id,)
-        ).fetchone()
+        if dependent_id is None:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM medications WHERE user_id = ? AND active = 1 AND dependent_id IS NULL",
+                (user_id,)
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM medications WHERE user_id = ? AND active = 1 AND dependent_id = ?",
+                (user_id, dependent_id)
+            ).fetchone()
         return row[0]
 
 
+def get_caregiver_mode(telegram_id: int) -> bool:
+    """Возвращает True если caregiver-режим включён."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT caregiver_enabled FROM users WHERE telegram_id = ?", (telegram_id,)
+        ).fetchone()
+        return bool(row["caregiver_enabled"]) if row else False
+
+
+def set_caregiver_mode(telegram_id: int, enabled: bool):
+    """Включает или выключает caregiver-режим."""
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE users SET caregiver_enabled = ? WHERE telegram_id = ?",
+            (1 if enabled else 0, telegram_id)
+        )
+
+
+def get_dependents(telegram_id: int) -> list:
+    """Возвращает список подопечных пользователя [{id, name}, ...]."""
+    with get_connection() as conn:
+        user = conn.execute(
+            "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
+        ).fetchone()
+        if not user:
+            return []
+        return [dict(r) for r in conn.execute(
+            "SELECT id, name FROM dependents WHERE user_id = ? ORDER BY id",
+            (user["id"],)
+        ).fetchall()]
+
+
+def count_dependents(telegram_id: int) -> int:
+    """Возвращает количество подопечных пользователя."""
+    with get_connection() as conn:
+        user = conn.execute(
+            "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
+        ).fetchone()
+        if not user:
+            return 0
+        return conn.execute(
+            "SELECT COUNT(*) FROM dependents WHERE user_id = ?", (user["id"],)
+        ).fetchone()[0]
+
+
+def add_dependent(telegram_id: int, name: str) -> int:
+    """Добавляет подопечного. Возвращает id новой записи."""
+    with get_connection() as conn:
+        user = conn.execute(
+            "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
+        ).fetchone()
+        if not user:
+            raise DatabaseError("Пользователь не найден")
+        conn.execute(
+            "INSERT INTO dependents (user_id, name) VALUES (?, ?)", (user["id"], name)
+        )
+        return conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+
+def delete_dependent(telegram_id: int, dependent_id: int) -> list:
+    """Удаляет подопечного и деактивирует его лекарства. Возвращает список ID лекарств."""
+    with get_connection() as conn:
+        user = conn.execute(
+            "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
+        ).fetchone()
+        if not user:
+            return []
+        user_id = user["id"]
+        dep = conn.execute(
+            "SELECT id FROM dependents WHERE id = ? AND user_id = ?", (dependent_id, user_id)
+        ).fetchone()
+        if not dep:
+            return []
+        med_ids = [r["id"] for r in conn.execute(
+            "SELECT id FROM medications WHERE user_id = ? AND dependent_id = ?",
+            (user_id, dependent_id)
+        ).fetchall()]
+        if med_ids:
+            placeholders = ",".join("?" * len(med_ids))
+            conn.execute(f"DELETE FROM intake_log WHERE medication_id IN ({placeholders})", med_ids)
+            conn.execute(f"DELETE FROM schedule_rules WHERE medication_id IN ({placeholders})", med_ids)
+            conn.execute(
+                "UPDATE medications SET active = 0 WHERE dependent_id = ? AND user_id = ?",
+                (dependent_id, user_id)
+            )
+        conn.execute("DELETE FROM dependents WHERE id = ?", (dependent_id,))
+        return med_ids
+
+
 def add_medication(user_id: int, name: str, dosage: str,
-                   meal_relation: str, times_per_day: int) -> int:
+                   meal_relation: str, times_per_day: int,
+                   dependent_id: int = None) -> int:
     """Добавляет лекарство и возвращает его id."""
     with get_connection() as conn:
         conn.execute(
-            """INSERT INTO medications (user_id, name, dosage, meal_relation, times_per_day)
-               VALUES (?, ?, ?, ?, ?)""",
-            (user_id, name, dosage, meal_relation, times_per_day)
+            """INSERT INTO medications (user_id, name, dosage, meal_relation, times_per_day, dependent_id)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (user_id, name, dosage, meal_relation, times_per_day, dependent_id)
         )
         return conn.execute("SELECT last_insert_rowid()").fetchone()[0]
 
@@ -261,10 +383,11 @@ def get_all_schedules() -> list:
                       sr.weekdays, sr.month_day, sr.anchor_date,
                       m.name, m.dosage AS med_dosage, m.meal_relation,
                       u.telegram_id, u.timezone, u.reminder_mode, sr.medication_id,
-                      sr.dosage AS rule_dosage
+                      sr.dosage AS rule_dosage, d.name AS dependent_name
                FROM schedule_rules sr
                JOIN medications m ON m.id = sr.medication_id
                JOIN users u ON u.id = m.user_id
+               LEFT JOIN dependents d ON d.id = m.dependent_id
                WHERE m.active = 1"""
         ).fetchall()
 
@@ -470,6 +593,7 @@ def delete_user_data(telegram_id: int) -> list:
             conn.execute(f"DELETE FROM intake_log WHERE medication_id IN ({placeholders})", med_ids)
             conn.execute(f"DELETE FROM schedule_rules WHERE medication_id IN ({placeholders})", med_ids)
             conn.execute("DELETE FROM medications WHERE user_id = ?", (user_id,))
+        conn.execute("DELETE FROM dependents WHERE user_id = ?", (user_id,))
         conn.execute("DELETE FROM users WHERE telegram_id = ?", (telegram_id,))
         return med_ids
 
