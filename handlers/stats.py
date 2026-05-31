@@ -1,4 +1,4 @@
-from collections import OrderedDict, defaultdict
+from collections import OrderedDict
 from datetime import datetime, timedelta
 import pytz
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -94,41 +94,40 @@ async def show_stats_week(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("За последние 7 дней нет данных.")
         return
 
-    meds = OrderedDict()
-    meds_totals = defaultdict(lambda: {"taken": 0, "total": 0})
+    # day_str → {med_name → [intake_str, ...]}
+    days: OrderedDict = OrderedDict()
+    total_taken = 0
+    total_all = 0
 
     for r in rows:
-        key = f"{r['name']} {r['dosage']}"
+        med_key = f"{r['name']} {r['dosage']}"
         utc_dt = datetime.strptime(r["taken_at"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=pytz.utc)
         local_dt = utc_dt.astimezone(user_tz)
-        day_str = f"{local_dt.day} {MONTHS_SHORT[local_dt.month-1]}"
+        day_str = f"{local_dt.day} {MONTHS_SHORT[local_dt.month - 1]}"
         time_str = local_dt.strftime("%H:%M")
-
         icon = "✅" if r["status"] == "taken" else "❌"
 
-        if key not in meds:
-            meds[key] = OrderedDict()
-        if day_str not in meds[key]:
-            meds[key][day_str] = []
-        meds[key][day_str].append(f"{time_str} {icon}")
+        if day_str not in days:
+            days[day_str] = OrderedDict()
+        if med_key not in days[day_str]:
+            days[day_str][med_key] = []
+        days[day_str][med_key].append(f"{time_str} {icon}")
 
-        meds_totals[key]["total"] += 1
+        total_all += 1
         if r["status"] == "taken":
-            meds_totals[key]["taken"] += 1
+            total_taken += 1
 
     blocks = ["📈 <b>История за 7 дней</b>\n"]
-    for med_name, days_dict in meds.items():
-        taken = meds_totals[med_name]["taken"]
-        total = meds_totals[med_name]["total"]
-        pct = int(taken / total * 100) if total else 0
-        color = "🟢" if pct >= 80 else ("🟡" if pct >= 50 else "🔴")
+    for day_str, meds_dict in days.items():
+        blocks.append(f"📅 <b>{day_str}</b>")
+        for med_name, intakes in meds_dict.items():
+            blocks.append(f"  {med_name}:  {'  '.join(intakes)}")
+        blocks.append("")
 
-        blocks.append(f"💊 <b>{med_name}</b> — {pct}% {color}\n")
-        for day_str, intakes in days_dict.items():
-            intakes_str = "  ".join(intakes)
-            blocks.append(f"{day_str}  {intakes_str}")
-        blocks.append(f"\n<i>Итого: {taken}/{total} ({pct}%)</i>")
-        blocks.append("──────────────────")
+    pct = int(total_taken / total_all * 100) if total_all else 0
+    color = "🟢" if pct >= 80 else ("🟡" if pct >= 50 else "🔴")
+    blocks.append("──────────────────")
+    blocks.append(f"<b>Итог за 7 дней: {total_taken}/{total_all} ({pct}%) {color}</b>")
 
     await query.edit_message_text("\n".join(blocks), parse_mode="HTML")
 

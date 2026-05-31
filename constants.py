@@ -1,15 +1,19 @@
+MAX_MEDICATIONS_PER_USER = 10
+
 # Состояния диалогов
 NAME, DOSAGE, MEAL, TIMES, SCHEDULE = range(5)
 EDIT_NAME, EDIT_DOSAGE, EDIT_MEAL, EDIT_TIMES, EDIT_SCHEDULE = range(5, 10)
 SETUP_TZ, SETUP_CITY = range(10, 12)
+FREQ_TYPE, FREQ_INTERVAL, FREQ_WEEKDAYS, FREQ_MONTHDAY, FREQ_TIME = range(12, 17)
+EDIT_FREQ_TYPE, EDIT_FREQ_INTERVAL, EDIT_FREQ_WEEKDAYS, EDIT_FREQ_MONTHDAY, EDIT_FREQ_TIME = range(17, 22)
 
 CANCEL_TIP = "_(/cancel для отмены)_"
 
 MEAL_LABELS = {
-    "before": "Натощак (до еды)",
+    "before": "До еды",
     "after": "После еды",
     "with": "Во время еды",
-    "any": "Независимо от еды",
+    "any": "Независимо",
 }
 
 MONTHS_GEN = {

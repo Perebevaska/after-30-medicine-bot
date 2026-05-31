@@ -62,6 +62,7 @@ def main():
     for h in stats.get_handlers():
         app.add_handler(h)
     app.add_handler(settings.get_handler())
+    app.add_handler(CallbackQueryHandler(tz_handler.handle_menu_callback, pattern="^menu:"))
     app.add_handler(CallbackQueryHandler(handle_intake_callback, pattern="^(taken|skipped):"))
 
     job_queue = app.job_queue
