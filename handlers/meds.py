@@ -1334,13 +1334,13 @@ async def keep_edit_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await query.answer()
     edit_med = context.user_data["edit_med"]
     user_id = context.user_data["edit_user_id"]
+    rules = _get_edit_rules_with_dosage(context)
     update_medication(
         context.user_data["edit_id"], user_id,
         context.user_data["edit_name"], context.user_data["edit_dosage"],
         edit_med["meal_relation"], edit_med["times_per_day"],
-        edit_med["schedule_rules"]
+        rules
     )
-    rules = _get_edit_rules_with_dosage(context)
     dosage_a = context.user_data["edit_dosage"]
     if context.user_data.get("edit_is_multi_dosage"):
         rule_lines = [f"⏰ {_format_schedule_rule(r)} — {r.get('dosage') or dosage_a}" for r in rules]
