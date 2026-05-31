@@ -1,9 +1,9 @@
-from telegram import Update, KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove
+from telegram import Update, KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
 from timezonefinder import TimezoneFinder
 from geopy.geocoders import Nominatim
 from geopy.exc import GeocoderTimedOut, GeocoderServiceError
-from database import get_or_create_user, get_user_timezone, set_user_timezone
+from database import get_or_create_user, get_user_timezone, set_user_timezone, get_reminder_mode
 from constants import SETUP_TZ, SETUP_CITY
 from utils import handle_db_errors
 
@@ -16,17 +16,70 @@ def _geo_keyboard() -> ReplyKeyboardMarkup:
     )
 
 
+def _main_menu_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("💊 Мои лекарства", callback_data="menu:meds")],
+        [
+            InlineKeyboardButton("📊 Статистика", callback_data="menu:stats"),
+            InlineKeyboardButton("⚙️ Настройки", callback_data="menu:settings"),
+        ],
+        [InlineKeyboardButton("ℹ️ О проекте", callback_data="menu:about")],
+    ])
+
+
 async def show_main_menu(update, first_name):
     await update.message.reply_text(
         f"Привет, {first_name}! 💊\n\n"
-        "Я помогу тебе не забывать принимать лекарства.\n\n"
-        "Команды:\n"
-        "/meds — мои лекарства\n"
-        "/stats — статистика\n"
-        "/settings — настройки\n"
-        "/about — о проекте\n",
-        reply_markup=ReplyKeyboardRemove()
+        "Я помогу тебе не забывать принимать лекарства.",
+        reply_markup=_main_menu_keyboard()
     )
+
+
+@handle_db_errors
+async def handle_menu_callback(update, context):
+    query = update.callback_query
+    await query.answer()
+    action = query.data.split(":")[1]
+    msg = query.message
+    user = update.effective_user
+
+    if action == "meds":
+        from handlers.meds import show_meds_list
+        await show_meds_list(msg, user)
+
+    elif action == "stats":
+        await msg.reply_text(
+            "Выбери период:",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("📅 За сегодня", callback_data="stats:today"),
+                InlineKeyboardButton("📈 За 7 дней", callback_data="stats:week"),
+            ]])
+        )
+
+    elif action == "settings":
+        tz = get_user_timezone(user.id)
+        mode = get_reminder_mode(user.id)
+        mode_label = "🔔 Один раз" if mode == "once" else "🔁 Повторять каждые 5 минут"
+        await msg.reply_text(
+            f"⚙️ *Настройки*\n\n"
+            f"🌍 Часовой пояс: `{tz}`\n"
+            f"🔔 Напоминания: {mode_label}",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🌍 Изменить часовой пояс", callback_data="settings:timezone")],
+                [InlineKeyboardButton(f"Напоминания: {mode_label}", callback_data="settings:reminder")],
+            ])
+        )
+
+    elif action == "about":
+        await msg.reply_text(
+            "ℹ️ *О проекте*\n\n"
+            "Этот бот — вайб-кодинг проект: написан за один вечер в паре с AI (Claude).\n\n"
+            "Код живой, рабочий, итерируем дальше 🚀\n\n"
+            "📦 GitHub: [after-38-medicine-bot](https://github.com/Perebevaska/after-38-medicine-bot)",
+            parse_mode="Markdown",
+            disable_web_page_preview=True
+        )
 
 
 @handle_db_errors

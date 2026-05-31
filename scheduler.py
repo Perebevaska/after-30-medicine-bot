@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime
+from datetime import datetime, date
 import pytz
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from database import get_all_schedules, log_intake
@@ -8,6 +8,31 @@ logger = logging.getLogger(__name__)
 
 # (telegram_id, medication_id, reminder_time) -> datetime (UTC) последней отправки
 _pending: dict = {}
+
+
+def clear_pending_for_medication(medication_id: int):
+    """Удаляет все pending-записи для указанного лекарства (вызывается при деактивации)."""
+    for key in [k for k in _pending if k[1] == medication_id]:
+        del _pending[key]
+
+
+def _rule_fires_today(row, today_local: date) -> bool:
+    """Проверяет, должно ли правило сработать сегодня."""
+    freq = row["frequency"]
+    if freq == "daily":
+        return True
+    if freq == "weekdays":
+        days = [int(d) for d in (row["weekdays"] or "").split(",") if d]
+        return today_local.isoweekday() in days
+    if freq == "monthly":
+        return today_local.day == row["month_day"]
+    if freq == "interval":
+        anchor_str = row["anchor_date"]
+        if not anchor_str:
+            return False
+        anchor = date.fromisoformat(anchor_str)
+        return (today_local - anchor).days % row["interval_days"] == 0
+    return False
 
 
 async def send_reminders(app):
@@ -25,6 +50,9 @@ async def send_reminders(app):
         now_str = now_local.strftime("%H:%M")
         key = (row["telegram_id"], row["medication_id"], row["reminder_time"])
 
+        if not _rule_fires_today(row, now_local.date()):
+            continue
+
         should_send = False
         if row["reminder_time"] == now_str:
             should_send = True
@@ -39,10 +67,10 @@ async def send_reminders(app):
             continue
 
         meal_labels = {
-            "before": "натощак (до еды)",
+            "before": "до еды",
             "after": "после еды",
             "with": "во время еды",
-            "any": "независимо от еды",
+            "any": "независимо",
         }
         keyboard = InlineKeyboardMarkup([[
             InlineKeyboardButton(
@@ -81,7 +109,7 @@ async def handle_intake_callback(update, context):
         parts = query.data.split(":")
         status = parts[0]
         medication_id = int(parts[1])
-        scheduled_time = parts[2]
+        scheduled_time = ":".join(parts[2:])
     except (ValueError, IndexError):
         logger.error("Некорректный callback: %s", query.data)
         return
