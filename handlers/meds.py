@@ -1,3 +1,4 @@
+import logging
 from datetime import date
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (ContextTypes, ConversationHandler, CommandHandler,
@@ -14,6 +15,8 @@ from constants import (NAME, DOSAGE, MEAL, TIMES, SCHEDULE,
                        EDIT_FREQ_MONTHDAY, EDIT_FREQ_TIME,
                        MEAL_LABELS, MAX_MEDICATIONS_PER_USER)
 from utils import handle_db_errors
+
+logger = logging.getLogger(__name__)
 
 WEEKDAY_NAMES = {1: "Пн", 2: "Вт", 3: "Ср", 4: "Чт", 5: "Пт", 6: "Сб", 7: "Вс"}
 
@@ -562,6 +565,7 @@ async def handle_edit_select(update: Update, context: ContextTypes.DEFAULT_TYPE)
     query = update.callback_query
     await query.answer()
     medication_id = int(query.data.split(":")[1])
+    logger.info("handle_edit_select: med_id=%s user=%s", medication_id, update.effective_user.id)
     user = update.effective_user
     user_id = get_or_create_user(user.id, user.username)
     med = get_medication_by_id(medication_id, user_id)
