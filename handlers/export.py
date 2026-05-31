@@ -72,7 +72,8 @@ async def export_week_plan(update, context):
                 continue
             mid = row["medication_id"]
             if mid not in meds:
-                meds[mid] = {"name": row["name"], "meal_relation": row["meal_relation"], "times": []}
+                meds[mid] = {"name": row["name"], "meal_relation": row["meal_relation"],
+                             "dep_name": row["dependent_name"], "times": []}
             dosage = row["rule_dosage"] or row["med_dosage"]
             meds[mid]["times"].append((row["reminder_time"], dosage))
         if not meds:
@@ -80,8 +81,9 @@ async def export_week_plan(update, context):
         lines = []
         for med in meds.values():
             meal = _MEAL_LABELS.get(med["meal_relation"], "")
+            dep_label = f" (для {med['dep_name']})" if med["dep_name"] else ""
             for t, d in sorted(med["times"]):
-                lines.append(f"{t}  {med['name']} — {d}  ({meal})")
+                lines.append(f"{t}  {med['name']}{dep_label} — {d}  ({meal})")
         sections.append((day_label, lines))
 
     if not sections:
@@ -123,7 +125,8 @@ async def export_week_stats(update, context):
         status_str = "Принято" if r["status"] == "taken" else "Пропущено"
         if day_str not in days:
             days[day_str] = []
-        days[day_str].append(f"{time_str}  {r['name']} {r['dosage']} — {status_str}")
+        dep_suffix = f" (для {r['dependent_name']})" if r["dependent_name"] else ""
+        days[day_str].append(f"{time_str}  {r['name']}{dep_suffix} {r['dosage']} — {status_str}")
         total_all += 1
         if r["status"] == "taken":
             total_taken += 1

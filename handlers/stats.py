@@ -106,7 +106,8 @@ async def show_stats_week(update: Update, context: ContextTypes.DEFAULT_TYPE):
     total_all = 0
 
     for r in rows:
-        med_key = f"{r['name']} {r['dosage']}"
+        dep_suffix = f" (для {r['dependent_name']})" if r["dependent_name"] else ""
+        med_key = f"{r['name']}{dep_suffix} {r['dosage']}"
         utc_dt = datetime.strptime(r["taken_at"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=pytz.utc)
         local_dt = utc_dt.astimezone(user_tz)
         day_str = f"{local_dt.day} {MONTHS_SHORT[local_dt.month - 1]}"
@@ -171,7 +172,7 @@ async def show_week_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 continue
             mid = row["medication_id"]
             if mid not in meds:
-                meds[mid] = {"name": row["name"], "times": []}
+                meds[mid] = {"name": row["name"], "dep_name": row["dependent_name"], "times": []}
             dosage = row["rule_dosage"] or row["med_dosage"]
             meds[mid]["times"].append((row["reminder_time"], dosage))
 
@@ -183,7 +184,8 @@ async def show_week_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
             times_str = "  ".join(
                 f"{t} — {d}" for t, d in sorted(med["times"])
             )
-            blocks.append(f"  💊 {med['name']}: {times_str}")
+            dep_label = f" <i>(для {med['dep_name']})</i>" if med["dep_name"] else ""
+            blocks.append(f"  💊 {med['name']}{dep_label}: {times_str}")
         blocks.append("")
 
     if len(blocks) == 2:

@@ -367,10 +367,14 @@ def add_schedule_rule(medication_id: int, reminder_time: str, frequency: str,
 
 
 def get_user_medications(user_id: int) -> list:
-    """Возвращает активные лекарства пользователя."""
+    """Возвращает активные лекарства пользователя с именем подопечного."""
     with get_connection() as conn:
         return conn.execute(
-            "SELECT * FROM medications WHERE user_id = ? AND active = 1 ORDER BY id",
+            """SELECT m.*, d.name AS dependent_name
+               FROM medications m
+               LEFT JOIN dependents d ON d.id = m.dependent_id
+               WHERE m.user_id = ? AND m.active = 1
+               ORDER BY m.id""",
             (user_id,)
         ).fetchall()
 
@@ -424,11 +428,11 @@ def get_history_detailed(user_id: int, since_utc: str) -> list:
     with get_connection() as conn:
         return conn.execute(
             """SELECT m.name, m.dosage, m.id as med_id,
-                      i.scheduled_time,
-                      i.status,
-                      i.taken_at
+                      i.scheduled_time, i.status, i.taken_at,
+                      d.name AS dependent_name
                FROM intake_log i
                JOIN medications m ON m.id = i.medication_id
+               LEFT JOIN dependents d ON d.id = m.dependent_id
                WHERE m.user_id = ?
                AND i.taken_at >= ?
                ORDER BY i.taken_at DESC, m.name, i.scheduled_time""",
@@ -550,10 +554,12 @@ def get_schedules_for_user(telegram_id: int) -> list:
             """SELECT u.telegram_id, u.timezone,
                       m.id AS medication_id, m.name, m.dosage AS med_dosage, m.meal_relation,
                       sr.reminder_time, sr.frequency, sr.interval_days,
-                      sr.weekdays, sr.month_day, sr.anchor_date, sr.dosage AS rule_dosage
+                      sr.weekdays, sr.month_day, sr.anchor_date, sr.dosage AS rule_dosage,
+                      d.name AS dependent_name
                FROM users u
                JOIN medications m ON m.user_id = u.id AND m.active = 1
                JOIN schedule_rules sr ON sr.medication_id = m.id
+               LEFT JOIN dependents d ON d.id = m.dependent_id
                WHERE u.telegram_id = ?
                ORDER BY m.id, sr.reminder_time""",
             (telegram_id,)
@@ -567,10 +573,12 @@ def get_users_with_daily_plan() -> list:
             """SELECT u.telegram_id, u.timezone, u.daily_plan_time,
                       m.id AS medication_id, m.name, m.dosage AS med_dosage, m.meal_relation,
                       sr.reminder_time, sr.frequency, sr.interval_days,
-                      sr.weekdays, sr.month_day, sr.anchor_date, sr.dosage AS rule_dosage
+                      sr.weekdays, sr.month_day, sr.anchor_date, sr.dosage AS rule_dosage,
+                      d.name AS dependent_name
                FROM users u
                JOIN medications m ON m.user_id = u.id AND m.active = 1
                JOIN schedule_rules sr ON sr.medication_id = m.id
+               LEFT JOIN dependents d ON d.id = m.dependent_id
                WHERE u.daily_plan_enabled = 1
                ORDER BY u.telegram_id, m.id, sr.reminder_time"""
         ).fetchall()

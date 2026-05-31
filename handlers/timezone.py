@@ -63,7 +63,8 @@ async def handle_menu_callback(update, context):
                 continue
             mid = row["medication_id"]
             if mid not in meds:
-                meds[mid] = {"name": row["name"], "meal_relation": row["meal_relation"], "times": []}
+                meds[mid] = {"name": row["name"], "meal_relation": row["meal_relation"],
+                             "dep_name": row["dependent_name"], "times": []}
             dosage = row["rule_dosage"] or row["med_dosage"]
             meds[mid]["times"].append((row["reminder_time"], mid, dosage))
         if not meds:
@@ -73,7 +74,8 @@ async def handle_menu_callback(update, context):
         lines = ["📋 *Лекарства на сегодня:*\n"]
         for med in meds.values():
             meal = _MEAL_LABELS.get(med["meal_relation"], "")
-            lines.append(f"💊 *{escape_md(med['name'])}* — {meal}")
+            dep_label = f" _(для {escape_md(med['dep_name'])})_" if med["dep_name"] else ""
+            lines.append(f"💊 *{escape_md(med['name'])}*{dep_label} — {meal}")
             for reminder_time, mid, dosage in sorted(med["times"]):
                 st = statuses.get((mid, reminder_time))
                 icon = "✅" if st == "taken" else ("❌" if st == "skipped" else "⏳")

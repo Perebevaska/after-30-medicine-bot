@@ -134,7 +134,8 @@ async def _send_daily_plans(app):
             continue
         if mid not in users[tid]["meds"]:
             users[tid]["meds"][mid] = {
-                "name": row["name"], "meal_relation": row["meal_relation"], "times": [],
+                "name": row["name"], "meal_relation": row["meal_relation"],
+                "dep_name": row["dependent_name"], "times": [],
             }
         dosage = row["rule_dosage"] or row["med_dosage"]
         users[tid]["meds"][mid]["times"].append((row["reminder_time"], dosage))
@@ -152,7 +153,8 @@ async def _send_daily_plans(app):
         lines = ["🌅 *Доброе утро!*\n", "📋 *Сегодня нужно принять:*\n"]
         for med in data["meds"].values():
             meal = _MEAL_LABELS.get(med["meal_relation"], "")
-            lines.append(f"💊 *{escape_md(med['name'])}*")
+            dep_label = f" _(для {escape_md(med['dep_name'])})_" if med["dep_name"] else ""
+            lines.append(f"💊 *{escape_md(med['name'])}*{dep_label}")
             for reminder_time, dosage in sorted(med["times"]):
                 lines.append(f"   ⏰ {reminder_time} — {escape_md(dosage)} — {meal}")
         lines.append("\nНе забудь взять лекарства с собой! 🎒")
