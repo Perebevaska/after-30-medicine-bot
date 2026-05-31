@@ -2,12 +2,21 @@ import logging
 from datetime import datetime, date
 import pytz
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-from database import get_all_schedules, log_intake
+from database import get_all_schedules, log_intake, get_users_with_daily_plan
 
 logger = logging.getLogger(__name__)
 
+_MEAL_LABELS = {
+    "before": "до еды",
+    "after": "после еды",
+    "with": "во время еды",
+    "any": "независимо",
+}
+
 # (telegram_id, medication_id, reminder_time) -> datetime (UTC) последней отправки
 _pending: dict = {}
+# (telegram_id, date_iso) — пользователи, которым план дня уже отправлен сегодня
+_daily_plan_sent: set = set()
 
 
 def clear_pending_for_medication(medication_id: int):
@@ -66,12 +75,6 @@ async def send_reminders(app):
         if not should_send:
             continue
 
-        meal_labels = {
-            "before": "до еды",
-            "after": "после еды",
-            "with": "во время еды",
-            "any": "независимо",
-        }
         keyboard = InlineKeyboardMarkup([[
             InlineKeyboardButton(
                 "✅ Принял",
@@ -89,7 +92,7 @@ async def send_reminders(app):
                 text=(
                     f"💊 Время принять лекарство!\n\n"
                     f"*{row['name']}* — {row['dosage']}\n"
-                    f"🍽 Принимать {meal_labels.get(row['meal_relation'], row['meal_relation'])}"
+                    f"🍽 Принимать {_MEAL_LABELS.get(row['meal_relation'], row['meal_relation'])}"
                 ),
                 parse_mode="Markdown",
                 reply_markup=keyboard
@@ -98,6 +101,65 @@ async def send_reminders(app):
             logger.info("Напоминание отправлено: %s → %s", row["name"], row["telegram_id"])
         except Exception as e:
             logger.error("Ошибка отправки напоминания: %s", e)
+
+    await _send_daily_plans(app)
+
+
+async def _send_daily_plans(app):
+    """Отправляет утренний план дня пользователям у которых подошло время."""
+    rows = get_users_with_daily_plan()
+    if not rows:
+        return
+
+    users: dict = {}
+    for row in rows:
+        tid = row["telegram_id"]
+        if tid not in users:
+            try:
+                tz = pytz.timezone(row["timezone"] or "UTC")
+            except Exception:
+                tz = pytz.utc
+            users[tid] = {"tz": tz, "plan_time": row["daily_plan_time"] or "08:00", "meds": {}}
+        mid = row["medication_id"]
+        now_local = datetime.now(users[tid]["tz"])
+        if not _rule_fires_today(row, now_local.date()):
+            continue
+        if mid not in users[tid]["meds"]:
+            users[tid]["meds"][mid] = {
+                "name": row["name"], "dosage": row["dosage"],
+                "meal_relation": row["meal_relation"], "times": [],
+            }
+        users[tid]["meds"][mid]["times"].append(row["reminder_time"])
+
+    for tid, data in users.items():
+        now_local = datetime.now(data["tz"])
+        if now_local.strftime("%H:%M") != data["plan_time"]:
+            continue
+        plan_key = (tid, now_local.date().isoformat())
+        if plan_key in _daily_plan_sent:
+            continue
+        if not data["meds"]:
+            continue
+
+        lines = ["🌅 *Доброе утро!*\n", "📋 *Сегодня нужно принять:*\n"]
+        for med in data["meds"].values():
+            times_str = ", ".join(sorted(med["times"]))
+            meal = _MEAL_LABELS.get(med["meal_relation"], "")
+            lines.append(f"💊 *{med['name']}* — {med['dosage']}")
+            lines.append(f"   ⏰ {times_str} — {meal}")
+        lines.append("\nНе забудь взять лекарства с собой! 🎒")
+        lines.append("Продуктивного дня! 🚀")
+
+        try:
+            await app.bot.send_message(
+                chat_id=tid,
+                text="\n".join(lines),
+                parse_mode="Markdown"
+            )
+            _daily_plan_sent.add(plan_key)
+            logger.info("План дня отправлен: %s", tid)
+        except Exception as e:
+            logger.error("Ошибка отправки плана дня: %s", e)
 
 
 async def handle_intake_callback(update, context):

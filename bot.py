@@ -1,9 +1,11 @@
 import os
+from dotenv import load_dotenv
+load_dotenv()
+
 import logging
 import warnings
 from telegram.error import TimedOut, NetworkError
 from telegram.warnings import PTBUserWarning
-from dotenv import load_dotenv
 from telegram import BotCommand
 from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler,
@@ -13,11 +15,10 @@ from database import init_db, migrate
 from scheduler import send_reminders, handle_intake_callback
 from handlers import meds
 from handlers import timezone as tz_handler
-from handlers import stats, settings
+from handlers import stats, settings, admin
 from utils import cancel
 from constants import SETUP_TZ, SETUP_CITY
 
-load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 logging.basicConfig(level=logging.INFO)
@@ -83,7 +84,16 @@ def main():
         app.add_handler(h)
     app.add_handler(settings.get_handler())
     app.add_handler(settings.get_preset_handler(cancel_handler))
+    app.add_handler(settings.get_daily_plan_time_handler(cancel_handler))
     app.add_handler(CallbackQueryHandler(settings.handle_show_presets, pattern="^settings:presets$"))
+    app.add_handler(CallbackQueryHandler(settings.handle_daily_plan_settings, pattern="^settings:daily_plan$"))
+    app.add_handler(CallbackQueryHandler(settings.handle_daily_plan_toggle, pattern="^daily_plan:toggle$"))
+    app.add_handler(CallbackQueryHandler(settings.handle_daily_plan_back, pattern="^daily_plan:back$"))
+    app.add_handler(CallbackQueryHandler(settings.handle_delete_request, pattern="^settings:delete$"))
+    app.add_handler(CallbackQueryHandler(settings.handle_delete_confirm, pattern="^delete_data_confirm$"))
+    app.add_handler(CallbackQueryHandler(settings.handle_delete_cancel, pattern="^delete_data_cancel$"))
+    app.add_handler(CallbackQueryHandler(admin.handle_admin_panel, pattern="^admin:panel$"))
+    app.add_handler(CallbackQueryHandler(admin.handle_admin_back, pattern="^admin:back$"))
     app.add_handler(CallbackQueryHandler(tz_handler.handle_menu_callback, pattern="^menu:"))
     app.add_handler(CallbackQueryHandler(handle_intake_callback, pattern="^(taken|skipped):"))
     app.add_error_handler(error_handler)

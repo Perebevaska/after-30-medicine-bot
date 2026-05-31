@@ -22,10 +22,12 @@ med-bot/
 ├── scheduler.py        # send_reminders() каждую минуту
 ├── constants.py        # States, MEAL_LABELS, MONTHS_GEN, MAX_MEDICATIONS_PER_USER
 ├── utils.py            # handle_db_errors, get_tz_for_user, cancel
+├── broadcast.py        # standalone скрипт рассылки (python3 broadcast.py)
 └── handlers/
     ├── meds.py         # add/edit/delete medications
     ├── stats.py        # stats_today, stats_week
-    ├── settings.py     # settings, about, reminder_mode toggle
+    ├── settings.py     # settings, about, reminder_mode toggle, daily plan
+    ├── admin.py        # админ-панель (только ADMIN_ID)
     └── timezone.py     # start, timezone setup, main menu
 ```
 
@@ -128,6 +130,7 @@ pip install -r requirements.txt
 ```
 BOT_TOKEN=токен_от_BotFather
 TIMEZONE=Asia/Yekaterinburg
+ADMIN_ID=telegram_id_админа
 ```
 
 ## Key Behaviors
@@ -145,6 +148,9 @@ TIMEZONE=Asia/Yekaterinburg
 - Пресеты времени (🌅 Утро/☀️ Обед/🌇 Вечер/🌙 Ночь): хранятся в `users.time_morning/lunch/evening/night`, редактируются через `/settings` → "⏰ Настроить время приёмов"
 - При добавлении/редактировании лекарства вместо числа "сколько раз" — multi-select по слотам; `times_per_day` = кол-во выбранных слотов
 - `SLOT_ORDER`, `SLOT_LABELS` определены в `constants.py`; `get_user_time_presets()` / `set_user_time_preset()` в `database.py`
+- **Plan на день**: `_daily_plan_sent: set` в `scheduler.py` предотвращает дубли; `get_users_with_daily_plan()` возвращает строки schedule_rules только для пользователей с `daily_plan_enabled=1`
+- **ADMIN_ID**: читается через `os.getenv("ADMIN_ID")` в `handlers/admin.py` и `handlers/settings.py` — `load_dotenv()` вызывается в `bot.py` **до** всех импортов
+- **broadcast.py**: standalone скрипт, не импортирует handlers; завершение ввода текста — строка `.`; режим 2 требует подтверждения словом `да`
 
 ## Known Issues & Bug Tracker
 
@@ -171,7 +177,20 @@ TIMEZONE=Asia/Yekaterinburg
 
 ### 🔲 К исправлению
 
-Нет.
+| # | Файл | Проблема |
+|---|------|----------|
+| ~~17~~ | ~~`handlers/timezone.py`~~ | ~~`handle_menu_callback` рендерил настройки хардкодом~~ — ✅ исправлено |
+| ~~18~~ | ~~`handlers/timezone.py`~~ | ~~После установки TZ пишет "Используй /meds"~~ — ✅ исправлено |
+| ~~19~~ | ~~`scheduler.py`~~ | ~~`meal_labels` dict пересоздавался на каждой итерации~~ — ✅ исправлено |
+| ~~20~~ | ~~`handlers/stats.py`~~ | ~~Нет защиты от лимита 4096 символов~~ — ✅ исправлено |
+| ~~21~~ | ~~`handlers/meds.py`, `handlers/settings.py`~~ | ~~`_parse_time` дублирована~~ — ✅ исправлено, перенесена в `utils.py` |
+| ~~22~~ | ~~`handlers/timezone.py`~~ | ~~`TimezoneFinder()` создавался при каждом запросе~~ — ✅ исправлено |
+| ~~23~~ | ~~`utils.py`~~ | ~~`handle_db_errors` без `functools.wraps`~~ — ✅ исправлено |
+| ~~24~~ | ~~`handlers/meds.py`~~ | ~~Нет предупреждения для дней 29–31 в monthly расписании~~ — ✅ исправлено |
+| ~~25~~ | ~~`handlers/settings.py`~~ | ~~Нет описаний настроек в `/settings`~~ — ✅ исправлено |
+| ~~27~~ | ~~`handlers/admin.py`, `database.py`~~ | ~~Кнопка "🔧 Админ панель" в `/settings`, видима только ADMIN_ID. Показывает: всего пользователей, всего активных лекарств, кол-во пользователей активных сегодня~~ — ✅ исправлено |
+| ~~28~~ | ~~`handlers/meds.py`~~ | ~~Разбить на meds_add.py / meds_edit.py~~ — 🚫 отменено |
+| ~~26~~ | ~~`broadcast.py`~~ | ~~Отдельный скрипт рассылки: текст вводится вручную, режим тест (только ADMIN_ID) или все пользователи~~ — ✅ исправлено |
 
 ### Порядок работы с багами
 1. Найти баг → добавить в таблицу "К исправлению"

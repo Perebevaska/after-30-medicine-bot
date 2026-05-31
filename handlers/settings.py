@@ -1,39 +1,72 @@
+import os
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (ContextTypes, CallbackQueryHandler, ConversationHandler,
                            MessageHandler, filters)
 from database import (get_user_timezone, get_reminder_mode, set_reminder_mode,
-                      get_user_time_presets, set_user_time_preset)
-from constants import PRESET_TIME, SLOT_ORDER, SLOT_LABELS
-from utils import handle_db_errors
+                      get_user_time_presets, set_user_time_preset,
+                      get_daily_plan_settings, set_daily_plan_enabled, set_daily_plan_time,
+                      delete_user_data)
+from scheduler import clear_pending_for_medication
+from constants import PRESET_TIME, DAILY_PLAN_TIME, SLOT_ORDER, SLOT_LABELS
+from utils import handle_db_errors, parse_time
+
+ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 
 
-def _parse_time(time_str: str) -> str:
-    parts = time_str.split(":")
-    if len(parts) != 2:
-        raise ValueError
-    h, m = int(parts[0]), int(parts[1])
-    if not (0 <= h <= 23 and 0 <= m <= 59):
-        raise ValueError
-    return f"{h:02d}:{m:02d}"
-
-
-def _settings_text(tz: str, mode_label: str, presets: dict) -> str:
+def _settings_text(tz: str, mode_label: str, presets: dict, daily_plan: dict) -> str:
     p = presets
     presets_line = f"🌅{p['morning']}  ☀️{p['lunch']}  🌇{p['evening']}  🌙{p['night']}"
+    dp_line = f"✅ Вкл — {daily_plan['time']}" if daily_plan["enabled"] else "❌ Выкл"
     return (
         f"⚙️ *Настройки*\n\n"
         f"🌍 Часовой пояс: `{tz}`\n"
-        f"🔔 Напоминания: {mode_label}\n"
-        f"⏰ Время приёмов: {presets_line}"
+        f"🔔 Напоминания о приёме лекарств: {mode_label}\n"
+        f"⏰ Время приёмов: {presets_line}\n"
+        f"📋 План на день: {dp_line}\n\n"
+        f"_🌍 Используется для точного времени напоминаний._\n"
+        f"_🔔 «Один раз» — уведомление приходит один раз в назначенное время. "
+        f"«Повторять» — каждые 5 мин до подтверждения приёма._\n"
+        f"_⏰ Временные слоты при добавлении лекарства (Утро / Обед / Вечер / Ночь)._\n"
+        f"_📋 Присылает утреннее сообщение со списком лекарств на сегодня._\n"
+        f"_🗑 Удаляет все твои лекарства, расписания, историю приёмов и настройки._"
     )
 
 
-def _settings_keyboard(mode_label: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([
+def _settings_keyboard(mode_label: str, daily_plan: dict, telegram_id: int = 0) -> InlineKeyboardMarkup:
+    dp_label = (
+        f"📋 План на день: ✅ {daily_plan['time']}"
+        if daily_plan["enabled"]
+        else "📋 План на день: ❌ Выкл"
+    )
+    rows = [
         [InlineKeyboardButton("🌍 Изменить часовой пояс", callback_data="settings:timezone")],
-        [InlineKeyboardButton(f"Напоминания: {mode_label}", callback_data="settings:reminder")],
+        [InlineKeyboardButton(f"Напоминания о приёме лекарств: {mode_label}", callback_data="settings:reminder")],
         [InlineKeyboardButton("⏰ Настроить время приёмов", callback_data="settings:presets")],
+        [InlineKeyboardButton(dp_label, callback_data="settings:daily_plan")],
+        [InlineKeyboardButton("🗑 Удалить мои данные", callback_data="settings:delete")],
+    ]
+    if telegram_id == ADMIN_ID:
+        rows.append([InlineKeyboardButton("🔧 Админ панель", callback_data="admin:panel")])
+    return InlineKeyboardMarkup(rows)
+
+
+def _daily_plan_keyboard(dp: dict) -> InlineKeyboardMarkup:
+    toggle_label = "✅ Включён — нажми чтобы выключить" if dp["enabled"] else "❌ Выключен — нажми чтобы включить"
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(toggle_label, callback_data="daily_plan:toggle")],
+        [InlineKeyboardButton(f"⏰ Время отправки: {dp['time']}", callback_data="settings:daily_plan_time")],
+        [InlineKeyboardButton("◀️ Назад", callback_data="daily_plan:back")],
     ])
+
+
+def fetch_settings_data(telegram_id: int) -> tuple:
+    """Возвращает (tz, mode_label, presets, daily_plan) для рендеринга настроек."""
+    tz = get_user_timezone(telegram_id)
+    mode = get_reminder_mode(telegram_id)
+    presets = get_user_time_presets(telegram_id)
+    dp = get_daily_plan_settings(telegram_id)
+    mode_label = "🔔 Один раз" if mode == "once" else "🔁 Повторять каждые 5 минут"
+    return tz, mode_label, presets, dp
 
 
 def _presets_keyboard(presets: dict) -> InlineKeyboardMarkup:
@@ -49,14 +82,11 @@ def _presets_keyboard(presets: dict) -> InlineKeyboardMarkup:
 @handle_db_errors
 async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    tz = get_user_timezone(user.id)
-    mode = get_reminder_mode(user.id)
-    presets = get_user_time_presets(user.id)
-    mode_label = "🔔 Один раз" if mode == "once" else "🔁 Повторять каждые 5 минут"
+    tz, mode_label, presets, dp = fetch_settings_data(user.id)
     await update.message.reply_text(
-        _settings_text(tz, mode_label, presets),
+        _settings_text(tz, mode_label, presets, dp),
         parse_mode="Markdown",
-        reply_markup=_settings_keyboard(mode_label)
+        reply_markup=_settings_keyboard(mode_label, dp, user.id)
     )
 
 
@@ -68,13 +98,11 @@ async def handle_reminder_callback(update: Update, context: ContextTypes.DEFAULT
     mode = get_reminder_mode(user.id)
     new_mode = "repeat" if mode == "once" else "once"
     set_reminder_mode(user.id, new_mode)
-    new_label = "🔁 Повторять каждые 5 минут" if new_mode == "repeat" else "🔔 Один раз"
-    tz = get_user_timezone(user.id)
-    presets = get_user_time_presets(user.id)
+    tz, mode_label, presets, dp = fetch_settings_data(user.id)
     await query.edit_message_text(
-        _settings_text(tz, new_label, presets),
+        _settings_text(tz, mode_label, presets, dp),
         parse_mode="Markdown",
-        reply_markup=_settings_keyboard(new_label)
+        reply_markup=_settings_keyboard(mode_label, dp, user.id)
     )
 
 
@@ -111,7 +139,7 @@ async def handle_preset_select(update: Update, context: ContextTypes.DEFAULT_TYP
 @handle_db_errors
 async def handle_preset_time_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        time_str = _parse_time(update.message.text.strip())
+        time_str = parse_time(update.message.text.strip())
     except ValueError:
         await update.message.reply_text("Неверный формат. Введи время как ЧЧ:ММ, например 09:00:")
         return PRESET_TIME
@@ -137,6 +165,152 @@ async def cancel_preset(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
+# ── Daily plan handlers ────────────────────────────────────────────────────
+
+def _daily_plan_text(dp: dict) -> str:
+    status = "✅ Включён" if dp["enabled"] else "❌ Выключен"
+    return (
+        f"📋 *План на день*\n\n"
+        f"Статус: {status}\n"
+        f"Время отправки: {dp['time']}\n\n"
+        f"Каждое утро бот пришлёт список лекарств, которые нужно принять сегодня."
+    )
+
+
+@handle_db_errors
+async def handle_daily_plan_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    dp = get_daily_plan_settings(update.effective_user.id)
+    await query.edit_message_text(
+        _daily_plan_text(dp),
+        parse_mode="Markdown",
+        reply_markup=_daily_plan_keyboard(dp)
+    )
+
+
+@handle_db_errors
+async def handle_daily_plan_toggle(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user = update.effective_user
+    dp = get_daily_plan_settings(user.id)
+    set_daily_plan_enabled(user.id, not dp["enabled"])
+    dp = get_daily_plan_settings(user.id)
+    await query.edit_message_text(
+        _daily_plan_text(dp),
+        parse_mode="Markdown",
+        reply_markup=_daily_plan_keyboard(dp)
+    )
+
+
+@handle_db_errors
+async def handle_daily_plan_back(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user = update.effective_user
+    tz, mode_label, presets, dp = fetch_settings_data(user.id)
+    await query.edit_message_text(
+        _settings_text(tz, mode_label, presets, dp),
+        parse_mode="Markdown",
+        reply_markup=_settings_keyboard(mode_label, dp, user.id)
+    )
+
+
+@handle_db_errors
+async def handle_daily_plan_time_select(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    dp = get_daily_plan_settings(update.effective_user.id)
+    await query.message.reply_text(
+        f"⏰ Введи время отправки плана дня (ЧЧ:ММ):\nТекущее: {dp['time']}",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup([[
+            InlineKeyboardButton("❌ Отмена", callback_data="cancel_daily_plan_time")
+        ]])
+    )
+    return DAILY_PLAN_TIME
+
+
+@handle_db_errors
+async def handle_daily_plan_time_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        time_str = parse_time(update.message.text.strip())
+    except ValueError:
+        await update.message.reply_text("Неверный формат. Введи время как ЧЧ:ММ, например 08:00:")
+        return DAILY_PLAN_TIME
+    user = update.effective_user
+    set_daily_plan_time(user.id, time_str)
+    dp = get_daily_plan_settings(user.id)
+    await update.message.reply_text(
+        f"✅ Время обновлено → {time_str}\n\n" + _daily_plan_text(dp),
+        parse_mode="Markdown",
+        reply_markup=_daily_plan_keyboard(dp)
+    )
+    context.user_data.clear()
+    return ConversationHandler.END
+
+
+async def cancel_daily_plan_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    dp = get_daily_plan_settings(update.effective_user.id)
+    await query.edit_message_text(
+        _daily_plan_text(dp),
+        parse_mode="Markdown",
+        reply_markup=_daily_plan_keyboard(dp)
+    )
+    context.user_data.clear()
+    return ConversationHandler.END
+
+
+# ── Delete data handlers ───────────────────────────────────────────────────
+
+@handle_db_errors
+async def handle_delete_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text(
+        "⚠️ *Удаление данных*\n\n"
+        "Это действие необратимо. Будут удалены:\n"
+        "• Все лекарства и расписания\n"
+        "• Вся история приёмов\n"
+        "• Настройки (часовой пояс, напоминания)\n\n"
+        "Уверен?",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup([[
+            InlineKeyboardButton("✅ Да, удалить всё", callback_data="delete_data_confirm"),
+            InlineKeyboardButton("❌ Отмена", callback_data="delete_data_cancel"),
+        ]])
+    )
+
+
+@handle_db_errors
+async def handle_delete_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    telegram_id = update.effective_user.id
+    med_ids = delete_user_data(telegram_id)
+    for med_id in med_ids:
+        clear_pending_for_medication(med_id)
+    await query.edit_message_text(
+        "✅ Все твои данные удалены.\n\nНапиши /start чтобы начать заново."
+    )
+
+
+@handle_db_errors
+async def handle_delete_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user = update.effective_user
+    tz, mode_label, presets, dp = fetch_settings_data(user.id)
+    await query.edit_message_text(
+        _settings_text(tz, mode_label, presets, dp),
+        parse_mode="Markdown",
+        reply_markup=_settings_keyboard(mode_label, dp, user.id)
+    )
+
+
 async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "ℹ️ *О проекте*\n\n"
@@ -153,6 +327,8 @@ async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+# ── Handler factories ──────────────────────────────────────────────────────
+
 def get_handler():
     return CallbackQueryHandler(handle_reminder_callback, pattern="^settings:reminder$")
 
@@ -166,5 +342,18 @@ def get_preset_handler(cancel_handler):
         fallbacks=[
             cancel_handler,
             CallbackQueryHandler(cancel_preset, pattern="^cancel_preset$"),
+        ],
+    )
+
+
+def get_daily_plan_time_handler(cancel_handler):
+    return ConversationHandler(
+        entry_points=[CallbackQueryHandler(handle_daily_plan_time_select, pattern="^settings:daily_plan_time$")],
+        states={
+            DAILY_PLAN_TIME: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_daily_plan_time_input)],
+        },
+        fallbacks=[
+            cancel_handler,
+            CallbackQueryHandler(cancel_daily_plan_time, pattern="^cancel_daily_plan_time$"),
         ],
     )

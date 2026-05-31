@@ -1,7 +1,19 @@
+import functools
 import pytz
 from telegram.ext import ContextTypes, ConversationHandler
 from telegram import Update
 from database import get_user_timezone, DatabaseError
+
+
+def parse_time(time_str: str) -> str:
+    """Парсит и нормализует время в формат ЧЧ:ММ. Поднимает ValueError при ошибке."""
+    parts = time_str.split(":")
+    if len(parts) != 2:
+        raise ValueError
+    h, m = int(parts[0]), int(parts[1])
+    if not (0 <= h <= 23 and 0 <= m <= 59):
+        raise ValueError
+    return f"{h:02d}:{m:02d}"
 
 
 def get_tz_for_user(telegram_id: int) -> pytz.timezone:
@@ -14,6 +26,7 @@ def get_tz_for_user(telegram_id: int) -> pytz.timezone:
 
 
 def handle_db_errors(func):
+    @functools.wraps(func)
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             return await func(update, context)

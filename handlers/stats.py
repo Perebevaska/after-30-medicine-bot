@@ -129,7 +129,10 @@ async def show_stats_week(update: Update, context: ContextTypes.DEFAULT_TYPE):
     blocks.append("──────────────────")
     blocks.append(f"<b>Итог за 7 дней: {total_taken}/{total_all} ({pct}%) {color}</b>")
 
-    await query.edit_message_text("\n".join(blocks), parse_mode="HTML")
+    text = "\n".join(blocks)
+    if len(text) > 4000:
+        text = text[:3900] + "\n\n⚠️ <i>Показаны не все данные — слишком большая история.</i>"
+    await query.edit_message_text(text, parse_mode="HTML")
 
 
 def get_handlers():

@@ -6,7 +6,8 @@ EDIT_NAME, EDIT_DOSAGE, EDIT_MEAL, EDIT_TIMES, EDIT_SCHEDULE = range(5, 10)
 SETUP_TZ, SETUP_CITY = range(10, 12)
 FREQ_TYPE, FREQ_INTERVAL, FREQ_WEEKDAYS, FREQ_MONTHDAY, FREQ_TIME = range(12, 17)
 EDIT_FREQ_TYPE, EDIT_FREQ_INTERVAL, EDIT_FREQ_WEEKDAYS, EDIT_FREQ_MONTHDAY, EDIT_FREQ_TIME = range(17, 22)
-PRESET_TIME = 22  # состояние ввода времени пресета в настройках
+PRESET_TIME = 22       # состояние ввода времени пресета в настройках
+DAILY_PLAN_TIME = 23   # состояние ввода времени плана дня
 
 CANCEL_TIP = "_(/cancel для отмены)_"
 

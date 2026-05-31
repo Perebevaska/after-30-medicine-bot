@@ -55,6 +55,8 @@ def init_db():
                 time_lunch TEXT DEFAULT '12:00',
                 time_evening TEXT DEFAULT '18:00',
                 time_night TEXT DEFAULT '22:00',
+                daily_plan_enabled INTEGER DEFAULT 1,
+                daily_plan_time TEXT DEFAULT '08:00',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
 
@@ -114,6 +116,11 @@ def migrate():
         ]:
             if col not in cols:
                 conn.execute(f"ALTER TABLE users ADD COLUMN {col} TEXT DEFAULT '{default}'")
+
+        if "daily_plan_enabled" not in cols:
+            conn.execute("ALTER TABLE users ADD COLUMN daily_plan_enabled INTEGER DEFAULT 1")
+        if "daily_plan_time" not in cols:
+            conn.execute("ALTER TABLE users ADD COLUMN daily_plan_time TEXT DEFAULT '08:00'")
 
         # Мигрируем schedules → schedule_rules
         existing = conn.execute(
@@ -392,6 +399,89 @@ def update_medication(medication_id: int, user_id: int, name: str, dosage: str,
                  rule.get("interval_days"), rule.get("weekdays"),
                  rule.get("month_day"), rule.get("anchor_date"))
             )
+
+
+def get_daily_plan_settings(telegram_id: int) -> dict:
+    """Возвращает настройки плана дня: {enabled, time}."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT daily_plan_enabled, daily_plan_time FROM users WHERE telegram_id = ?",
+            (telegram_id,)
+        ).fetchone()
+        if row:
+            return {"enabled": bool(row["daily_plan_enabled"]), "time": row["daily_plan_time"] or "08:00"}
+        return {"enabled": True, "time": "08:00"}
+
+
+def set_daily_plan_enabled(telegram_id: int, enabled: bool):
+    """Включает или выключает план дня."""
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE users SET daily_plan_enabled = ? WHERE telegram_id = ?",
+            (1 if enabled else 0, telegram_id)
+        )
+
+
+def set_daily_plan_time(telegram_id: int, time_str: str):
+    """Устанавливает время отправки плана дня."""
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE users SET daily_plan_time = ? WHERE telegram_id = ?",
+            (time_str, telegram_id)
+        )
+
+
+def get_users_with_daily_plan() -> list:
+    """Возвращает строки schedule_rules для пользователей с включённым планом дня."""
+    with get_connection() as conn:
+        return conn.execute(
+            """SELECT u.telegram_id, u.timezone, u.daily_plan_time,
+                      m.id AS medication_id, m.name, m.dosage, m.meal_relation,
+                      sr.reminder_time, sr.frequency, sr.interval_days,
+                      sr.weekdays, sr.month_day, sr.anchor_date
+               FROM users u
+               JOIN medications m ON m.user_id = u.id AND m.active = 1
+               JOIN schedule_rules sr ON sr.medication_id = m.id
+               WHERE u.daily_plan_enabled = 1
+               ORDER BY u.telegram_id, m.id, sr.reminder_time"""
+        ).fetchall()
+
+
+def delete_user_data(telegram_id: int) -> list:
+    """Удаляет все данные пользователя. Возвращает список ID удалённых лекарств."""
+    with get_connection() as conn:
+        user = conn.execute(
+            "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
+        ).fetchone()
+        if not user:
+            return []
+        user_id = user["id"]
+        med_ids = [r["id"] for r in conn.execute(
+            "SELECT id FROM medications WHERE user_id = ?", (user_id,)
+        ).fetchall()]
+        if med_ids:
+            placeholders = ",".join("?" * len(med_ids))
+            conn.execute(f"DELETE FROM intake_log WHERE medication_id IN ({placeholders})", med_ids)
+            conn.execute(f"DELETE FROM schedule_rules WHERE medication_id IN ({placeholders})", med_ids)
+            conn.execute(f"DELETE FROM schedules WHERE medication_id IN ({placeholders})", med_ids)
+            conn.execute("DELETE FROM medications WHERE user_id = ?", (user_id,))
+        conn.execute("DELETE FROM users WHERE telegram_id = ?", (telegram_id,))
+        return med_ids
+
+
+def get_admin_stats() -> dict:
+    """Возвращает статистику для админ-панели."""
+    with get_connection() as conn:
+        total_users = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+        total_meds = conn.execute(
+            "SELECT COUNT(*) FROM medications WHERE active = 1"
+        ).fetchone()[0]
+        active_today = conn.execute(
+            """SELECT COUNT(DISTINCT m.user_id) FROM intake_log i
+               JOIN medications m ON m.id = i.medication_id
+               WHERE date(i.taken_at) = date('now')"""
+        ).fetchone()[0]
+        return {"total_users": total_users, "total_meds": total_meds, "active_today": active_today}
 
 
 def log_intake(medication_id: int, scheduled_time: str, status: str):

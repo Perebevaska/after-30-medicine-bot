@@ -2,8 +2,10 @@ from telegram import Update, KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardR
 from telegram.ext import ContextTypes, ConversationHandler
 from timezonefinder import TimezoneFinder
 from geopy.geocoders import Nominatim
+
+_tf = TimezoneFinder()
 from geopy.exc import GeocoderTimedOut, GeocoderServiceError
-from database import get_or_create_user, get_user_timezone, set_user_timezone, get_reminder_mode, get_user_time_presets
+from database import get_or_create_user, get_user_timezone, set_user_timezone
 from constants import SETUP_TZ, SETUP_CITY
 from utils import handle_db_errors
 
@@ -19,10 +21,8 @@ def _geo_keyboard() -> ReplyKeyboardMarkup:
 def _main_menu_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("💊 Мои лекарства", callback_data="menu:meds")],
-        [
-            InlineKeyboardButton("📊 Статистика", callback_data="menu:stats"),
-            InlineKeyboardButton("⚙️ Настройки", callback_data="menu:settings"),
-        ],
+        [InlineKeyboardButton("📊 Статистика", callback_data="menu:stats")],
+        [InlineKeyboardButton("⚙️ Настройки", callback_data="menu:settings")],
         [InlineKeyboardButton("ℹ️ О проекте", callback_data="menu:about")],
     ])
 
@@ -57,23 +57,12 @@ async def handle_menu_callback(update, context):
         )
 
     elif action == "settings":
-        tz = get_user_timezone(user.id)
-        mode = get_reminder_mode(user.id)
-        presets = get_user_time_presets(user.id)
-        mode_label = "🔔 Один раз" if mode == "once" else "🔁 Повторять каждые 5 минут"
-        p = presets
-        presets_line = f"🌅{p['morning']}  ☀️{p['lunch']}  🌇{p['evening']}  🌙{p['night']}"
+        from handlers.settings import _settings_text, _settings_keyboard, fetch_settings_data
+        tz, mode_label, presets, dp = fetch_settings_data(user.id)
         await msg.reply_text(
-            f"⚙️ *Настройки*\n\n"
-            f"🌍 Часовой пояс: `{tz}`\n"
-            f"🔔 Напоминания: {mode_label}\n"
-            f"⏰ Время приёмов: {presets_line}",
+            _settings_text(tz, mode_label, presets, dp),
             parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🌍 Изменить часовой пояс", callback_data="settings:timezone")],
-                [InlineKeyboardButton(f"Напоминания: {mode_label}", callback_data="settings:reminder")],
-                [InlineKeyboardButton("⏰ Настроить время приёмов", callback_data="settings:presets")],
-            ])
+            reply_markup=_settings_keyboard(mode_label, dp, user.id)
         )
 
     elif action == "about":
@@ -149,15 +138,15 @@ async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=ReplyKeyboardRemove()
         )
         return SETUP_CITY
-    tf = TimezoneFinder()
-    tz_name = tf.timezone_at(lat=loc.latitude, lng=loc.longitude)
+    tz_name = _tf.timezone_at(lat=loc.latitude, lng=loc.longitude)
     if tz_name:
         set_user_timezone(update.effective_user.id, tz_name)
         await update.message.reply_text(
-            f"✅ Часовой пояс определён: *{tz_name}*\n\nИспользуй /meds чтобы добавить лекарство.",
+            f"✅ Часовой пояс: *{tz_name}*",
             parse_mode="Markdown",
             reply_markup=ReplyKeyboardRemove()
         )
+        await show_main_menu(update, update.effective_user.first_name)
         return ConversationHandler.END
     await update.message.reply_text(
         "Не удалось определить часовой пояс. Введи город:",
@@ -176,15 +165,15 @@ async def handle_city_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Сервис геолокации недоступен. Попробуй ещё раз:")
         return SETUP_CITY
     if location:
-        tf = TimezoneFinder()
-        tz_name = tf.timezone_at(lat=location.latitude, lng=location.longitude)
+        tz_name = _tf.timezone_at(lat=location.latitude, lng=location.longitude)
         if tz_name:
             set_user_timezone(update.effective_user.id, tz_name)
             await update.message.reply_text(
-                f"✅ Часовой пояс: *{tz_name}*\n\nИспользуй /meds чтобы добавить лекарство.",
+                f"✅ Часовой пояс: *{tz_name}*",
                 parse_mode="Markdown",
                 reply_markup=ReplyKeyboardRemove()
             )
+            await show_main_menu(update, update.effective_user.first_name)
             return ConversationHandler.END
     await update.message.reply_text("Город не найден. Попробуй ещё раз:")
     return SETUP_CITY
