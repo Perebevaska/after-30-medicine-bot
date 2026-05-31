@@ -72,13 +72,6 @@ def init_db():
                 FOREIGN KEY (user_id) REFERENCES users(id)
             );
 
-            CREATE TABLE IF NOT EXISTS schedules (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                medication_id INTEGER NOT NULL,
-                reminder_time TEXT NOT NULL,
-                FOREIGN KEY (medication_id) REFERENCES medications(id)
-            );
-
             CREATE TABLE IF NOT EXISTS intake_log (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 medication_id INTEGER NOT NULL,
@@ -126,17 +119,8 @@ def migrate():
         if "dosage" not in sr_cols:
             conn.execute("ALTER TABLE schedule_rules ADD COLUMN dosage TEXT DEFAULT NULL")
 
-        # Мигрируем schedules → schedule_rules
-        existing = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='schedule_rules'"
-        ).fetchone()
-        if existing:
-            count = conn.execute("SELECT COUNT(*) FROM schedule_rules").fetchone()[0]
-            if count == 0:
-                conn.execute("""
-                    INSERT INTO schedule_rules (medication_id, reminder_time, frequency)
-                    SELECT medication_id, reminder_time, 'daily' FROM schedules
-                """)
+        # Дропаем устаревшую таблицу schedules (данные давно в schedule_rules)
+        conn.execute("DROP TABLE IF EXISTS schedules")
 
 
 def get_or_create_user(telegram_id: int, username: str = None) -> int:
@@ -485,7 +469,6 @@ def delete_user_data(telegram_id: int) -> list:
             placeholders = ",".join("?" * len(med_ids))
             conn.execute(f"DELETE FROM intake_log WHERE medication_id IN ({placeholders})", med_ids)
             conn.execute(f"DELETE FROM schedule_rules WHERE medication_id IN ({placeholders})", med_ids)
-            conn.execute(f"DELETE FROM schedules WHERE medication_id IN ({placeholders})", med_ids)
             conn.execute("DELETE FROM medications WHERE user_id = ?", (user_id,))
         conn.execute("DELETE FROM users WHERE telegram_id = ?", (telegram_id,))
         return med_ids

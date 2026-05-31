@@ -35,7 +35,7 @@ med-bot/
 5 таблиц:
 - `users` (telegram_id, username, timezone, reminder_mode, time_morning, time_lunch, time_evening, time_night)
 - `medications` (user_id FK, name, dosage, meal_relation, times_per_day, active)
-- `schedules` (medication_id FK, reminder_time HH:MM) — устаревшая, оставлена для совместимости
+- ~~`schedules`~~ — удалена, данные перенесены в `schedule_rules` при миграции
 - `schedule_rules` (medication_id FK, reminder_time, frequency, interval_days, weekdays, month_day, anchor_date, dosage) — `dosage NULL` = берётся из `medications.dosage`
 - `intake_log` (medication_id FK, scheduled_time, taken_at, status: taken/skipped/pending)
 
@@ -202,7 +202,8 @@ ADMIN_ID=telegram_id_админа
 | ~~29~~ | ~~`handlers/meds.py`~~ | ~~Нельзя отредактировать лекарство с разными дозировками~~ — ✅ исправлено: редактируются имя, дозировка А/Б, способ приёма, расписание |
 | 30 | `handlers/meds.py` | В `_show_edit_freq_type_step` для multi-dosage: (1) устаревшее сообщение "⚠️ Изменить расписание нельзя" — нужно убрать; (2) кнопка "Изменить способ приёма" логически не относится к блоку расписания |
 | 31 | `handlers/stats.py`, новый `export.py` | Экспорт истории приёмов в PDF: кнопка в /stats, fpdf2 + DejaVuSans TTF для кириллицы, генерация в BytesIO, отправка через send_document |
-| 32 | `database.py`, `.claude/CLAUDE.md` | Аудит проекта: (1) синхронизировать два CLAUDE.md (`.claude/` краткий vs `med-bot/` полный); (2) дропнуть таблицу `schedules` — добавить `DROP TABLE IF EXISTS schedules` в `migrate()`, убрать из `init_db()` и `delete_user_data()` |
+| ~~32~~ | ~~`database.py`~~ | ~~Дропнуть таблицу `schedules`~~ — ✅ исправлено: убрана из `init_db()`, `delete_user_data()`; в `migrate()` добавлен `DROP TABLE IF EXISTS schedules` |
+| 32 | `.claude/CLAUDE.md` | Синхронизировать два CLAUDE.md: `.claude/` краткий vs `med-bot/` полный — привести в согласованность |
 | 33 | `handlers/meds.py`, `database.py` | Аудит валидации входных данных: ограничить длину названия лекарства и дозировки, экранировать спецсимволы Markdown (`*`, `_`, `` ` ``, `[`) в пользовательских строках перед вставкой в `parse_mode="Markdown"` сообщения |
 | 34 | новый `handlers/family.py`, `database.py` | Caregiver-режим: лекарства для ребёнка/другого человека без своего телефона. Минимальный вариант — поле `for_whom TEXT` в `medications`, в напоминании и списке показывать "(для Маши)". Лимит считать отдельно на подопечного |
 
