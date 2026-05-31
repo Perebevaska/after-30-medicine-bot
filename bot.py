@@ -4,6 +4,7 @@ import warnings
 from telegram.error import TimedOut, NetworkError
 from telegram.warnings import PTBUserWarning
 from dotenv import load_dotenv
+from telegram import BotCommand
 from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler,
     ConversationHandler, MessageHandler, filters
@@ -27,6 +28,17 @@ warnings.filterwarnings("ignore", category=PTBUserWarning)
 logger = logging.getLogger(__name__)
 
 
+async def post_init(app):
+    await app.bot.set_my_commands([
+        BotCommand("start",    "🏠 Главное меню"),
+        BotCommand("meds",     "💊 Мои лекарства"),
+        BotCommand("stats",    "📊 Статистика"),
+        BotCommand("settings", "⚙️ Настройки"),
+        BotCommand("about",    "ℹ️ О проекте"),
+        BotCommand("cancel",   "❌ Отменить действие"),
+    ])
+
+
 async def error_handler(update, context):
     if isinstance(context.error, (TimedOut, NetworkError)):
         logger.warning("Telegram network error (transient): %s", context.error)
@@ -37,7 +49,7 @@ async def error_handler(update, context):
 def main():
     init_db()
     migrate()
-    app = Application.builder().token(BOT_TOKEN).build()
+    app = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
 
     cancel_handler = CommandHandler("cancel", cancel)
 
