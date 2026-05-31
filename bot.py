@@ -1,6 +1,7 @@
 import os
 import logging
 import warnings
+from telegram.error import TimedOut, NetworkError
 from telegram.warnings import PTBUserWarning
 from dotenv import load_dotenv
 from telegram.ext import (
@@ -24,6 +25,13 @@ logging.getLogger("apscheduler").setLevel(logging.WARNING)
 logging.getLogger("telegram").setLevel(logging.WARNING)
 warnings.filterwarnings("ignore", category=PTBUserWarning)
 logger = logging.getLogger(__name__)
+
+
+async def error_handler(update, context):
+    if isinstance(context.error, (TimedOut, NetworkError)):
+        logger.warning("Telegram network error (transient): %s", context.error)
+        return
+    logger.error("Unhandled error", exc_info=context.error)
 
 
 def main():
@@ -66,6 +74,7 @@ def main():
     app.add_handler(CallbackQueryHandler(settings.handle_show_presets, pattern="^settings:presets$"))
     app.add_handler(CallbackQueryHandler(tz_handler.handle_menu_callback, pattern="^menu:"))
     app.add_handler(CallbackQueryHandler(handle_intake_callback, pattern="^(taken|skipped):"))
+    app.add_error_handler(error_handler)
 
     job_queue = app.job_queue
     job_queue.run_repeating(
