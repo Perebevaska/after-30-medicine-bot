@@ -10,9 +10,8 @@ from database import (get_or_create_user, add_medication, add_schedule_rule,
 from scheduler import clear_pending_for_medication
 from constants import (NAME, DOSAGE, MEAL, TIMES, SCHEDULE,
                        EDIT_NAME, EDIT_DOSAGE, EDIT_MEAL, EDIT_TIMES, EDIT_SCHEDULE,
-                       FREQ_TYPE, FREQ_INTERVAL, FREQ_WEEKDAYS, FREQ_MONTHDAY, FREQ_TIME,
-                       EDIT_FREQ_TYPE, EDIT_FREQ_INTERVAL, EDIT_FREQ_WEEKDAYS,
-                       EDIT_FREQ_MONTHDAY, EDIT_FREQ_TIME,
+                       FREQ_TYPE, FREQ_INTERVAL, FREQ_WEEKDAYS, FREQ_MONTHDAY,
+                       EDIT_FREQ_TYPE, EDIT_FREQ_INTERVAL, EDIT_FREQ_WEEKDAYS, EDIT_FREQ_MONTHDAY,
                        MEAL_LABELS, MAX_MEDICATIONS_PER_USER)
 from utils import handle_db_errors
 
@@ -491,61 +490,6 @@ async def add_freq_monthday(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
-@handle_db_errors
-async def add_freq_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        time_str = _parse_time(update.message.text.strip())
-    except Exception:
-        await update.message.reply_text("Неверный формат. Введи время как ЧЧ:ММ, например 09:30:")
-        return FREQ_TIME
-
-    collected = context.user_data.setdefault("freq_collected_times", [])
-    collected.append(time_str)
-    total = context.user_data.get("times", 1)
-
-    if len(collected) < total:
-        await update.message.reply_text(
-            f"Время {len(collected)} из {total} принято. "
-            f"Введи время {len(collected) + 1} из {total}:",
-            reply_markup=_CANCEL_BTN
-        )
-        return FREQ_TIME
-
-    user = update.effective_user
-    user_id = get_or_create_user(user.id, user.username)
-    if count_active_medications(user_id) >= MAX_MEDICATIONS_PER_USER:
-        await update.message.reply_text(
-            f"⚠️ Достигнут лимит: максимум {MAX_MEDICATIONS_PER_USER} лекарств."
-        )
-        context.user_data.clear()
-        return ConversationHandler.END
-
-    freq = context.user_data["freq_type"]
-    interval_days = context.user_data.get("freq_interval_days")
-    weekdays_set = context.user_data.get("freq_weekdays", set())
-    weekdays = ",".join(str(d) for d in sorted(weekdays_set)) or None
-    month_day = context.user_data.get("freq_month_day")
-    anchor_date = date.today().isoformat() if freq == "interval" else None
-
-    med_id = add_medication(user_id, context.user_data["name"],
-                            context.user_data["dosage"], context.user_data["meal"], total)
-    for t in collected:
-        add_schedule_rule(med_id, t, freq,
-                          interval_days=interval_days, weekdays=weekdays,
-                          month_day=month_day, anchor_date=anchor_date)
-
-    freq_label = _freq_label(freq, interval_days, weekdays, month_day)
-    await update.message.reply_text(
-        f"✅ Лекарство добавлено!\n\n"
-        f"💊 {context.user_data['name']} — {context.user_data['dosage']}\n"
-        f"🍽 {MEAL_LABELS[context.user_data['meal']]}\n"
-        f"🔢 {total} раз в день\n"
-        f"⏰ {', '.join(collected)} — {freq_label}"
-    )
-    context.user_data.clear()
-    return ConversationHandler.END
-
-
 # ── Edit flow: entry & name/dosage ─────────────────────────────────────────
 
 @handle_db_errors
@@ -565,7 +509,6 @@ async def handle_edit_select(update: Update, context: ContextTypes.DEFAULT_TYPE)
     query = update.callback_query
     await query.answer()
     medication_id = int(query.data.split(":")[1])
-    logger.info("handle_edit_select: med_id=%s user=%s", medication_id, update.effective_user.id)
     user = update.effective_user
     user_id = get_or_create_user(user.id, user.username)
     med = get_medication_by_id(medication_id, user_id)
@@ -666,6 +609,7 @@ async def keep_edit_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE)
         f"✅ Лекарство обновлено!\n\n"
         f"💊 {context.user_data['edit_name']} — {context.user_data['edit_dosage']}\n"
         f"🍽 {MEAL_LABELS[edit_med['meal_relation']]}\n"
+        f"🔢 {edit_med['times_per_day']} раз в день\n"
         f"⏰ {schedule_str}"
     )
     context.user_data.clear()
@@ -914,55 +858,6 @@ async def edit_freq_monthday(update: Update, context: ContextTypes.DEFAULT_TYPE)
         f"🍽 {MEAL_LABELS[context.user_data['edit_meal']]}\n"
         f"🔢 {total} раз в день\n"
         f"⏰ {', '.join(collected)} — {_freq_label('monthly', None, None, day)}"
-    )
-    context.user_data.clear()
-    return ConversationHandler.END
-
-
-@handle_db_errors
-async def edit_freq_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        time_str = _parse_time(update.message.text.strip())
-    except Exception:
-        await update.message.reply_text("Неверный формат. Введи время как ЧЧ:ММ:")
-        return EDIT_FREQ_TIME
-
-    collected = context.user_data.setdefault("edit_freq_collected_times", [])
-    collected.append(time_str)
-    total = context.user_data.get("edit_times", 1)
-
-    if len(collected) < total:
-        await update.message.reply_text(
-            f"✅ Принято. ⏰ *Время приёма {len(collected) + 1} из {total}* (ЧЧ:ММ):",
-            parse_mode="Markdown",
-            reply_markup=_CANCEL_BTN
-        )
-        return EDIT_FREQ_TIME
-
-    user_id = context.user_data["edit_user_id"]
-    freq = context.user_data["edit_freq_type"]
-    interval_days = context.user_data.get("edit_freq_interval_days")
-    weekdays_set = context.user_data.get("edit_freq_weekdays", set())
-    weekdays = ",".join(str(d) for d in sorted(weekdays_set)) or None
-    month_day = context.user_data.get("edit_freq_month_day")
-    anchor_date = date.today().isoformat() if freq == "interval" else None
-
-    rules = [
-        {"reminder_time": t, "frequency": freq, "interval_days": interval_days,
-         "weekdays": weekdays, "month_day": month_day, "anchor_date": anchor_date}
-        for t in collected
-    ]
-    update_medication(context.user_data["edit_id"], user_id,
-                      context.user_data["edit_name"], context.user_data["edit_dosage"],
-                      context.user_data["edit_meal"], total, rules)
-
-    freq_label = _freq_label(freq, interval_days, weekdays, month_day)
-    await update.message.reply_text(
-        f"✅ Лекарство обновлено!\n\n"
-        f"💊 {context.user_data['edit_name']} — {context.user_data['edit_dosage']}\n"
-        f"🍽 {MEAL_LABELS[context.user_data['edit_meal']]}\n"
-        f"🔢 {total} раз в день\n"
-        f"⏰ {', '.join(collected)} — {freq_label}"
     )
     context.user_data.clear()
     return ConversationHandler.END
