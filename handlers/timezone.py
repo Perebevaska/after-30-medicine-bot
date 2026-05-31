@@ -74,7 +74,7 @@ async def handle_menu_callback(update, context):
         lines = ["📋 *Лекарства на сегодня:*\n"]
         for med in meds.values():
             meal = _MEAL_LABELS.get(med["meal_relation"], "")
-            dep_label = f" _(для {escape_md(med['dep_name'])})_" if med["dep_name"] else ""
+            dep_label = f" _({escape_md(med['dep_name'])})_" if med["dep_name"] else ""
             lines.append(f"💊 *{escape_md(med['name'])}*{dep_label} — {meal}")
             for reminder_time, mid, dosage in sorted(med["times"]):
                 st = statuses.get((mid, reminder_time))

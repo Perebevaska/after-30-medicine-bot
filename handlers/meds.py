@@ -418,7 +418,7 @@ async def show_meds_list(message, user):
             schedule_str = "\n".join(_format_schedule_rule(r) for r in rules) or "не указано"
 
         meal = MEAL_LABELS.get(med["meal_relation"], med["meal_relation"])
-        dep_label = f" _(для {escape_md(med['dependent_name'])})_" if med["dependent_name"] else ""
+        dep_label = f" _({escape_md(med['dependent_name'])})_" if med["dependent_name"] else ""
         keyboard = InlineKeyboardMarkup([[
             InlineKeyboardButton("✏️ Изменить", callback_data=f"edit:{med['id']}"),
             InlineKeyboardButton("🗑 Удалить", callback_data=f"delete:{med['id']}"),

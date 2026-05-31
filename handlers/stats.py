@@ -106,7 +106,7 @@ async def show_stats_week(update: Update, context: ContextTypes.DEFAULT_TYPE):
     total_all = 0
 
     for r in rows:
-        dep_suffix = f" (для {r['dependent_name']})" if r["dependent_name"] else ""
+        dep_suffix = f" ({r['dependent_name']})" if r["dependent_name"] else ""
         med_key = f"{r['name']}{dep_suffix} {r['dosage']}"
         utc_dt = datetime.strptime(r["taken_at"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=pytz.utc)
         local_dt = utc_dt.astimezone(user_tz)
@@ -184,7 +184,7 @@ async def show_week_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
             times_str = "  ".join(
                 f"{t} — {d}" for t, d in sorted(med["times"])
             )
-            dep_label = f" <i>(для {med['dep_name']})</i>" if med["dep_name"] else ""
+            dep_label = f" <i>({med['dep_name']})</i>" if med["dep_name"] else ""
             blocks.append(f"  💊 {med['name']}{dep_label}: {times_str}")
         blocks.append("")
 

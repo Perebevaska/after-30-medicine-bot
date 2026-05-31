@@ -88,7 +88,7 @@ async def send_reminders(app):
         ]])
 
         dosage = row["rule_dosage"] or row["med_dosage"]
-        dep_suffix = f" _(для {escape_md(row['dependent_name'])})_" if row["dependent_name"] else ""
+        dep_suffix = f" _({escape_md(row['dependent_name'])})_" if row["dependent_name"] else ""
         try:
             await app.bot.send_message(
                 chat_id=row["telegram_id"],
@@ -153,7 +153,7 @@ async def _send_daily_plans(app):
         lines = ["🌅 *Доброе утро!*\n", "📋 *Сегодня нужно принять:*\n"]
         for med in data["meds"].values():
             meal = _MEAL_LABELS.get(med["meal_relation"], "")
-            dep_label = f" _(для {escape_md(med['dep_name'])})_" if med["dep_name"] else ""
+            dep_label = f" _({escape_md(med['dep_name'])})_" if med["dep_name"] else ""
             lines.append(f"💊 *{escape_md(med['name'])}*{dep_label}")
             for reminder_time, dosage in sorted(med["times"]):
                 lines.append(f"   ⏰ {reminder_time} — {escape_md(dosage)} — {meal}")
