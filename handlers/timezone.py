@@ -5,6 +5,7 @@ from timezonefinder import TimezoneFinder
 from geopy.geocoders import Nominatim
 
 _tf = TimezoneFinder()
+_geolocator = Nominatim(user_agent="med_bot")
 from geopy.exc import GeocoderTimedOut, GeocoderServiceError
 from database import get_or_create_user, get_user_timezone, set_user_timezone, get_schedules_for_user, get_today_intake_statuses
 from constants import SETUP_TZ, SETUP_CITY
@@ -12,6 +13,7 @@ from utils import handle_db_errors, get_tz_for_user, escape_md
 
 
 def _geo_keyboard() -> ReplyKeyboardMarkup:
+    """Клавиатура запроса геолокации или ручного ввода города."""
     return ReplyKeyboardMarkup(
         [[KeyboardButton("📍 Отправить геолокацию", request_location=True)],
          [KeyboardButton("✍️ Ввести город вручную")]],
@@ -20,6 +22,7 @@ def _geo_keyboard() -> ReplyKeyboardMarkup:
 
 
 def _main_menu_keyboard():
+    """Inline-клавиатура главного меню."""
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("📋 Лекарства на сегодня", callback_data="menu:today")],
         [InlineKeyboardButton("💊 Мои лекарства", callback_data="menu:meds")],
@@ -30,6 +33,7 @@ def _main_menu_keyboard():
 
 
 async def show_main_menu(update, first_name, hint: str = ""):
+    """Отправляет приветственное сообщение с главным меню. hint — опциональная подсказка."""
     text = f"Привет, {first_name}! 💊\n\nЯ помогу тебе не забывать принимать лекарства."
     if hint:
         text += f"\n\n{hint}"
@@ -38,6 +42,7 @@ async def show_main_menu(update, first_name, hint: str = ""):
 
 @handle_db_errors
 async def handle_menu_callback(update, context):
+    """Обрабатывает нажатия кнопок главного меню (menu:today/meds/stats/settings/about)."""
     query = update.callback_query
     await query.answer()
     action = query.data.split(":")[1]
@@ -106,7 +111,6 @@ async def handle_menu_callback(update, context):
             "*В планах:*\n"
             "💊 Напоминание о пополнении запаса таблеток\n"
             "👨‍👩‍👧 Caregiver режим — следить за приёмами другого пользователя\n"
-            "📄 Экспорт истории в PDF\n"
             "📱 Telegram Mini App",
             parse_mode="Markdown",
             disable_web_page_preview=True
@@ -115,6 +119,7 @@ async def handle_menu_callback(update, context):
 
 @handle_db_errors
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик /start: создаёт пользователя, запрашивает TZ если не задан."""
     user = update.effective_user
     get_or_create_user(user.id, user.username)
     tz = get_user_timezone(user.id)
@@ -133,6 +138,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def timezone_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик /timezone: запускает флоу смены часового пояса."""
     await update.message.reply_text(
         "Отправь геолокацию или введи город:",
         reply_markup=_geo_keyboard()
@@ -141,7 +147,7 @@ async def timezone_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def handle_settings_timezone(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Entry point для смены timezone из Settings."""
+    """Entry point смены TZ из меню настроек (кнопка «Изменить часовой пояс»)."""
     query = update.callback_query
     await query.answer()
     await query.message.reply_text(
@@ -152,6 +158,7 @@ async def handle_settings_timezone(update: Update, context: ContextTypes.DEFAULT
 
 
 async def handle_tz_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Маршрутизирует текстовый ввод: «Ввести город вручную» → SETUP_CITY, иначе → handle_city_input."""
     if update.message.text == "✍️ Ввести город вручную":
         await update.message.reply_text(
             "Введи название города (можно на русском):",
@@ -163,6 +170,7 @@ async def handle_tz_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @handle_db_errors
 async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Определяет TZ по переданной геолокации и сохраняет её для пользователя."""
     loc = update.message.location
     if loc is None:
         await update.message.reply_text(
@@ -190,10 +198,10 @@ async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @handle_db_errors
 async def handle_city_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Геокодирует введённый город через Nominatim и сохраняет найденный TZ."""
     city = update.message.text.strip()
     try:
-        geolocator = Nominatim(user_agent="med_bot")
-        location = geolocator.geocode(city, timeout=10)
+        location = _geolocator.geocode(city, timeout=10)
     except (GeocoderTimedOut, GeocoderServiceError):
         await update.message.reply_text("Сервис геолокации недоступен. Попробуй ещё раз:")
         return SETUP_CITY

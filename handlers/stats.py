@@ -6,11 +6,13 @@ from telegram.ext import ContextTypes, CallbackQueryHandler
 from database import get_or_create_user, get_today_stats, get_history_detailed, get_schedules_for_user
 from constants import MONTHS_GEN, MONTHS_SHORT
 from utils import handle_db_errors, get_tz_for_user
+from scheduler import _rule_fires_today
 
 _WEEKDAY_NAMES = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
 
 
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик /stats: показывает выбор периода статистики."""
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("📈 За 7 дней", callback_data="stats:week")],
         [InlineKeyboardButton("📆 План на 7 дней", callback_data="stats:plan")],
@@ -20,6 +22,7 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @handle_db_errors
 async def show_stats_today(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показывает статистику приёмов за сегодня с процентом выполнения."""
     query = update.callback_query
     await query.answer()
     user = update.effective_user
@@ -81,6 +84,7 @@ async def show_stats_today(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @handle_db_errors
 async def show_stats_week(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показывает детальную историю приёмов за последние 7 дней с кнопкой PDF."""
     query = update.callback_query
     await query.answer()
     user = update.effective_user
@@ -144,6 +148,7 @@ async def show_stats_week(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @handle_db_errors
 async def show_week_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показывает план лекарств на ближайшие 7 дней с учётом frequency, с кнопкой PDF."""
     query = update.callback_query
     await query.answer()
     user = update.effective_user
@@ -154,8 +159,6 @@ async def show_week_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not rows:
         await query.edit_message_text("💊 Нет активных лекарств.")
         return
-
-    from scheduler import _rule_fires_today
 
     blocks = ["📆 <b>План на 7 дней</b>\n"]
     for offset in range(7):
@@ -199,6 +202,7 @@ async def show_week_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def get_handlers():
+    """Возвращает список handlers для страниц статистики."""
     return [
         CallbackQueryHandler(show_stats_week, pattern="^stats:week$"),
         CallbackQueryHandler(show_week_plan, pattern="^stats:plan$"),

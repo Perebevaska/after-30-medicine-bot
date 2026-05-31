@@ -8,7 +8,7 @@ from telegram.ext import CallbackQueryHandler
 from database import get_schedules_for_user, get_history_detailed, get_or_create_user
 from utils import get_tz_for_user, handle_db_errors
 from constants import MONTHS_SHORT
-from scheduler import _rule_fires_today, _MEAL_LABELS
+from scheduler import _rule_fires_today, _MEAL_LABELS  # _MEAL_LABELS: строчные варианты для текста
 
 _FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 _FONT_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
@@ -16,9 +16,11 @@ _WEEKDAY_NAMES = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
 
 
 def _build_pdf(title: str, subtitle: str, sections: list[tuple[str, list[str]]]) -> io.BytesIO:
-    """
-    sections: [(heading, [line, ...]), ...]
-    Returns BytesIO with PDF content.
+    """Генерирует PDF с кириллическим шрифтом DejaVuSans.
+
+    sections: список (heading, [строка, ...]) — каждая группа выводится
+    как выделенный заголовок на сером фоне + отступленные строки под ним.
+    Возвращает BytesIO с готовым PDF.
     """
     pdf = FPDF()
     pdf.add_page()
@@ -51,6 +53,7 @@ def _build_pdf(title: str, subtitle: str, sections: list[tuple[str, list[str]]])
 
 @handle_db_errors
 async def export_week_plan(update, context):
+    """Генерирует PDF-файл с планом лекарств на 7 дней и отправляет пользователю."""
     query = update.callback_query
     await query.answer("Генерирую PDF...")
     user = update.effective_user
@@ -93,6 +96,7 @@ async def export_week_plan(update, context):
 
 @handle_db_errors
 async def export_week_stats(update, context):
+    """Генерирует PDF-файл с историей приёмов за 7 дней и отправляет пользователю."""
     query = update.callback_query
     await query.answer("Генерирую PDF...")
     user = update.effective_user
@@ -135,6 +139,7 @@ async def export_week_stats(update, context):
 
 
 def get_handlers():
+    """Возвращает handlers для экспорта в PDF (план и история)."""
     return [
         CallbackQueryHandler(export_week_plan, pattern="^export:plan$"),
         CallbackQueryHandler(export_week_stats, pattern="^export:week$"),

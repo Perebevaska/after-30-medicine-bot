@@ -36,6 +36,7 @@ def get_tz_for_user(telegram_id: int) -> pytz.timezone:
 
 
 def handle_db_errors(func):
+    """Декоратор: перехватывает DatabaseError и отвечает пользователю сообщением об ошибке."""
     @functools.wraps(func)
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
@@ -50,6 +51,7 @@ def handle_db_errors(func):
 
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик /cancel — завершает любой активный ConversationHandler."""
     context.user_data.clear()
     await update.message.reply_text("Отменено.")
     return ConversationHandler.END

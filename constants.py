@@ -1,3 +1,5 @@
+"""Константы и состояния ConversationHandler для med-bot."""
+
 MAX_MEDICATIONS_PER_USER = 10
 
 # Состояния диалогов

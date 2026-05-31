@@ -108,7 +108,7 @@ async def send_reminders(app):
 
 
 async def _send_daily_plans(app):
-    """Отправляет утренний план дня пользователям у которых подошло время."""
+    """Отправляет утренний план дня пользователям, у которых наступило время plan_time."""
     rows = get_users_with_daily_plan()
     if not rows:
         return
@@ -121,10 +121,15 @@ async def _send_daily_plans(app):
                 tz = pytz.timezone(row["timezone"] or "UTC")
             except Exception:
                 tz = pytz.utc
-            users[tid] = {"tz": tz, "plan_time": row["daily_plan_time"] or "08:00", "meds": {}}
+            now_local = datetime.now(tz)
+            users[tid] = {
+                "tz": tz,
+                "now_local": now_local,
+                "plan_time": row["daily_plan_time"] or "08:00",
+                "meds": {},
+            }
         mid = row["medication_id"]
-        now_local = datetime.now(users[tid]["tz"])
-        if not _rule_fires_today(row, now_local.date()):
+        if not _rule_fires_today(row, users[tid]["now_local"].date()):
             continue
         if mid not in users[tid]["meds"]:
             users[tid]["meds"][mid] = {
@@ -134,7 +139,7 @@ async def _send_daily_plans(app):
         users[tid]["meds"][mid]["times"].append((row["reminder_time"], dosage))
 
     for tid, data in users.items():
-        now_local = datetime.now(data["tz"])
+        now_local = data["now_local"]
         if now_local.strftime("%H:%M") != data["plan_time"]:
             continue
         plan_key = (tid, now_local.date().isoformat())
@@ -165,7 +170,11 @@ async def _send_daily_plans(app):
 
 
 async def handle_intake_callback(update, context):
-    """Обрабатывает нажатие кнопки Принял/Пропустил."""
+    """Обрабатывает нажатие кнопок ✅ Принял / ❌ Пропустить в напоминании.
+
+    Парсит callback_data формата «status:medication_id:HH:MM»,
+    записывает приём в intake_log и убирает ключ из _pending.
+    """
     query = update.callback_query
     await query.answer()
 

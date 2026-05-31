@@ -63,6 +63,7 @@ _EDIT_FREQ_MONTHDAY_KB = InlineKeyboardMarkup([[
 
 
 def _back_cancel_kb(back_cb: str) -> InlineKeyboardMarkup:
+    """Универсальная клавиатура «◀️ Назад / ❌ Отмена» с произвольным back_cb."""
     return InlineKeyboardMarkup([[
         InlineKeyboardButton("◀️ Назад", callback_data=back_cb),
         InlineKeyboardButton("❌ Отмена", callback_data="cancel_add"),
@@ -70,6 +71,7 @@ def _back_cancel_kb(back_cb: str) -> InlineKeyboardMarkup:
 
 
 def _freq_type_keyboard() -> InlineKeyboardMarkup:
+    """Клавиатура выбора типа расписания А (добавление/редактирование лекарства)."""
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("📅 Каждый день", callback_data="freq:daily")],
         [InlineKeyboardButton("🔄 Каждый N день", callback_data="freq:interval")],
@@ -81,6 +83,7 @@ def _freq_type_keyboard() -> InlineKeyboardMarkup:
 
 
 def _freq_type_b_keyboard() -> InlineKeyboardMarkup:
+    """Клавиатура выбора типа расписания для дозировки Б (multi-dosage флоу)."""
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("📅 Каждый день", callback_data="freqb:daily")],
         [InlineKeyboardButton("🔄 Каждый N день", callback_data="freqb:interval")],
@@ -92,6 +95,7 @@ def _freq_type_b_keyboard() -> InlineKeyboardMarkup:
 
 
 def _edit_freq_type_keyboard() -> InlineKeyboardMarkup:
+    """Клавиатура выбора расписания при редактировании обычного лекарства."""
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("➡️ Оставить расписание", callback_data="keep_edit_schedule")],
         [InlineKeyboardButton("📅 Каждый день", callback_data="editfreq:daily")],
@@ -104,6 +108,7 @@ def _edit_freq_type_keyboard() -> InlineKeyboardMarkup:
 
 
 def _edit_freq_type_keyboard_multi() -> InlineKeyboardMarkup:
+    """Клавиатура выбора расписания при редактировании лекарства с разной дозировкой."""
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("➡️ Сохранить без изменений", callback_data="keep_edit_schedule")],
         [InlineKeyboardButton("🔄 Изменить расписание", callback_data="multi_edit_change_schedule")],
@@ -113,6 +118,7 @@ def _edit_freq_type_keyboard_multi() -> InlineKeyboardMarkup:
 
 
 def _weekdays_keyboard(selected: set) -> InlineKeyboardMarkup:
+    """Клавиатура выбора дней недели для расписания А; отмечает уже выбранные."""
     row = [
         InlineKeyboardButton(
             f"✅ {name}" if d in selected else name,
@@ -129,6 +135,7 @@ def _weekdays_keyboard(selected: set) -> InlineKeyboardMarkup:
 
 
 def _weekdays_b_keyboard(selected: set) -> InlineKeyboardMarkup:
+    """Клавиатура выбора дней недели для расписания Б (multi-dosage флоу)."""
     row = [
         InlineKeyboardButton(
             f"✅ {name}" if d in selected else name,
@@ -145,6 +152,7 @@ def _weekdays_b_keyboard(selected: set) -> InlineKeyboardMarkup:
 
 
 def _edit_weekdays_keyboard(selected: set) -> InlineKeyboardMarkup:
+    """Клавиатура выбора дней недели при редактировании расписания."""
     row = [
         InlineKeyboardButton(
             f"✅ {name}" if d in selected else name,
@@ -161,6 +169,7 @@ def _edit_weekdays_keyboard(selected: set) -> InlineKeyboardMarkup:
 
 
 def _edit_meal_keyboard(current_label: str) -> InlineKeyboardMarkup:
+    """Клавиатура выбора способа приёма с пищей при редактировании (кнопка «Оставить» + 4 варианта)."""
     return InlineKeyboardMarkup(
         [[InlineKeyboardButton(f"➡️ Оставить ({current_label})", callback_data="keep_edit_meal")]]
         + [[InlineKeyboardButton(label, callback_data=f"editmeal:{key}")] for key, label in MEAL_LABELS.items()]
@@ -170,6 +179,7 @@ def _edit_meal_keyboard(current_label: str) -> InlineKeyboardMarkup:
 
 
 def _edit_meal_keyboard_multi(current_label: str) -> InlineKeyboardMarkup:
+    """Клавиатура выбора приёма с пищей при редактировании multi-dosage (назад → dosage_b)."""
     return InlineKeyboardMarkup(
         [[InlineKeyboardButton(f"➡️ Оставить ({current_label})", callback_data="keep_edit_meal")]]
         + [[InlineKeyboardButton(label, callback_data=f"editmeal:{key}")] for key, label in MEAL_LABELS.items()]
@@ -179,6 +189,7 @@ def _edit_meal_keyboard_multi(current_label: str) -> InlineKeyboardMarkup:
 
 
 def _timeslots_keyboard(selected: set, presets: dict, back_cb: str = "back_add_to_dosage") -> InlineKeyboardMarkup:
+    """Клавиатура multi-select временных слотов (Утро/Обед/Вечер/Ночь) с текущими пресетами."""
     btns = [
         InlineKeyboardButton(
             f"{'✅ ' if s in selected else ''}{SLOT_LABELS[s]} ({presets[s]})",
@@ -196,6 +207,7 @@ def _timeslots_keyboard(selected: set, presets: dict, back_cb: str = "back_add_t
 
 
 def _timeslots_b_keyboard(selected: set, presets: dict) -> InlineKeyboardMarkup:
+    """Клавиатура multi-select слотов для дозировки Б."""
     btns = [
         InlineKeyboardButton(
             f"{'✅ ' if s in selected else ''}{SLOT_LABELS[s]} ({presets[s]})",
@@ -213,6 +225,7 @@ def _timeslots_b_keyboard(selected: set, presets: dict) -> InlineKeyboardMarkup:
 
 
 def _edit_timeslots_keyboard(selected: set, presets: dict) -> InlineKeyboardMarkup:
+    """Клавиатура multi-select слотов при редактировании расписания."""
     btns = [
         InlineKeyboardButton(
             f"{'✅ ' if s in selected else ''}{SLOT_LABELS[s]} ({presets[s]})",
@@ -230,6 +243,7 @@ def _edit_timeslots_keyboard(selected: set, presets: dict) -> InlineKeyboardMark
 
 
 def _format_schedule_rule(rule) -> str:
+    """Возвращает читаемое описание одного правила расписания (время + частота)."""
     time = rule["reminder_time"]
     freq = rule["frequency"]
     if freq == "daily":
@@ -245,6 +259,7 @@ def _format_schedule_rule(rule) -> str:
 
 
 def _current_schedule_summary(rules: list) -> str:
+    """Возвращает краткое описание расписания для отображения в шаге выбора типа."""
     if not rules:
         return "не указано"
     has_adv = any(r["frequency"] != "daily" for r in rules)
@@ -255,6 +270,7 @@ def _current_schedule_summary(rules: list) -> str:
 
 
 def _monthday_warning(day: int) -> str:
+    """Возвращает предупреждение о месяцах с меньшим числом дней (29–31)."""
     if day == 29:
         return "\n\n⚠️ В феврале невисокосного года напоминание не сработает."
     if day == 30:
@@ -265,6 +281,7 @@ def _monthday_warning(day: int) -> str:
 
 
 def _freq_label(freq: str, interval_days, weekdays_str, month_day) -> str:
+    """Возвращает короткое человекочитаемое описание частоты (каждый день / каждые N дн. и т.д.)."""
     if freq == "daily":
         return "каждый день"
     if freq == "interval":
@@ -298,6 +315,7 @@ def _dosage_a_summary(ud: dict) -> str:
 # ── Next-fire helpers ─────────────────────────────────────────────────────
 
 def _compute_next_fire(rule, today: date):
+    """Вычисляет ближайшую дату срабатывания правила начиная с today; None если не определить."""
     freq = rule["frequency"]
     if freq == "daily":
         return today
@@ -334,6 +352,7 @@ def _compute_next_fire(rule, today: date):
 
 
 def _next_fire_label(rule, today: date) -> str:
+    """Возвращает подпись «(сегодня)», «(завтра)», «(пн)», «(3 янв)» для правила с нестандартной частотой."""
     if rule["frequency"] == "daily":
         return ""
     fire = _compute_next_fire(rule, today)
@@ -355,6 +374,7 @@ def _next_fire_label(rule, today: date) -> str:
 # ── Display ────────────────────────────────────────────────────────────────
 
 async def show_meds_list(message, user):
+    """Отображает список активных лекарств пользователя с расписанием и кнопками Изменить/Удалить."""
     user_id = get_or_create_user(user.id, user.username)
     meds = get_user_medications(user_id)
     user_tz = get_tz_for_user(user.id)
@@ -388,7 +408,7 @@ async def show_meds_list(message, user):
             for r in rules:
                 effective = r["dosage"] if r["dosage"] else med["dosage"]
                 label = _next_fire_label(r, today_local)
-                rule_strs.append(f"⏰ {_format_schedule_rule(r)} — {effective}{label}")
+                rule_strs.append(f"⏰ {_format_schedule_rule(r)} — {escape_md(effective)}{label}")
             schedule_str = "\n".join(rule_strs) or "не указано"
         elif not has_advanced:
             schedule_str = ", ".join(r["reminder_time"] for r in rules) or "не указано"
@@ -401,7 +421,7 @@ async def show_meds_list(message, user):
             InlineKeyboardButton("🗑 Удалить", callback_data=f"delete:{med['id']}"),
         ]])
         text = (
-            f"*{med['name']}* — {dosage_display}\n"
+            f"*{escape_md(med['name'])}* — {escape_md(dosage_display)}\n"
             f"🍽 {meal}\n"
         )
         if not has_advanced and not is_multi_dosage:
@@ -422,12 +442,14 @@ async def show_meds_list(message, user):
 
 @handle_db_errors
 async def meds_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик /meds: показывает список лекарств пользователя."""
     await show_meds_list(update.message, update.effective_user)
 
 
 # ── Common ─────────────────────────────────────────────────────────────────
 
 async def cancel_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Отменяет активный диалог добавления/редактирования лекарства."""
     query = update.callback_query
     await query.answer()
     context.user_data.clear()
@@ -438,6 +460,7 @@ async def cancel_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ── Add flow: entry ────────────────────────────────────────────────────────
 
 async def handle_add_med_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Entry point добавления лекарства через кнопку «➕ Добавить»; проверяет лимит."""
     query = update.callback_query
     await query.answer()
     user = update.effective_user
@@ -452,6 +475,7 @@ async def handle_add_med_callback(update: Update, context: ContextTypes.DEFAULT_
 
 
 async def add_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Entry point добавления лекарства через команду /add; проверяет лимит."""
     user = update.effective_user
     user_id = get_or_create_user(user.id, user.username)
     if count_active_medications(user_id) >= MAX_MEDICATIONS_PER_USER:
@@ -464,6 +488,7 @@ async def add_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def add_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Принимает название лекарства, валидирует длину и переходит к шагу дозировки."""
     name = update.message.text.strip()
     if len(name) > NAME_MAX_LEN:
         await update.message.reply_text(f"Название не может быть длиннее {NAME_MAX_LEN} символов. Попробуй ещё раз:")
@@ -477,6 +502,7 @@ async def add_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def enter_multi_dosage_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Активирует режим разных дозировок и переходит к вводу дозировки А."""
     query = update.callback_query
     await query.answer()
     context.user_data["multi_dosage"] = True
@@ -489,6 +515,7 @@ async def enter_multi_dosage_mode(update: Update, context: ContextTypes.DEFAULT_
 
 
 async def add_dosage(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Принимает дозировку А, в multi-режиме переходит к дозировке Б, иначе к выбору слотов."""
     dosage = update.message.text.strip()
     if len(dosage) > DOSAGE_MAX_LEN:
         await update.message.reply_text(f"Дозировка не может быть длиннее {DOSAGE_MAX_LEN} символов. Попробуй ещё раз:")
@@ -514,6 +541,7 @@ async def add_dosage(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def add_dosage_b(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Принимает дозировку Б и переходит к выбору временных слотов для дозировки А."""
     dosage_b = update.message.text.strip()
     if len(dosage_b) > DOSAGE_MAX_LEN:
         await update.message.reply_text(f"Дозировка не может быть длиннее {DOSAGE_MAX_LEN} символов. Попробуй ещё раз:")
@@ -533,6 +561,7 @@ async def add_dosage_b(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ── Add flow: slot toggle A → meal ─────────────────────────────────────────
 
 async def add_timeslot_toggle(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Переключает выбор временного слота А и обновляет клавиатуру."""
     query = update.callback_query
     await query.answer()
     slot = query.data.split(":")[1]
@@ -550,6 +579,7 @@ async def add_timeslot_toggle(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def add_timeslots_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Подтверждает выбор слотов А; в multi-режиме переходит к слотам Б, иначе к выбору питания."""
     query = update.callback_query
     selected = context.user_data.get("selected_slots", set())
     if not selected:
@@ -588,6 +618,7 @@ async def add_timeslots_confirm(update: Update, context: ContextTypes.DEFAULT_TY
 # ── Add flow: slot toggle B ────────────────────────────────────────────────
 
 async def add_timeslot_b_toggle(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Переключает выбор временного слота Б и обновляет клавиатуру."""
     query = update.callback_query
     await query.answer()
     slot = query.data.split(":")[1]
@@ -599,6 +630,7 @@ async def add_timeslot_b_toggle(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def add_timeslots_b_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Подтверждает слоты Б; в edit-режиме переходит к расписанию А, иначе к выбору питания."""
     query = update.callback_query
     selected = context.user_data.get("selected_slots_b", set())
     if not selected:
@@ -632,6 +664,7 @@ async def add_timeslots_b_confirm(update: Update, context: ContextTypes.DEFAULT_
 # ── Add flow: meal ─────────────────────────────────────────────────────────
 
 async def add_meal(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Сохраняет выбранный способ приёма с пищей и переходит к выбору расписания."""
     query = update.callback_query
     await query.answer()
     context.user_data["meal"] = query.data
@@ -665,6 +698,7 @@ async def _go_to_freq_type_b(edit_target, context, from_message: bool = False):
 
 @handle_db_errors
 async def choose_freq_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обрабатывает выбор типа расписания А; при daily сразу сохраняет, иначе запрашивает параметры."""
     query = update.callback_query
     await query.answer()
     freq = query.data.split(":")[1]
@@ -720,6 +754,7 @@ async def choose_freq_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @handle_db_errors
 async def add_freq_interval(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Принимает интервал N дней (2–90), сохраняет лекарство или переходит к расписанию Б."""
     try:
         n = int(update.message.text.strip())
         assert 2 <= n <= 90
@@ -759,6 +794,7 @@ async def add_freq_interval(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def toggle_weekday(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Переключает выбор дня недели для расписания А."""
     query = update.callback_query
     await query.answer()
     day = int(query.data.split(":")[1])
@@ -770,6 +806,7 @@ async def toggle_weekday(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @handle_db_errors
 async def confirm_weekdays(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Подтверждает выбор дней недели для расписания А и сохраняет лекарство или переходит к Б."""
     query = update.callback_query
     selected = context.user_data.get("freq_weekdays", set())
     if not selected:
@@ -806,6 +843,7 @@ async def confirm_weekdays(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @handle_db_errors
 async def add_freq_monthday(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Принимает число месяца (1–31) для ежемесячного расписания А."""
     try:
         day = int(update.message.text.strip())
         assert 1 <= day <= 31
@@ -845,6 +883,7 @@ async def add_freq_monthday(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @handle_db_errors
 async def choose_freq_type_b(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обрабатывает выбор типа расписания Б; при daily сразу сохраняет multi-dosage лекарство."""
     query = update.callback_query
     await query.answer()
     freq = query.data.split(":")[1]
@@ -889,6 +928,7 @@ async def choose_freq_type_b(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 @handle_db_errors
 async def add_freq_interval_b_days(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Принимает интервал N дней для расписания Б и запрашивает дату начала (anchor_date)."""
     try:
         n = int(update.message.text.strip())
         assert 2 <= n <= 90
@@ -918,6 +958,7 @@ async def add_freq_interval_b_days(update: Update, context: ContextTypes.DEFAULT
 
 @handle_db_errors
 async def add_freq_interval_b_anchor(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Принимает выбор «Сегодня»/«Завтра» как anchor_date расписания Б и сохраняет лекарство."""
     query = update.callback_query
     await query.answer()
     offset = int(query.data.split(":")[1])
@@ -932,6 +973,7 @@ async def add_freq_interval_b_anchor(update: Update, context: ContextTypes.DEFAU
 
 
 async def toggle_weekday_b(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Переключает выбор дня недели для расписания Б."""
     query = update.callback_query
     await query.answer()
     day = int(query.data.split(":")[1])
@@ -943,6 +985,7 @@ async def toggle_weekday_b(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @handle_db_errors
 async def confirm_weekdays_b(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Подтверждает выбор дней недели для расписания Б и сохраняет multi-dosage лекарство."""
     query = update.callback_query
     selected = context.user_data.get("freq_b_weekdays", set())
     if not selected:
@@ -960,6 +1003,7 @@ async def confirm_weekdays_b(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 @handle_db_errors
 async def add_freq_monthday_b(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Принимает число месяца для расписания Б и сохраняет multi-dosage лекарство."""
     try:
         day = int(update.message.text.strip())
         assert 1 <= day <= 31
@@ -984,6 +1028,11 @@ async def add_freq_monthday_b(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 async def _save_multi_medication(edit_target, context, user_id: int,
                                  freq_b: dict, from_message: bool = False, warning: str = ""):
+    """Сохраняет multi-dosage лекарство (создаёт или обновляет).
+
+    Работает как в add-флоу, так и в edit-флоу (определяется по наличию edit_id в user_data).
+    Правила А хранят dosage=NULL (наследуют из medications), правила Б — явный dosage.
+    """
     ud = context.user_data
     is_edit_mode = "edit_id" in ud
     if not is_edit_mode and count_active_medications(user_id) >= MAX_MEDICATIONS_PER_USER:
@@ -1061,6 +1110,7 @@ async def _save_multi_medication(edit_target, context, user_id: int,
 # ── Add flow: back handlers ────────────────────────────────────────────────
 
 async def back_add_to_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Возвращает к шагу ввода названия лекарства."""
     query = update.callback_query
     await query.answer()
     context.user_data.pop("multi_dosage", None)
@@ -1069,6 +1119,7 @@ async def back_add_to_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def back_add_to_dosage(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Возвращает к шагу ввода дозировки."""
     query = update.callback_query
     await query.answer()
     await query.edit_message_text(
@@ -1098,7 +1149,7 @@ async def back_multi_to_dosage_b(update: Update, context: ContextTypes.DEFAULT_T
     dosage_a = context.user_data.get("dosage", "")
     context.user_data.pop("dosage_b", None)
     await query.edit_message_text(
-        f"Введи *дозировку Б* (например: 50 мкг):\n_Дозировка А: {dosage_a}_",
+        f"Введи *дозировку Б* (например: 50 мкг):\n_Дозировка А: {escape_md(dosage_a)}_",
         parse_mode="Markdown",
         reply_markup=_back_cancel_kb("back_multi_to_dosage_a")
     )
@@ -1106,6 +1157,7 @@ async def back_multi_to_dosage_b(update: Update, context: ContextTypes.DEFAULT_T
 
 
 async def back_add_to_times(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Возвращает к шагу выбора слотов; в multi-режиме — к слотам Б."""
     query = update.callback_query
     await query.answer()
     presets = get_user_time_presets(update.effective_user.id)
@@ -1144,6 +1196,7 @@ async def back_multi_to_times_a(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def back_add_to_meal(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Возвращает к шагу выбора питания; в edit multi-режиме маршрутизирует по состоянию freq_a."""
     query = update.callback_query
     await query.answer()
     if context.user_data.get("edit_id"):
@@ -1183,6 +1236,7 @@ async def back_add_to_meal(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def back_add_to_freq_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Возвращает к шагу выбора типа расписания А."""
     query = update.callback_query
     await query.answer()
     if context.user_data.get("multi_dosage"):
@@ -1210,6 +1264,7 @@ async def back_multi_to_freq_type_b(update: Update, context: ContextTypes.DEFAUL
 
 @handle_db_errors
 async def handle_delete_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Деактивирует лекарство и очищает его pending-напоминания."""
     query = update.callback_query
     await query.answer()
     medication_id = int(query.data.split(":")[1])
@@ -1222,6 +1277,7 @@ async def handle_delete_callback(update: Update, context: ContextTypes.DEFAULT_T
 
 @handle_db_errors
 async def handle_edit_select(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Инициализирует edit_id/edit_med в user_data и показывает первый шаг редактирования."""
     query = update.callback_query
     await query.answer()
     medication_id = int(query.data.split(":")[1])
@@ -1267,6 +1323,7 @@ async def handle_edit_select(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def keep_edit_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Оставляет текущее название без изменений и переходит к шагу дозировки."""
     query = update.callback_query
     await query.answer()
     med = context.user_data["edit_med"]
@@ -1281,6 +1338,7 @@ async def keep_edit_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def edit_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Принимает новое название лекарства и переходит к шагу дозировки."""
     name = update.message.text.strip()
     if len(name) > NAME_MAX_LEN:
         await update.message.reply_text(f"Название не может быть длиннее {NAME_MAX_LEN} символов. Попробуй ещё раз:")
@@ -1297,6 +1355,7 @@ async def edit_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def keep_edit_dosage(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Оставляет дозировку А без изменений; в multi-режиме переходит к дозировке Б."""
     query = update.callback_query
     await query.answer()
     context.user_data["edit_dosage"] = context.user_data["edit_med"]["dosage"]
@@ -1306,6 +1365,7 @@ async def keep_edit_dosage(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def edit_dosage(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Принимает новую дозировку А; в multi-режиме переходит к дозировке Б."""
     dosage = update.message.text.strip()
     if len(dosage) > DOSAGE_MAX_LEN:
         await update.message.reply_text(f"Дозировка не может быть длиннее {DOSAGE_MAX_LEN} символов. Попробуй ещё раз:")
@@ -1317,6 +1377,7 @@ async def edit_dosage(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def _show_edit_dosage_b_step(context, target, from_message: bool = False):
+    """Отображает шаг редактирования дозировки Б с текущим значением из schedule_rules."""
     rules = context.user_data["edit_med"]["schedule_rules"]
     current_b = next((r["dosage"] for r in rules if r.get("dosage")), "")
     text = f"📏 *Дозировка Б* — введи новую\n(текущая: {escape_md(current_b)}):"
@@ -1328,6 +1389,7 @@ async def _show_edit_dosage_b_step(context, target, from_message: bool = False):
 
 
 async def keep_edit_dosage_b(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Оставляет дозировку Б без изменений и переходит к шагу приёма с пищей."""
     query = update.callback_query
     await query.answer()
     rules = context.user_data["edit_med"]["schedule_rules"]
@@ -1336,6 +1398,7 @@ async def keep_edit_dosage_b(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def edit_dosage_b(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Принимает новую дозировку Б и переходит к шагу приёма с пищей."""
     dosage_b = update.message.text.strip()
     if len(dosage_b) > DOSAGE_MAX_LEN:
         await update.message.reply_text(f"Дозировка не может быть длиннее {DOSAGE_MAX_LEN} символов. Попробуй ещё раз:")
@@ -1345,6 +1408,7 @@ async def edit_dosage_b(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def _show_edit_meal_multi_step(context, target, from_message: bool = False):
+    """Показывает шаг выбора приёма с пищей для multi-dosage редактирования."""
     edit_med = context.user_data["edit_med"]
     current_label = MEAL_LABELS.get(edit_med["meal_relation"], edit_med["meal_relation"])
     kb = _edit_meal_keyboard_multi(current_label)
@@ -1396,6 +1460,7 @@ async def _show_edit_freq_type_step(context, target, from_message: bool = False)
 
 @handle_db_errors
 async def keep_edit_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Сохраняет лекарство с текущим расписанием (без изменений в schedule_rules)."""
     query = update.callback_query
     await query.answer()
     edit_med = context.user_data["edit_med"]
@@ -1438,6 +1503,7 @@ async def keep_edit_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def choose_edit_freq_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Сохраняет тип расписания и переходит к выбору временных слотов."""
     query = update.callback_query
     await query.answer()
     freq = query.data.split(":")[1]
@@ -1459,6 +1525,7 @@ async def choose_edit_freq_type(update: Update, context: ContextTypes.DEFAULT_TY
 
 @handle_db_errors
 async def keep_edit_meal(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Оставляет текущий способ приёма с пищей и переходит к расписанию."""
     query = update.callback_query
     await query.answer()
     context.user_data["edit_meal"] = context.user_data["edit_med"]["meal_relation"]
@@ -1467,6 +1534,7 @@ async def keep_edit_meal(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @handle_db_errors
 async def edit_meal(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Сохраняет выбранный способ приёма и переходит к расписанию."""
     query = update.callback_query
     await query.answer()
     context.user_data["edit_meal"] = query.data.split(":")[1]
@@ -1474,6 +1542,7 @@ async def edit_meal(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def _route_after_edit_meal(query, context):
+    """После выбора питания маршрутизирует к расписанию (daily → сохранение, иначе → ввод параметров)."""
     if context.user_data.get("edit_is_multi_dosage"):
         return await _show_edit_freq_type_step(context, query)
 
@@ -1522,6 +1591,7 @@ async def _route_after_edit_meal(query, context):
 # ── Edit flow: slot toggle → meal ─────────────────────────────────────────
 
 async def edit_timeslot_toggle(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Переключает выбор слота при редактировании расписания."""
     query = update.callback_query
     await query.answer()
     slot = query.data.split(":")[1]
@@ -1533,6 +1603,7 @@ async def edit_timeslot_toggle(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 async def edit_timeslots_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Подтверждает выбор слотов при редактировании и переходит к шагу приёма с пищей."""
     query = update.callback_query
     selected = context.user_data.get("edit_selected_slots", set())
     if not selected:
@@ -1555,6 +1626,7 @@ async def edit_timeslots_confirm(update: Update, context: ContextTypes.DEFAULT_T
 
 @handle_db_errors
 async def edit_freq_interval(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Принимает интервал N дней при редактировании и сохраняет обновлённое расписание."""
     try:
         n = int(update.message.text.strip())
         assert 2 <= n <= 90
@@ -1582,6 +1654,7 @@ async def edit_freq_interval(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def toggle_edit_weekday(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Переключает выбор дня недели при редактировании расписания."""
     query = update.callback_query
     await query.answer()
     day = int(query.data.split(":")[1])
@@ -1593,6 +1666,7 @@ async def toggle_edit_weekday(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 @handle_db_errors
 async def confirm_edit_weekdays(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Подтверждает дни недели при редактировании и сохраняет расписание."""
     query = update.callback_query
     selected = context.user_data.get("edit_freq_weekdays", set())
     if not selected:
@@ -1621,6 +1695,7 @@ async def confirm_edit_weekdays(update: Update, context: ContextTypes.DEFAULT_TY
 
 @handle_db_errors
 async def edit_freq_monthday(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Принимает число месяца при редактировании и сохраняет обновлённое расписание."""
     try:
         day = int(update.message.text.strip())
         assert 1 <= day <= 31
@@ -1677,6 +1752,7 @@ async def handle_multi_edit_change_schedule(update: Update, context: ContextType
 # ── Edit flow: back handlers ───────────────────────────────────────────────
 
 async def back_edit_to_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Возвращает к шагу ввода названия при редактировании."""
     query = update.callback_query
     await query.answer()
     med = context.user_data["edit_med"]
@@ -1689,6 +1765,7 @@ async def back_edit_to_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def back_edit_to_dosage(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Возвращает к шагу дозировки А при редактировании."""
     query = update.callback_query
     await query.answer()
     med = context.user_data["edit_med"]
@@ -1702,12 +1779,14 @@ async def back_edit_to_dosage(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def back_edit_to_freq_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Возвращает к шагу выбора расписания при редактировании."""
     query = update.callback_query
     await query.answer()
     return await _show_edit_freq_type_step(context, query)
 
 
 async def back_edit_to_times(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Возвращает к шагу выбора слотов при редактировании."""
     query = update.callback_query
     await query.answer()
     selected = context.user_data.get("edit_selected_slots", set())
@@ -1721,12 +1800,14 @@ async def back_edit_to_times(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def back_edit_to_dosage_b(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Возвращает к шагу дозировки Б при редактировании multi-dosage лекарства."""
     query = update.callback_query
     await query.answer()
     return await _show_edit_dosage_b_step(context, query)
 
 
 async def back_edit_to_meal(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Возвращает к шагу приёма с пищей при редактировании (обычный или multi режим)."""
     query = update.callback_query
     await query.answer()
     edit_med = context.user_data["edit_med"]
@@ -1742,6 +1823,7 @@ async def back_edit_to_meal(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ── ConversationHandler factories ──────────────────────────────────────────
 
 def get_add_handler(cancel_handler):
+    """Возвращает ConversationHandler для добавления лекарства (включая multi-dosage флоу)."""
     return ConversationHandler(
         entry_points=[
             CommandHandler("add", add_start),
@@ -1819,6 +1901,7 @@ def get_add_handler(cancel_handler):
 
 
 def get_edit_handler(cancel_handler):
+    """Возвращает ConversationHandler для редактирования лекарства (включая multi-dosage флоу)."""
     return ConversationHandler(
         entry_points=[CallbackQueryHandler(handle_edit_select, pattern="^edit:\\d+$")],
         states={

@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 
 
 async def post_init(app):
+    """Регистрирует команды бота в меню Telegram после запуска."""
     await app.bot.set_my_commands([
         BotCommand("start",    "🏠 Главное меню"),
         BotCommand("meds",     "💊 Мои лекарства"),
@@ -41,6 +42,7 @@ async def post_init(app):
 
 
 async def error_handler(update, context):
+    """Глобальный обработчик ошибок: игнорирует транзиентные сетевые ошибки Telegram."""
     if isinstance(context.error, (TimedOut, NetworkError)):
         logger.warning("Telegram network error (transient): %s", context.error)
         return
@@ -48,6 +50,7 @@ async def error_handler(update, context):
 
 
 def main():
+    """Точка входа: инициализирует БД, регистрирует все handlers, запускает бота."""
     init_db()
     migrate()
     app = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
