@@ -81,7 +81,7 @@ async def handle_menu_callback(update, context):
             "ℹ️ *О проекте*\n\n"
             "After 30 Med Bot — вайб-кодинг проект: написан в паре с AI (Claude).\n"
             "Код живой, рабочий, итерируем дальше 🚀\n\n"
-            "📦 [GitHub](https://github.com/Perebevaska/after-38-medicine-bot)\n\n"
+            "📦 [GitHub](https://github.com/Perebevaska/after-30-medicine-bot)\n\n"
             "*В планах:*\n"
             "💊 Напоминание о пополнении запаса таблеток\n"
             "👨‍👩‍👧 Caregiver режим — следить за приёмами другого пользователя\n"
