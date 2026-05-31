@@ -509,13 +509,16 @@ async def handle_edit_select(update: Update, context: ContextTypes.DEFAULT_TYPE)
         "times_per_day": med["times_per_day"],
         "schedule_rules": schedule_rules,
     }
-    schedule_str = "\n".join(_format_schedule_rule(r) for r in schedule_rules) or "не указано"
+    has_adv = any(r["frequency"] != "daily" for r in schedule_rules)
+    if not has_adv:
+        schedule_str = ", ".join(r["reminder_time"] for r in schedule_rules) or "не указано"
+    else:
+        schedule_str = " | ".join(_format_schedule_rule(r) for r in schedule_rules) or "не указано"
     await query.edit_message_text(
-        f"Редактируем: *{med['name']}*\n"
-        f"Дозировка: {med['dosage']}\n"
-        f"Приём: {MEAL_LABELS[med['meal_relation']]}\n"
-        f"Расписание: {schedule_str}\n\n"
-        f"Введи новое название:",
+        f"✏️ *Редактируем: {med['name']}*\n"
+        f"💊 {med['dosage']}  🍽 {MEAL_LABELS[med['meal_relation']]}  ⏰ {schedule_str}\n"
+        f"──────────────────\n"
+        f"📝 *Название* — введи новое:",
         parse_mode="Markdown",
         reply_markup=_EDIT_NAME_KB
     )
@@ -528,7 +531,7 @@ async def keep_edit_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     med = context.user_data["edit_med"]
     context.user_data["edit_name"] = med["name"]
     await query.edit_message_text(
-        f"Введи новую дозировку\n(текущая: *{med['dosage']}*):",
+        f"📏 *Дозировка* — введи новую\n(текущая: {med['dosage']}):",
         parse_mode="Markdown",
         reply_markup=_EDIT_DOSAGE_KB
     )
@@ -539,7 +542,7 @@ async def edit_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["edit_name"] = update.message.text.strip()
     med = context.user_data["edit_med"]
     await update.message.reply_text(
-        f"Введи новую дозировку\n(текущая: *{med['dosage']}*):",
+        f"📏 *Дозировка* — введи новую\n(текущая: {med['dosage']}):",
         parse_mode="Markdown",
         reply_markup=_EDIT_DOSAGE_KB
     )
@@ -550,13 +553,15 @@ async def keep_edit_dosage(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     context.user_data["edit_dosage"] = context.user_data["edit_med"]["dosage"]
-    await query.edit_message_text("Выбери тип расписания:", reply_markup=_edit_freq_type_keyboard())
+    await query.edit_message_text("📅 *Расписание* — выбери тип:", parse_mode="Markdown",
+                                  reply_markup=_edit_freq_type_keyboard())
     return EDIT_FREQ_TYPE
 
 
 async def edit_dosage(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["edit_dosage"] = update.message.text.strip()
-    await update.message.reply_text("Выбери тип расписания:", reply_markup=_edit_freq_type_keyboard())
+    await update.message.reply_text("📅 *Расписание* — выбери тип:", parse_mode="Markdown",
+                                    reply_markup=_edit_freq_type_keyboard())
     return EDIT_FREQ_TYPE
 
 
@@ -593,7 +598,8 @@ async def choose_edit_freq_type(update: Update, context: ContextTypes.DEFAULT_TY
     edit_med = context.user_data["edit_med"]
     current_label = MEAL_LABELS.get(edit_med["meal_relation"], edit_med["meal_relation"])
     await query.edit_message_text(
-        "Выбери способ приёма:",
+        "🍽 *Приём с пищей* — выбери:",
+        parse_mode="Markdown",
         reply_markup=_edit_meal_keyboard(current_label)
     )
     return EDIT_MEAL
@@ -621,7 +627,7 @@ async def _route_after_edit_meal(query, context):
 
     if freq == "daily":
         await query.edit_message_text(
-            "Сколько раз в день?\n_Или введи своё число:_",
+            "🔢 *Количество приёмов в день* — выбери или введи:",
             reply_markup=_edit_times_keyboard(edit_med["times_per_day"]),
             parse_mode="Markdown"
         )
@@ -632,19 +638,22 @@ async def _route_after_edit_meal(query, context):
         context.user_data["edit_times"] = edit_med["times_per_day"]
 
     if freq == "interval":
-        await query.edit_message_text("Каждые сколько дней? (например: 2):", reply_markup=_CANCEL_BTN)
+        await query.edit_message_text("🔄 *Интервал* — каждые сколько дней? (например: 2):",
+                                      parse_mode="Markdown", reply_markup=_CANCEL_BTN)
         return EDIT_FREQ_INTERVAL
 
     if freq == "weekdays":
         context.user_data["edit_freq_weekdays"] = set()
         await query.edit_message_text(
-            "Выбери дни недели, затем нажми Готово:",
+            "📆 *Дни недели* — выбери и нажми Готово:",
+            parse_mode="Markdown",
             reply_markup=_edit_weekdays_keyboard(set())
         )
         return EDIT_FREQ_WEEKDAYS
 
     if freq == "monthly":
-        await query.edit_message_text("Какого числа каждого месяца? (1–31):", reply_markup=_CANCEL_BTN)
+        await query.edit_message_text("🗓 *Дата* — какого числа каждого месяца? (1–31):",
+                                      parse_mode="Markdown", reply_markup=_CANCEL_BTN)
         return EDIT_FREQ_MONTHDAY
 
     return EDIT_TIMES
@@ -659,7 +668,8 @@ async def edit_times(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["edit_times"] = times
     context.user_data["edit_collected"] = []
     await query.edit_message_text(
-        f"Введи время 1 из {times} (формат ЧЧ:ММ, например 08:00):",
+        f"⏰ *Время приёма 1 из {times}* (ЧЧ:ММ, например 08:00):",
+        parse_mode="Markdown",
         reply_markup=_CANCEL_BTN
     )
     return EDIT_SCHEDULE
@@ -675,7 +685,8 @@ async def edit_times_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["edit_times"] = times
     context.user_data["edit_collected"] = []
     await update.message.reply_text(
-        f"Введи время 1 из {times} (формат ЧЧ:ММ, например 08:00):",
+        f"⏰ *Время приёма 1 из {times}* (ЧЧ:ММ, например 08:00):",
+        parse_mode="Markdown",
         reply_markup=_CANCEL_BTN
     )
     return EDIT_SCHEDULE
@@ -689,7 +700,8 @@ async def keep_edit_times(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["edit_collected"] = []
     schedules_str = ", ".join(r["reminder_time"] for r in edit_med["schedule_rules"])
     await query.edit_message_text(
-        f"Введи время 1 из {edit_med['times_per_day']} (формат ЧЧ:ММ)\n(текущие: {schedules_str}):",
+        f"⏰ *Время приёма 1 из {edit_med['times_per_day']}* (ЧЧ:ММ)\nТекущие: {schedules_str}",
+        parse_mode="Markdown",
         reply_markup=_CANCEL_BTN
     )
     return EDIT_SCHEDULE
@@ -709,7 +721,8 @@ async def edit_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if len(collected) < total:
         await update.message.reply_text(
-            f"Время {len(collected)} из {total} принято. Введи время {len(collected)+1}:",
+            f"✅ Принято. ⏰ *Время приёма {len(collected) + 1} из {total}* (ЧЧ:ММ):",
+            parse_mode="Markdown",
             reply_markup=_CANCEL_BTN
         )
         return EDIT_SCHEDULE
@@ -742,7 +755,8 @@ async def edit_freq_interval(update: Update, context: ContextTypes.DEFAULT_TYPE)
     context.user_data["edit_freq_interval_days"] = n
     total = context.user_data.get("edit_times", 1)
     await update.message.reply_text(
-        f"Укажи время 1 из {total} приёмов (формат ЧЧ:ММ):", reply_markup=_CANCEL_BTN
+        f"⏰ *Время приёма 1 из {total}* (ЧЧ:ММ, например 08:00):",
+        parse_mode="Markdown", reply_markup=_CANCEL_BTN
     )
     return EDIT_FREQ_TIME
 
@@ -766,7 +780,8 @@ async def confirm_edit_weekdays(update: Update, context: ContextTypes.DEFAULT_TY
     await query.answer()
     total = context.user_data.get("edit_times", 1)
     await query.edit_message_text(
-        f"Укажи время 1 из {total} приёмов (формат ЧЧ:ММ):", reply_markup=_CANCEL_BTN
+        f"⏰ *Время приёма 1 из {total}* (ЧЧ:ММ, например 08:00):",
+        parse_mode="Markdown", reply_markup=_CANCEL_BTN
     )
     return EDIT_FREQ_TIME
 
@@ -781,7 +796,8 @@ async def edit_freq_monthday(update: Update, context: ContextTypes.DEFAULT_TYPE)
     context.user_data["edit_freq_month_day"] = day
     total = context.user_data.get("edit_times", 1)
     await update.message.reply_text(
-        f"Укажи время 1 из {total} приёмов (формат ЧЧ:ММ):", reply_markup=_CANCEL_BTN
+        f"⏰ *Время приёма 1 из {total}* (ЧЧ:ММ, например 08:00):",
+        parse_mode="Markdown", reply_markup=_CANCEL_BTN
     )
     return EDIT_FREQ_TIME
 
@@ -800,8 +816,8 @@ async def edit_freq_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if len(collected) < total:
         await update.message.reply_text(
-            f"Время {len(collected)} из {total} принято. "
-            f"Введи время {len(collected) + 1} из {total}:",
+            f"✅ Принято. ⏰ *Время приёма {len(collected) + 1} из {total}* (ЧЧ:ММ):",
+            parse_mode="Markdown",
             reply_markup=_CANCEL_BTN
         )
         return EDIT_FREQ_TIME
