@@ -321,6 +321,7 @@ async def add_schedule_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"✅ Лекарство добавлено!\n\n"
         f"💊 {context.user_data['name']} — {context.user_data['dosage']}\n"
         f"🍽 {MEAL_LABELS[context.user_data['meal']]}\n"
+        f"🔢 {total} раз в день\n"
         f"⏰ Напоминания: {', '.join(collected)}"
     )
     context.user_data.clear()
@@ -465,6 +466,7 @@ async def add_freq_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"✅ Лекарство добавлено!\n\n"
         f"💊 {context.user_data['name']} — {context.user_data['dosage']}\n"
         f"🍽 {MEAL_LABELS[context.user_data['meal']]}\n"
+        f"🔢 {total} раз в день\n"
         f"⏰ {', '.join(collected)} — {freq_label}"
     )
     context.user_data.clear()
@@ -718,6 +720,7 @@ async def edit_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"✅ Лекарство обновлено!\n\n"
         f"💊 {context.user_data['edit_name']} — {context.user_data['edit_dosage']}\n"
         f"🍽 {MEAL_LABELS[context.user_data['edit_meal']]}\n"
+        f"🔢 {total} раз в день\n"
         f"⏰ {', '.join(collected)}"
     )
     context.user_data.clear()
@@ -822,6 +825,7 @@ async def edit_freq_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"✅ Лекарство обновлено!\n\n"
         f"💊 {context.user_data['edit_name']} — {context.user_data['edit_dosage']}\n"
         f"🍽 {MEAL_LABELS[context.user_data['edit_meal']]}\n"
+        f"🔢 {total} раз в день\n"
         f"⏰ {', '.join(collected)} — {freq_label}"
     )
     context.user_data.clear()
