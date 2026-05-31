@@ -8,7 +8,7 @@ _tf = TimezoneFinder()
 from geopy.exc import GeocoderTimedOut, GeocoderServiceError
 from database import get_or_create_user, get_user_timezone, set_user_timezone, get_schedules_for_user
 from constants import SETUP_TZ, SETUP_CITY
-from utils import handle_db_errors, get_tz_for_user
+from utils import handle_db_errors, get_tz_for_user, escape_md
 
 
 def _geo_keyboard() -> ReplyKeyboardMarkup:
@@ -29,12 +29,11 @@ def _main_menu_keyboard():
     ])
 
 
-async def show_main_menu(update, first_name):
-    await update.message.reply_text(
-        f"Привет, {first_name}! 💊\n\n"
-        "Я помогу тебе не забывать принимать лекарства.",
-        reply_markup=_main_menu_keyboard()
-    )
+async def show_main_menu(update, first_name, hint: str = ""):
+    text = f"Привет, {first_name}! 💊\n\nЯ помогу тебе не забывать принимать лекарства."
+    if hint:
+        text += f"\n\n{hint}"
+    await update.message.reply_text(text, reply_markup=_main_menu_keyboard())
 
 
 @handle_db_errors
@@ -68,9 +67,9 @@ async def handle_menu_callback(update, context):
         lines = ["📋 *Лекарства на сегодня:*\n"]
         for med in meds.values():
             meal = _MEAL_LABELS.get(med["meal_relation"], "")
-            lines.append(f"💊 *{med['name']}* — {meal}")
+            lines.append(f"💊 *{escape_md(med['name'])}* — {meal}")
             for reminder_time, dosage in sorted(med["times"]):
-                lines.append(f"   ⏰ {reminder_time} — {dosage}")
+                lines.append(f"   ⏰ {reminder_time} — {escape_md(dosage)}")
         await msg.reply_text("\n".join(lines), parse_mode="Markdown")
 
     elif action == "meds":
@@ -80,10 +79,11 @@ async def handle_menu_callback(update, context):
     elif action == "stats":
         await msg.reply_text(
             "Выбери период:",
-            reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("📅 За сегодня", callback_data="stats:today"),
-                InlineKeyboardButton("📈 За 7 дней", callback_data="stats:week"),
-            ]])
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("📅 За сегодня", callback_data="stats:today"),
+                 InlineKeyboardButton("📈 За 7 дней", callback_data="stats:week")],
+                [InlineKeyboardButton("📆 План на 7 дней", callback_data="stats:plan")],
+            ])
         )
 
     elif action == "settings":
@@ -176,7 +176,8 @@ async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown",
             reply_markup=ReplyKeyboardRemove()
         )
-        await show_main_menu(update, update.effective_user.first_name)
+        await show_main_menu(update, update.effective_user.first_name,
+                             hint="Нажми 💊 *Мои лекарства*, чтобы добавить первое лекарство.")
         return ConversationHandler.END
     await update.message.reply_text(
         "Не удалось определить часовой пояс. Введи город:",
@@ -203,7 +204,8 @@ async def handle_city_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode="Markdown",
                 reply_markup=ReplyKeyboardRemove()
             )
-            await show_main_menu(update, update.effective_user.first_name)
+            await show_main_menu(update, update.effective_user.first_name,
+                                 hint="Нажми 💊 *Мои лекарства*, чтобы добавить первое лекарство.")
             return ConversationHandler.END
     await update.message.reply_text("Город не найден. Попробуй ещё раз:")
     return SETUP_CITY

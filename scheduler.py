@@ -3,6 +3,7 @@ from datetime import datetime, date
 import pytz
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from database import get_all_schedules, log_intake, get_users_with_daily_plan
+from utils import escape_md
 
 logger = logging.getLogger(__name__)
 
@@ -92,7 +93,7 @@ async def send_reminders(app):
                 chat_id=row["telegram_id"],
                 text=(
                     f"💊 Время принять лекарство!\n\n"
-                    f"*{row['name']}* — {dosage}\n"
+                    f"*{escape_md(row['name'])}* — {escape_md(dosage)}\n"
                     f"🍽 Принимать {_MEAL_LABELS.get(row['meal_relation'], row['meal_relation'])}"
                 ),
                 parse_mode="Markdown",
@@ -145,9 +146,9 @@ async def _send_daily_plans(app):
         lines = ["🌅 *Доброе утро!*\n", "📋 *Сегодня нужно принять:*\n"]
         for med in data["meds"].values():
             meal = _MEAL_LABELS.get(med["meal_relation"], "")
-            lines.append(f"💊 *{med['name']}*")
+            lines.append(f"💊 *{escape_md(med['name'])}*")
             for reminder_time, dosage in sorted(med["times"]):
-                lines.append(f"   ⏰ {reminder_time} — {dosage} — {meal}")
+                lines.append(f"   ⏰ {reminder_time} — {escape_md(dosage)} — {meal}")
         lines.append("\nНе забудь взять лекарства с собой! 🎒")
         lines.append("Продуктивного дня! 🚀")
 

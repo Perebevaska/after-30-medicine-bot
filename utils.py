@@ -4,6 +4,16 @@ from telegram.ext import ContextTypes, ConversationHandler
 from telegram import Update
 from database import get_user_timezone, DatabaseError
 
+NAME_MAX_LEN = 50
+DOSAGE_MAX_LEN = 30
+
+
+def escape_md(text: str) -> str:
+    """Экранирует спецсимволы Telegram Markdown v1."""
+    for ch in ('*', '_', '`', '['):
+        text = text.replace(ch, '\\' + ch)
+    return text
+
 
 def parse_time(time_str: str) -> str:
     """Парсит и нормализует время в формат ЧЧ:ММ. Поднимает ValueError при ошибке."""
