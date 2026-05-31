@@ -1,3 +1,4 @@
+from datetime import datetime
 from telegram import Update, KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
 from timezonefinder import TimezoneFinder
@@ -5,9 +6,9 @@ from geopy.geocoders import Nominatim
 
 _tf = TimezoneFinder()
 from geopy.exc import GeocoderTimedOut, GeocoderServiceError
-from database import get_or_create_user, get_user_timezone, set_user_timezone
+from database import get_or_create_user, get_user_timezone, set_user_timezone, get_schedules_for_user
 from constants import SETUP_TZ, SETUP_CITY
-from utils import handle_db_errors
+from utils import handle_db_errors, get_tz_for_user
 
 
 def _geo_keyboard() -> ReplyKeyboardMarkup:
@@ -20,6 +21,7 @@ def _geo_keyboard() -> ReplyKeyboardMarkup:
 
 def _main_menu_keyboard():
     return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📋 Лекарства на сегодня", callback_data="menu:today")],
         [InlineKeyboardButton("💊 Мои лекарства", callback_data="menu:meds")],
         [InlineKeyboardButton("📊 Статистика", callback_data="menu:stats")],
         [InlineKeyboardButton("⚙️ Настройки", callback_data="menu:settings")],
@@ -43,7 +45,35 @@ async def handle_menu_callback(update, context):
     msg = query.message
     user = update.effective_user
 
-    if action == "meds":
+    if action == "today":
+        from scheduler import _rule_fires_today, _MEAL_LABELS
+        rows = get_schedules_for_user(user.id)
+        if not rows:
+            await msg.reply_text("💊 Сегодня нет запланированных лекарств.")
+            return
+        user_tz = get_tz_for_user(user.id)
+        today = datetime.now(user_tz).date()
+        meds: dict = {}
+        for row in rows:
+            if not _rule_fires_today(row, today):
+                continue
+            mid = row["medication_id"]
+            if mid not in meds:
+                meds[mid] = {"name": row["name"], "meal_relation": row["meal_relation"], "times": []}
+            dosage = row["rule_dosage"] or row["med_dosage"]
+            meds[mid]["times"].append((row["reminder_time"], dosage))
+        if not meds:
+            await msg.reply_text("💊 Сегодня нет запланированных лекарств.")
+            return
+        lines = ["📋 *Лекарства на сегодня:*\n"]
+        for med in meds.values():
+            meal = _MEAL_LABELS.get(med["meal_relation"], "")
+            lines.append(f"💊 *{med['name']}* — {meal}")
+            for reminder_time, dosage in sorted(med["times"]):
+                lines.append(f"   ⏰ {reminder_time} — {dosage}")
+        await msg.reply_text("\n".join(lines), parse_mode="Markdown")
+
+    elif action == "meds":
         from handlers.meds import show_meds_list
         await show_meds_list(msg, user)
 

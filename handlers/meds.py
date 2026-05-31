@@ -97,6 +97,15 @@ def _edit_freq_type_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
+def _edit_freq_type_keyboard_multi(meal_label: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("➡️ Сохранить без изменений", callback_data="keep_edit_schedule")],
+        [InlineKeyboardButton(f"🍽 Изменить способ приёма ({meal_label})", callback_data="multi_edit_go_to_meal")],
+        [InlineKeyboardButton("◀️ Назад", callback_data="back_edit_to_dosage"),
+         InlineKeyboardButton("❌ Отмена", callback_data="cancel_add")],
+    ])
+
+
 def _weekdays_keyboard(selected: set) -> InlineKeyboardMarkup:
     row = [
         InlineKeyboardButton(
@@ -1152,8 +1161,10 @@ async def handle_edit_select(update: Update, context: ContextTypes.DEFAULT_TYPE)
     med = get_medication_by_id(medication_id, user_id)
     schedules = get_schedules_by_medication(medication_id)
     schedule_rules = [dict(s) for s in schedules]
+    is_multi_dosage = any(r.get("dosage") for r in schedule_rules)
     context.user_data["edit_id"] = medication_id
     context.user_data["edit_user_id"] = user_id
+    context.user_data["edit_is_multi_dosage"] = is_multi_dosage
     context.user_data["edit_med"] = {
         "name": med["name"],
         "dosage": med["dosage"],
@@ -1161,14 +1172,22 @@ async def handle_edit_select(update: Update, context: ContextTypes.DEFAULT_TYPE)
         "times_per_day": med["times_per_day"],
         "schedule_rules": schedule_rules,
     }
-    has_adv = any(r["frequency"] != "daily" for r in schedule_rules)
-    if not has_adv:
-        schedule_str = ", ".join(r["reminder_time"] for r in schedule_rules) or "не указано"
+    if is_multi_dosage:
+        b_dosages = list(dict.fromkeys(r["dosage"] for r in schedule_rules if r.get("dosage")))
+        dosage_display = med["dosage"] + " / " + " / ".join(b_dosages)
+        rule_lines = [f"⏰ {_format_schedule_rule(r)} — {r.get('dosage') or med['dosage']}" for r in schedule_rules]
+        schedule_str = "\n".join(rule_lines) or "не указано"
     else:
-        schedule_str = " | ".join(_format_schedule_rule(r) for r in schedule_rules) or "не указано"
+        dosage_display = med["dosage"]
+        has_adv = any(r["frequency"] != "daily" for r in schedule_rules)
+        if not has_adv:
+            schedule_str = ", ".join(r["reminder_time"] for r in schedule_rules) or "не указано"
+        else:
+            schedule_str = " | ".join(_format_schedule_rule(r) for r in schedule_rules) or "не указано"
     await query.edit_message_text(
         f"✏️ *Редактируем: {med['name']}*\n"
-        f"💊 {med['dosage']}  🍽 {MEAL_LABELS[med['meal_relation']]}  ⏰ {schedule_str}\n"
+        f"💊 {dosage_display}  🍽 {MEAL_LABELS[med['meal_relation']]}\n"
+        f"⏰ {schedule_str}\n"
         f"──────────────────\n"
         f"📝 *Название* — введи новое:",
         parse_mode="Markdown",
@@ -1205,21 +1224,38 @@ async def keep_edit_dosage(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     context.user_data["edit_dosage"] = context.user_data["edit_med"]["dosage"]
-    rules = context.user_data["edit_med"]["schedule_rules"]
-    await query.edit_message_text(
-        f"📅 *Расписание* — выбери тип:\nТекущее: {_current_schedule_summary(rules)}",
-        parse_mode="Markdown", reply_markup=_edit_freq_type_keyboard()
-    )
-    return EDIT_FREQ_TYPE
+    return await _show_edit_freq_type_step(context, query)
 
 
 async def edit_dosage(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["edit_dosage"] = update.message.text.strip()
-    rules = context.user_data["edit_med"]["schedule_rules"]
-    await update.message.reply_text(
-        f"📅 *Расписание* — выбери тип:\nТекущее: {_current_schedule_summary(rules)}",
-        parse_mode="Markdown", reply_markup=_edit_freq_type_keyboard()
-    )
+    return await _show_edit_freq_type_step(context, update.message, from_message=True)
+
+
+async def _show_edit_freq_type_step(context, target, from_message: bool = False):
+    """Показывает шаг выбора расписания с учётом multi-dosage."""
+    edit_med = context.user_data["edit_med"]
+    rules = edit_med["schedule_rules"]
+    is_multi = context.user_data.get("edit_is_multi_dosage")
+    if is_multi:
+        meal_label = MEAL_LABELS.get(edit_med["meal_relation"], edit_med["meal_relation"])
+        rule_lines = [
+            f"{_format_schedule_rule(r)} — {r.get('dosage') or edit_med['dosage']}"
+            for r in rules
+        ]
+        text = (
+            f"📅 *Расписание* (разная дозировка):\n"
+            + "\n".join(rule_lines) + "\n\n"
+            f"⚠️ Изменить расписание нельзя — удали и добавь заново."
+        )
+        kb = _edit_freq_type_keyboard_multi(meal_label)
+    else:
+        text = f"📅 *Расписание* — выбери тип:\nТекущее: {_current_schedule_summary(rules)}"
+        kb = _edit_freq_type_keyboard()
+    if from_message:
+        await target.reply_text(text, parse_mode="Markdown", reply_markup=kb)
+    else:
+        await target.edit_message_text(text, parse_mode="Markdown", reply_markup=kb)
     return EDIT_FREQ_TYPE
 
 
@@ -1238,18 +1274,31 @@ async def keep_edit_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE)
         edit_med["schedule_rules"]
     )
     rules = edit_med["schedule_rules"]
-    has_adv = any(r["frequency"] != "daily" for r in rules)
-    if not has_adv:
-        schedule_str = ", ".join(r["reminder_time"] for r in rules)
+    dosage_a = context.user_data["edit_dosage"]
+    if context.user_data.get("edit_is_multi_dosage"):
+        rule_lines = [f"⏰ {_format_schedule_rule(r)} — {r.get('dosage') or dosage_a}" for r in rules]
+        body = "\n".join(rule_lines)
+        b_dosages = list(dict.fromkeys(r["dosage"] for r in rules if r.get("dosage")))
+        dosage_display = dosage_a + " / " + " / ".join(b_dosages)
+        await query.edit_message_text(
+            f"✅ Лекарство обновлено!\n\n"
+            f"💊 {context.user_data['edit_name']} — {dosage_display}\n"
+            f"🍽 {MEAL_LABELS[edit_med['meal_relation']]}\n"
+            f"{body}"
+        )
     else:
-        schedule_str = " | ".join(_format_schedule_rule(r) for r in rules)
-    await query.edit_message_text(
-        f"✅ Лекарство обновлено!\n\n"
-        f"💊 {context.user_data['edit_name']} — {context.user_data['edit_dosage']}\n"
-        f"🍽 {MEAL_LABELS[edit_med['meal_relation']]}\n"
-        f"🔢 {edit_med['times_per_day']} раз в день\n"
-        f"⏰ {schedule_str}"
-    )
+        has_adv = any(r["frequency"] != "daily" for r in rules)
+        if not has_adv:
+            schedule_str = ", ".join(r["reminder_time"] for r in rules)
+        else:
+            schedule_str = " | ".join(_format_schedule_rule(r) for r in rules)
+        await query.edit_message_text(
+            f"✅ Лекарство обновлено!\n\n"
+            f"💊 {context.user_data['edit_name']} — {dosage_a}\n"
+            f"🍽 {MEAL_LABELS[edit_med['meal_relation']]}\n"
+            f"🔢 {edit_med['times_per_day']} раз в день\n"
+            f"⏰ {schedule_str}"
+        )
     context.user_data.clear()
     return ConversationHandler.END
 
@@ -1291,6 +1340,28 @@ async def edit_meal(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def _route_after_edit_meal(query, context):
+    if context.user_data.get("edit_is_multi_dosage"):
+        rules = context.user_data["edit_med"]["schedule_rules"]
+        total = context.user_data["edit_med"]["times_per_day"]
+        meal = context.user_data["edit_meal"]
+        dosage_a = context.user_data["edit_dosage"]
+        user_id = context.user_data["edit_user_id"]
+        update_medication(context.user_data["edit_id"], user_id,
+                          context.user_data["edit_name"], dosage_a,
+                          meal, total, rules)
+        b_dosages = list(dict.fromkeys(r["dosage"] for r in rules if r.get("dosage")))
+        dosage_display = dosage_a + " / " + " / ".join(b_dosages)
+        rule_lines = [f"⏰ {_format_schedule_rule(r)} — {r.get('dosage') or dosage_a}" for r in rules]
+        await query.edit_message_text(
+            f"✅ Лекарство обновлено!\n\n"
+            f"💊 {context.user_data['edit_name']} — {dosage_display}\n"
+            f"🍽 {MEAL_LABELS[meal]}\n"
+            + "\n".join(rule_lines),
+            parse_mode="Markdown"
+        )
+        context.user_data.clear()
+        return ConversationHandler.END
+
     freq = context.user_data.get("edit_freq_type", "daily")
 
     if freq == "daily":
@@ -1462,6 +1533,20 @@ async def edit_freq_monthday(update: Update, context: ContextTypes.DEFAULT_TYPE)
     return ConversationHandler.END
 
 
+async def handle_multi_edit_go_to_meal(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Переход к выбору способа приёма для multi-dosage (без изменения расписания)."""
+    query = update.callback_query
+    await query.answer()
+    edit_med = context.user_data["edit_med"]
+    current_label = MEAL_LABELS.get(edit_med["meal_relation"], edit_med["meal_relation"])
+    await query.edit_message_text(
+        "🍽 *Приём с пищей* — выбери:",
+        parse_mode="Markdown",
+        reply_markup=_edit_meal_keyboard(current_label)
+    )
+    return EDIT_MEAL
+
+
 # ── Edit flow: back handlers ───────────────────────────────────────────────
 
 async def back_edit_to_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1491,12 +1576,7 @@ async def back_edit_to_dosage(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def back_edit_to_freq_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    rules = context.user_data["edit_med"]["schedule_rules"]
-    await query.edit_message_text(
-        f"📅 *Расписание* — выбери тип:\nТекущее: {_current_schedule_summary(rules)}",
-        parse_mode="Markdown", reply_markup=_edit_freq_type_keyboard()
-    )
-    return EDIT_FREQ_TYPE
+    return await _show_edit_freq_type_step(context, query)
 
 
 async def back_edit_to_times(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1620,6 +1700,7 @@ def get_edit_handler(cancel_handler):
             EDIT_FREQ_TYPE: [
                 CallbackQueryHandler(keep_edit_schedule, pattern="^keep_edit_schedule$"),
                 CallbackQueryHandler(choose_edit_freq_type, pattern="^editfreq:"),
+                CallbackQueryHandler(handle_multi_edit_go_to_meal, pattern="^multi_edit_go_to_meal$"),
                 CallbackQueryHandler(back_edit_to_dosage, pattern="^back_edit_to_dosage$"),
             ],
             EDIT_TIMES: [

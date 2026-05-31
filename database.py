@@ -436,6 +436,23 @@ def set_daily_plan_time(telegram_id: int, time_str: str):
         )
 
 
+def get_schedules_for_user(telegram_id: int) -> list:
+    """Возвращает все активные правила расписания для одного пользователя."""
+    with get_connection() as conn:
+        return conn.execute(
+            """SELECT u.telegram_id, u.timezone,
+                      m.id AS medication_id, m.name, m.dosage AS med_dosage, m.meal_relation,
+                      sr.reminder_time, sr.frequency, sr.interval_days,
+                      sr.weekdays, sr.month_day, sr.anchor_date, sr.dosage AS rule_dosage
+               FROM users u
+               JOIN medications m ON m.user_id = u.id AND m.active = 1
+               JOIN schedule_rules sr ON sr.medication_id = m.id
+               WHERE u.telegram_id = ?
+               ORDER BY m.id, sr.reminder_time""",
+            (telegram_id,)
+        ).fetchall()
+
+
 def get_users_with_daily_plan() -> list:
     """Возвращает строки schedule_rules для пользователей с включённым планом дня."""
     with get_connection() as conn:
