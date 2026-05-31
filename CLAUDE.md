@@ -205,7 +205,7 @@ ADMIN_ID=telegram_id_админа
 | ~~32~~ | ~~`database.py`~~ | ~~Дропнуть таблицу `schedules`~~ — ✅ исправлено: убрана из `init_db()`, `delete_user_data()`; в `migrate()` добавлен `DROP TABLE IF EXISTS schedules` |
 | 32 | `.claude/CLAUDE.md` | Синхронизировать два CLAUDE.md: `.claude/` краткий vs `med-bot/` полный — привести в согласованность |
 | 33 | `handlers/meds.py`, `database.py` | Аудит валидации входных данных: ограничить длину названия лекарства и дозировки, экранировать спецсимволы Markdown (`*`, `_`, `` ` ``, `[`) в пользовательских строках перед вставкой в `parse_mode="Markdown"` сообщения |
-| 34 | новый `handlers/family.py`, `database.py` | Caregiver-режим: лекарства для ребёнка/другого человека без своего телефона. Минимальный вариант — поле `for_whom TEXT` в `medications`, в напоминании и списке показывать "(для Маши)". Лимит считать отдельно на подопечного |
+| 34 | `database.py`, `handlers/meds.py`, `scheduler.py`, `constants.py` | **Caregiver-режим (Вариант Б)**: новая таблица `dependents (id, user_id FK, name)` + колонка `medications.dependent_id FK NULL` (NULL = для себя). UX: шаг "Для кого?" в начале add-флоу → `[👤 Для себя] [👧 Маша] [➕ Новый подопечный]`. Список `/meds` разбит на секции по людям. Напоминание: `💊 Амоксициллин (для Маши) — 250 мг`. Лимит 10 лекарств считается отдельно на каждого. Новое состояние `SELECT_DEPENDENT = 36`. Изменить: `init_db()`, `migrate()`, `count_active_medications()`, `get_user_medications()`, `send_reminders()` |
 
 ### Порядок работы с багами
 1. Найти баг → добавить в таблицу "К исправлению"
