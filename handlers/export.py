@@ -1,3 +1,4 @@
+import asyncio
 import io
 import pytz
 from collections import OrderedDict
@@ -89,7 +90,7 @@ async def export_week_plan(update, context):
 
     title = "План лекарств на 7 дней"
     subtitle = f"с {today.strftime('%d.%m.%Y')} по {(today + timedelta(days=6)).strftime('%d.%m.%Y')}"
-    buf = _build_pdf(title, subtitle, sections)
+    buf = await asyncio.to_thread(_build_pdf, title, subtitle, sections)
     filename = f"plan_{today.strftime('%Y%m%d')}.pdf"
     await query.message.reply_document(document=buf, filename=filename, caption="📆 План лекарств на 7 дней")
 
@@ -133,7 +134,7 @@ async def export_week_stats(update, context):
 
     title = "История приёмов за 7 дней"
     subtitle = f"до {now.strftime('%d.%m.%Y')}"
-    buf = _build_pdf(title, subtitle, sections)
+    buf = await asyncio.to_thread(_build_pdf, title, subtitle, sections)
     filename = f"history_{now.strftime('%Y%m%d')}.pdf"
     await query.message.reply_document(document=buf, filename=filename, caption="📈 История приёмов за 7 дней")
 

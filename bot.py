@@ -25,6 +25,7 @@ logging.basicConfig(level=logging.INFO)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("apscheduler").setLevel(logging.WARNING)
 logging.getLogger("telegram").setLevel(logging.WARNING)
+logging.getLogger("fontTools").setLevel(logging.WARNING)
 warnings.filterwarnings("ignore", category=PTBUserWarning)
 logger = logging.getLogger(__name__)
 
