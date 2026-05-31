@@ -489,6 +489,20 @@ def get_admin_stats() -> dict:
         return {"total_users": total_users, "total_meds": total_meds, "active_today": active_today}
 
 
+def get_today_intake_statuses(telegram_id: int) -> dict:
+    """Возвращает {(medication_id, scheduled_time): status} для сегодняшних записей."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            """SELECT i.medication_id, i.scheduled_time, i.status
+               FROM intake_log i
+               JOIN medications m ON m.id = i.medication_id
+               JOIN users u ON u.id = m.user_id
+               WHERE u.telegram_id = ? AND date(i.taken_at) = date('now')""",
+            (telegram_id,)
+        ).fetchall()
+    return {(r["medication_id"], r["scheduled_time"]): r["status"] for r in rows}
+
+
 def log_intake(medication_id: int, scheduled_time: str, status: str):
     """Записывает факт приёма или пропуска лекарства. Обновляет запись если уже есть за сегодня."""
     with get_connection() as conn:

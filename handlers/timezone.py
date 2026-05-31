@@ -6,7 +6,7 @@ from geopy.geocoders import Nominatim
 
 _tf = TimezoneFinder()
 from geopy.exc import GeocoderTimedOut, GeocoderServiceError
-from database import get_or_create_user, get_user_timezone, set_user_timezone, get_schedules_for_user
+from database import get_or_create_user, get_user_timezone, set_user_timezone, get_schedules_for_user, get_today_intake_statuses
 from constants import SETUP_TZ, SETUP_CITY
 from utils import handle_db_errors, get_tz_for_user, escape_md
 
@@ -60,16 +60,19 @@ async def handle_menu_callback(update, context):
             if mid not in meds:
                 meds[mid] = {"name": row["name"], "meal_relation": row["meal_relation"], "times": []}
             dosage = row["rule_dosage"] or row["med_dosage"]
-            meds[mid]["times"].append((row["reminder_time"], dosage))
+            meds[mid]["times"].append((row["reminder_time"], mid, dosage))
         if not meds:
             await msg.reply_text("💊 Сегодня нет запланированных лекарств.")
             return
+        statuses = get_today_intake_statuses(user.id)
         lines = ["📋 *Лекарства на сегодня:*\n"]
         for med in meds.values():
             meal = _MEAL_LABELS.get(med["meal_relation"], "")
             lines.append(f"💊 *{escape_md(med['name'])}* — {meal}")
-            for reminder_time, dosage in sorted(med["times"]):
-                lines.append(f"   ⏰ {reminder_time} — {escape_md(dosage)}")
+            for reminder_time, mid, dosage in sorted(med["times"]):
+                st = statuses.get((mid, reminder_time))
+                icon = "✅" if st == "taken" else ("❌" if st == "skipped" else "⏳")
+                lines.append(f"   {icon} {reminder_time} — {escape_md(dosage)}")
         await msg.reply_text("\n".join(lines), parse_mode="Markdown")
 
     elif action == "meds":
@@ -80,8 +83,7 @@ async def handle_menu_callback(update, context):
         await msg.reply_text(
             "Выбери период:",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("📅 За сегодня", callback_data="stats:today"),
-                 InlineKeyboardButton("📈 За 7 дней", callback_data="stats:week")],
+                [InlineKeyboardButton("📈 За 7 дней", callback_data="stats:week")],
                 [InlineKeyboardButton("📆 План на 7 дней", callback_data="stats:plan")],
             ])
         )

@@ -12,8 +12,7 @@ _WEEKDAY_NAMES = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
 
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📅 За сегодня", callback_data="stats:today"),
-         InlineKeyboardButton("📈 За 7 дней", callback_data="stats:week")],
+        [InlineKeyboardButton("📈 За 7 дней", callback_data="stats:week")],
         [InlineKeyboardButton("📆 План на 7 дней", callback_data="stats:plan")],
     ])
     await update.message.reply_text("Выбери период:", reply_markup=keyboard)
@@ -191,7 +190,6 @@ async def show_week_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def get_handlers():
     return [
-        CallbackQueryHandler(show_stats_today, pattern="^stats:today$"),
         CallbackQueryHandler(show_stats_week, pattern="^stats:week$"),
         CallbackQueryHandler(show_week_plan, pattern="^stats:plan$"),
     ]
