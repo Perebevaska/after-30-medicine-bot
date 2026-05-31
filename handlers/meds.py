@@ -579,7 +579,12 @@ async def keep_edit_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE)
         edit_med["meal_relation"], edit_med["times_per_day"],
         edit_med["schedule_rules"]
     )
-    schedule_str = "\n".join(_format_schedule_rule(r) for r in edit_med["schedule_rules"])
+    rules = edit_med["schedule_rules"]
+    has_adv = any(r["frequency"] != "daily" for r in rules)
+    if not has_adv:
+        schedule_str = ", ".join(r["reminder_time"] for r in rules)
+    else:
+        schedule_str = " | ".join(_format_schedule_rule(r) for r in rules)
     await query.edit_message_text(
         f"✅ Лекарство обновлено!\n\n"
         f"💊 {context.user_data['edit_name']} — {context.user_data['edit_dosage']}\n"
