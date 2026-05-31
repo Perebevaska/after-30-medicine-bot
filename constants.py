@@ -9,6 +9,14 @@ EDIT_FREQ_TYPE, EDIT_FREQ_INTERVAL, EDIT_FREQ_WEEKDAYS, EDIT_FREQ_MONTHDAY, EDIT
 PRESET_TIME = 22       # состояние ввода времени пресета в настройках
 DAILY_PLAN_TIME = 23   # состояние ввода времени плана дня
 
+# Добавление лекарства с разными дозировками
+DOSAGE_B = 29
+TIMES_B = 30
+FREQ_TYPE_B = 31
+FREQ_INTERVAL_B = 32
+FREQ_WEEKDAYS_B = 33
+FREQ_MONTHDAY_B = 34
+
 CANCEL_TIP = "_(/cancel для отмены)_"
 
 SLOT_ORDER = ["morning", "lunch", "evening", "night"]

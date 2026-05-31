@@ -36,7 +36,7 @@ med-bot/
 - `users` (telegram_id, username, timezone, reminder_mode, time_morning, time_lunch, time_evening, time_night)
 - `medications` (user_id FK, name, dosage, meal_relation, times_per_day, active)
 - `schedules` (medication_id FK, reminder_time HH:MM) — устаревшая, оставлена для совместимости
-- `schedule_rules` (medication_id FK, reminder_time, frequency, interval_days, weekdays, month_day, anchor_date)
+- `schedule_rules` (medication_id FK, reminder_time, frequency, interval_days, weekdays, month_day, anchor_date, dosage) — `dosage NULL` = берётся из `medications.dosage`
 - `intake_log` (medication_id FK, scheduled_time, taken_at, status: taken/skipped/pending)
 
 ### schedule_rules — типы frequency
@@ -54,15 +54,20 @@ med-bot/
 
 ### Флоу добавления лекарства
 ```
-Название → Дозировка → Когда принимать (multi-select: Утро/Обед/Вечер/Ночь) → Как принимать с пищей → Тип расписания:
-  📅 Каждый день   → сохранить
-  🔄 Через N дней  → N дней → сохранить
-  📆 По дням недели → Дни (toggle) → сохранить
-  🗓 Раз в месяц   → Число → сохранить
+Название → Дозировка
+  ├── (текст) → Когда принимать (multi-select) → Как с пищей → Тип расписания → сохранить
+  └── 📊 Разная дозировка
+        → Дозировка А → Дозировка Б
+        → Слоты А → Слоты Б
+        → Как с пищей (один раз для обеих)
+        → Расписание А (daily/interval/weekdays/monthly)
+        → Расписание Б (+ выбор даты начала для interval)
+        → сохранить одно лекарство с rules: А dosage=NULL, Б dosage=dosage_b
 ```
 
 Время выбирается через multi-select по пресетам (Утро/Обед/Вечер/Ночь). Пресеты настраиваются в /settings.
-Каждое выбранное время сохраняется отдельной строкой в `schedule_rules` с одинаковыми frequency-параметрами.
+Каждое выбранное время сохраняется отдельной строкой в `schedule_rules`.
+При разных дозировках правила Б хранят `dosage` явно; правила А — `dosage=NULL` (наследуют из `medications`).
 
 ### Флоу редактирования лекарства
 ```
@@ -114,6 +119,8 @@ pip install -r requirements.txt
 - `FREQ_TYPE, FREQ_INTERVAL, FREQ_WEEKDAYS, FREQ_MONTHDAY` (12-15) — тип расписания при добавлении
 - `EDIT_FREQ_TYPE, EDIT_FREQ_INTERVAL, EDIT_FREQ_WEEKDAYS, EDIT_FREQ_MONTHDAY` (17-20) — тип расписания при редактировании
 - `PRESET_TIME` (22) — ввод времени пресета в настройках
+- `DAILY_PLAN_TIME` (23) — ввод времени плана дня
+- `DOSAGE_B, TIMES_B, FREQ_TYPE_B, FREQ_INTERVAL_B, FREQ_WEEKDAYS_B, FREQ_MONTHDAY_B` (29-34) — ветка «Разная дозировка» при добавлении
 
 Неиспользуемые: `FREQ_TIME` (16), `EDIT_FREQ_TIME` (21) — оставлены для совместимости.
 
@@ -148,6 +155,7 @@ ADMIN_ID=telegram_id_админа
 - Пресеты времени (🌅 Утро/☀️ Обед/🌇 Вечер/🌙 Ночь): хранятся в `users.time_morning/lunch/evening/night`, редактируются через `/settings` → "⏰ Настроить время приёмов"
 - При добавлении/редактировании лекарства вместо числа "сколько раз" — multi-select по слотам; `times_per_day` = кол-во выбранных слотов
 - `SLOT_ORDER`, `SLOT_LABELS` определены в `constants.py`; `get_user_time_presets()` / `set_user_time_preset()` в `database.py`
+- **Разная дозировка**: одно `medications`-запись, правила А с `dosage=NULL`, правила Б с `dosage=dosage_b`; `get_all_schedules()` возвращает `med_dosage` + `rule_dosage`, планировщик использует `rule_dosage or med_dosage`; список лекарств показывает дату следующего срабатывания через `_next_fire_label()` + `_compute_next_fire()`
 - **Plan на день**: `_daily_plan_sent: set` в `scheduler.py` предотвращает дубли; `get_users_with_daily_plan()` возвращает строки schedule_rules только для пользователей с `daily_plan_enabled=1`
 - **ADMIN_ID**: читается через `os.getenv("ADMIN_ID")` в `handlers/admin.py` и `handlers/settings.py` — `load_dotenv()` вызывается в `bot.py` **до** всех импортов
 - **broadcast.py**: standalone скрипт, не импортирует handlers; завершение ввода текста — строка `.`; режим 2 требует подтверждения словом `да`
@@ -191,6 +199,7 @@ ADMIN_ID=telegram_id_админа
 | ~~27~~ | ~~`handlers/admin.py`, `database.py`~~ | ~~Кнопка "🔧 Админ панель" в `/settings`, видима только ADMIN_ID. Показывает: всего пользователей, всего активных лекарств, кол-во пользователей активных сегодня~~ — ✅ исправлено |
 | ~~28~~ | ~~`handlers/meds.py`~~ | ~~Разбить на meds_add.py / meds_edit.py~~ — 🚫 отменено |
 | ~~26~~ | ~~`broadcast.py`~~ | ~~Отдельный скрипт рассылки: текст вводится вручную, режим тест (только ADMIN_ID) или все пользователи~~ — ✅ исправлено |
+| 29 | `handlers/meds.py` | Нельзя отредактировать лекарство с разными дозировками (multi-dosage). Edit-флоу не знает о `rule.dosage` — при сохранении теряет дозировки правил. Нужно либо отдельный edit-флоу для multi-dosage, либо запрет редактирования расписания с предложением удалить и добавить заново |
 
 ### Порядок работы с багами
 1. Найти баг → добавить в таблицу "К исправлению"

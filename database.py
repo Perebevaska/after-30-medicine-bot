@@ -122,6 +122,10 @@ def migrate():
         if "daily_plan_time" not in cols:
             conn.execute("ALTER TABLE users ADD COLUMN daily_plan_time TEXT DEFAULT '08:00'")
 
+        sr_cols = [r[1] for r in conn.execute("PRAGMA table_info(schedule_rules)")]
+        if "dosage" not in sr_cols:
+            conn.execute("ALTER TABLE schedule_rules ADD COLUMN dosage TEXT DEFAULT NULL")
+
         # Мигрируем schedules → schedule_rules
         existing = conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='schedule_rules'"
@@ -245,14 +249,14 @@ def add_schedule(medication_id: int, reminder_time: str):
 
 def add_schedule_rule(medication_id: int, reminder_time: str, frequency: str,
                       interval_days: int = None, weekdays: str = None,
-                      month_day: int = None, anchor_date: str = None):
+                      month_day: int = None, anchor_date: str = None, dosage: str = None):
     """Добавляет правило напоминания в schedule_rules."""
     with get_connection() as conn:
         conn.execute(
             """INSERT INTO schedule_rules
-               (medication_id, reminder_time, frequency, interval_days, weekdays, month_day, anchor_date)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (medication_id, reminder_time, frequency, interval_days, weekdays, month_day, anchor_date)
+               (medication_id, reminder_time, frequency, interval_days, weekdays, month_day, anchor_date, dosage)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (medication_id, reminder_time, frequency, interval_days, weekdays, month_day, anchor_date, dosage)
         )
 
 
@@ -271,8 +275,9 @@ def get_all_schedules() -> list:
         return conn.execute(
             """SELECT sr.reminder_time, sr.frequency, sr.interval_days,
                       sr.weekdays, sr.month_day, sr.anchor_date,
-                      m.name, m.dosage, m.meal_relation,
-                      u.telegram_id, u.timezone, u.reminder_mode, sr.medication_id
+                      m.name, m.dosage AS med_dosage, m.meal_relation,
+                      u.telegram_id, u.timezone, u.reminder_mode, sr.medication_id,
+                      sr.dosage AS rule_dosage
                FROM schedule_rules sr
                JOIN medications m ON m.id = sr.medication_id
                JOIN users u ON u.id = m.user_id
@@ -374,7 +379,7 @@ def get_schedules_by_medication(medication_id: int) -> list:
     """Возвращает правила расписания для лекарства."""
     with get_connection() as conn:
         return conn.execute(
-            """SELECT reminder_time, frequency, interval_days, weekdays, month_day, anchor_date
+            """SELECT reminder_time, frequency, interval_days, weekdays, month_day, anchor_date, dosage
                FROM schedule_rules WHERE medication_id = ?""",
             (medication_id,)
         ).fetchall()
@@ -393,11 +398,11 @@ def update_medication(medication_id: int, user_id: int, name: str, dosage: str,
         for rule in new_rules:
             conn.execute(
                 """INSERT INTO schedule_rules
-                   (medication_id, reminder_time, frequency, interval_days, weekdays, month_day, anchor_date)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                   (medication_id, reminder_time, frequency, interval_days, weekdays, month_day, anchor_date, dosage)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                 (medication_id, rule["reminder_time"], rule.get("frequency", "daily"),
                  rule.get("interval_days"), rule.get("weekdays"),
-                 rule.get("month_day"), rule.get("anchor_date"))
+                 rule.get("month_day"), rule.get("anchor_date"), rule.get("dosage"))
             )
 
 
@@ -436,9 +441,9 @@ def get_users_with_daily_plan() -> list:
     with get_connection() as conn:
         return conn.execute(
             """SELECT u.telegram_id, u.timezone, u.daily_plan_time,
-                      m.id AS medication_id, m.name, m.dosage, m.meal_relation,
+                      m.id AS medication_id, m.name, m.dosage AS med_dosage, m.meal_relation,
                       sr.reminder_time, sr.frequency, sr.interval_days,
-                      sr.weekdays, sr.month_day, sr.anchor_date
+                      sr.weekdays, sr.month_day, sr.anchor_date, sr.dosage AS rule_dosage
                FROM users u
                JOIN medications m ON m.user_id = u.id AND m.active = 1
                JOIN schedule_rules sr ON sr.medication_id = m.id

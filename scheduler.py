@@ -86,12 +86,13 @@ async def send_reminders(app):
             ),
         ]])
 
+        dosage = row["rule_dosage"] or row["med_dosage"]
         try:
             await app.bot.send_message(
                 chat_id=row["telegram_id"],
                 text=(
                     f"💊 Время принять лекарство!\n\n"
-                    f"*{row['name']}* — {row['dosage']}\n"
+                    f"*{row['name']}* — {dosage}\n"
                     f"🍽 Принимать {_MEAL_LABELS.get(row['meal_relation'], row['meal_relation'])}"
                 ),
                 parse_mode="Markdown",
@@ -126,10 +127,10 @@ async def _send_daily_plans(app):
             continue
         if mid not in users[tid]["meds"]:
             users[tid]["meds"][mid] = {
-                "name": row["name"], "dosage": row["dosage"],
-                "meal_relation": row["meal_relation"], "times": [],
+                "name": row["name"], "meal_relation": row["meal_relation"], "times": [],
             }
-        users[tid]["meds"][mid]["times"].append(row["reminder_time"])
+        dosage = row["rule_dosage"] or row["med_dosage"]
+        users[tid]["meds"][mid]["times"].append((row["reminder_time"], dosage))
 
     for tid, data in users.items():
         now_local = datetime.now(data["tz"])
@@ -143,10 +144,10 @@ async def _send_daily_plans(app):
 
         lines = ["🌅 *Доброе утро!*\n", "📋 *Сегодня нужно принять:*\n"]
         for med in data["meds"].values():
-            times_str = ", ".join(sorted(med["times"]))
             meal = _MEAL_LABELS.get(med["meal_relation"], "")
-            lines.append(f"💊 *{med['name']}* — {med['dosage']}")
-            lines.append(f"   ⏰ {times_str} — {meal}")
+            lines.append(f"💊 *{med['name']}*")
+            for reminder_time, dosage in sorted(med["times"]):
+                lines.append(f"   ⏰ {reminder_time} — {dosage} — {meal}")
         lines.append("\nНе забудь взять лекарства с собой! 🎒")
         lines.append("Продуктивного дня! 🚀")
 
