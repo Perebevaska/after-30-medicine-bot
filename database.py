@@ -240,15 +240,38 @@ def get_user_time_presets(telegram_id: int) -> dict:
         return {"morning": "09:00", "lunch": "12:00", "evening": "18:00", "night": "22:00"}
 
 
-def set_user_time_preset(telegram_id: int, slot: str, time: str):
-    """Обновляет один пресет времени пользователя."""
+def set_user_time_preset(telegram_id: int, slot: str, time: str) -> int:
+    """Обновляет пресет времени и переносит существующие правила с прежнего времени на новое.
+
+    Слоты хранятся в schedule_rules как конкретное время (снимок пресета на момент
+    создания). Чтобы смена пресета «прокидывалась» в напоминания/список/план, все
+    активные правила пользователя с reminder_time == старое значение пресета
+    обновляются на новое. Возвращает число обновлённых правил.
+    """
     col_map = {"morning": "time_morning", "lunch": "time_lunch",
                "evening": "time_evening", "night": "time_night"}
     col = col_map.get(slot)
     if not col:
         raise ValueError(f"Unknown slot: {slot}")
     with get_connection() as conn:
+        row = conn.execute(
+            f"SELECT id, {col} AS old FROM users WHERE telegram_id = ?", (telegram_id,)
+        ).fetchone()
+        if row is None:
+            return 0
+        old_time, user_id = row["old"], row["id"]
         conn.execute(f"UPDATE users SET {col} = ? WHERE telegram_id = ?", (time, telegram_id))
+        if not old_time or old_time == time:
+            return 0
+        cur = conn.execute(
+            """UPDATE schedule_rules SET reminder_time = ?
+               WHERE reminder_time = ?
+                 AND medication_id IN (
+                     SELECT id FROM medications WHERE user_id = ? AND active = 1
+                 )""",
+            (time, old_time, user_id)
+        )
+        return cur.rowcount
 
 
 def count_active_medications(user_id: int, dependent_id: int = None) -> int:

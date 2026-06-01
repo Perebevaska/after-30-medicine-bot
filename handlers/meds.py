@@ -308,6 +308,14 @@ def _parse_int_range(text: str, lo: int, hi: int):
     return n if lo <= n <= hi else None
 
 
+def _saved_keyboard(med_id: int) -> InlineKeyboardMarkup:
+    """Клавиатура под сообщением «Лекарство добавлено/обновлено»: учёт запаса + меню."""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📦 Указать запас", callback_data=f"stock:{med_id}")],
+        [InlineKeyboardButton("◀️ В меню", callback_data="menu:main")],
+    ])
+
+
 def _freq_label(freq: str, interval_days, weekdays_str, month_day) -> str:
     """Возвращает короткое человекочитаемое описание частоты (каждый день / каждые N дн. и т.д.)."""
     if freq == "daily":
@@ -420,7 +428,8 @@ async def show_meds_list(message, user):
 
     rules_by_med = get_rules_grouped_for_user(user_id)
     await message.reply_text("💊 Твои лекарства:")
-    for med in meds:
+    last_idx = len(meds) - 1
+    for i, med in enumerate(meds):
         rules = rules_by_med.get(med["id"], [])
         has_advanced = any(r["frequency"] != "daily" for r in rules)
 
@@ -447,11 +456,15 @@ async def show_meds_list(message, user):
 
         meal = MEAL_LABELS.get(med["meal_relation"], med["meal_relation"])
         dep_label = f" _({escape_md(med['dependent_name'])})_" if med["dependent_name"] else ""
-        keyboard = InlineKeyboardMarkup([
+        kb_rows = [
             [InlineKeyboardButton("✏️ Изменить", callback_data=f"edit:{med['id']}"),
              InlineKeyboardButton("🗑 Удалить", callback_data=f"delete:{med['id']}")],
             [InlineKeyboardButton("📦 Запас", callback_data=f"stock:{med['id']}")],
-        ])
+        ]
+        if i == last_idx:
+            kb_rows.append([InlineKeyboardButton("➕ Добавить лекарство", callback_data="add_med")])
+            kb_rows.append([InlineKeyboardButton("◀️ В меню", callback_data="menu:main")])
+        keyboard = InlineKeyboardMarkup(kb_rows)
         text = (
             f"*{escape_md(med['name'])}*{dep_label} — {escape_md(dosage_display)}\n"
             f"🍽 {meal}\n"
@@ -470,14 +483,6 @@ async def show_meds_list(message, user):
                 line += f" (~{dleft} дн.)"
             text += line
         await message.reply_text(text, parse_mode="Markdown", reply_markup=keyboard)
-
-    await message.reply_text(
-        "➕ Хочешь добавить ещё?",
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("➕ Добавить лекарство", callback_data="add_med")],
-            [InlineKeyboardButton("◀️ В меню", callback_data="menu:main")],
-        ])
-    )
 
 
 @handle_db_errors
@@ -676,7 +681,7 @@ async def add_dosage(update: Update, context: ContextTypes.DEFAULT_TYPE):
     selected = context.user_data["selected_slots"]
     presets = get_user_time_presets(update.effective_user.id)
     await update.message.reply_text(
-        "⏰ *Когда принимать?* — выбери один или несколько:",
+        "⏰ *Когда принимать?* — выбери один или несколько:\n\n_Время слотов меняется в ⚙️ Настройки → ⏰ Время приёмов._",
         parse_mode="Markdown",
         reply_markup=_timeslots_keyboard(selected, presets)
     )
@@ -869,7 +874,8 @@ async def choose_freq_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(
             _med_saved_text("добавлено", context.user_data["name"],
                             context.user_data["dosage"], context.user_data["meal"],
-                            total, collected)
+                            total, collected),
+            reply_markup=_saved_keyboard(med_id)
         )
         context.user_data.clear()
         return ConversationHandler.END
@@ -928,7 +934,8 @@ async def add_freq_interval(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         _med_saved_text("добавлено", context.user_data["name"], context.user_data["dosage"],
                         context.user_data["meal"], total, collected,
-                        freq_suffix=f" — {_freq_label('interval', n, None, None)}")
+                        freq_suffix=f" — {_freq_label('interval', n, None, None)}"),
+        reply_markup=_saved_keyboard(med_id)
     )
     context.user_data.clear()
     return ConversationHandler.END
@@ -976,7 +983,8 @@ async def confirm_weekdays(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(
         _med_saved_text("добавлено", context.user_data["name"], context.user_data["dosage"],
                         context.user_data["meal"], total, collected,
-                        freq_suffix=f" — {_freq_label('weekdays', None, weekdays, None)}")
+                        freq_suffix=f" — {_freq_label('weekdays', None, weekdays, None)}"),
+        reply_markup=_saved_keyboard(med_id)
     )
     context.user_data.clear()
     return ConversationHandler.END
@@ -1011,7 +1019,8 @@ async def add_freq_monthday(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         _med_saved_text("добавлено", context.user_data["name"], context.user_data["dosage"],
                         context.user_data["meal"], total, collected,
-                        freq_suffix=f" — {_freq_label('monthly', None, None, day)}", warning=warning)
+                        freq_suffix=f" — {_freq_label('monthly', None, None, day)}", warning=warning),
+        reply_markup=_saved_keyboard(med_id)
     )
     context.user_data.clear()
     return ConversationHandler.END
@@ -1208,6 +1217,7 @@ async def _save_multi_medication(edit_target, context, user_id: int,
         from database import update_medication as _update_med
         clear_pending_for_medication(ud["edit_id"])
         _update_med(ud["edit_id"], user_id, name, dosage_a, meal, total, rules_for_db)
+        saved_id = ud["edit_id"]
     else:
         med_id = add_medication(user_id, name, dosage_a, meal, total, dependent_id=dep_id)
         for r in rules_for_db:
@@ -1217,6 +1227,7 @@ async def _save_multi_medication(edit_target, context, user_id: int,
                 month_day=r.get("month_day"), anchor_date=r.get("anchor_date"),
                 dosage=r.get("dosage")
             )
+        saved_id = med_id
 
     freq_a_label = _freq_label(freq_a["type"], freq_a.get("interval_days"),
                                 freq_a.get("weekdays"), freq_a.get("month_day"))
@@ -1235,9 +1246,9 @@ async def _save_multi_medication(edit_target, context, user_id: int,
     )
 
     if from_message:
-        await edit_target.reply_text(text, parse_mode="Markdown")
+        await edit_target.reply_text(text, parse_mode="Markdown", reply_markup=_saved_keyboard(saved_id))
     else:
-        await edit_target.edit_message_text(text, parse_mode="Markdown")
+        await edit_target.edit_message_text(text, parse_mode="Markdown", reply_markup=_saved_keyboard(saved_id))
     context.user_data.clear()
     return ConversationHandler.END
 
@@ -1308,7 +1319,7 @@ async def back_add_to_times(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return TIMES_B
     selected = context.user_data.get("selected_slots", set())
     await query.edit_message_text(
-        "⏰ *Когда принимать?* — выбери один или несколько:",
+        "⏰ *Когда принимать?* — выбери один или несколько:\n\n_Время слотов меняется в ⚙️ Настройки → ⏰ Время приёмов._",
         parse_mode="Markdown",
         reply_markup=_timeslots_keyboard(selected, presets)
     )
@@ -1649,7 +1660,7 @@ async def choose_edit_freq_type(update: Update, context: ContextTypes.DEFAULT_TY
     preselected = {s for s in SLOT_ORDER if presets[s] in current_times}
     context.user_data["edit_selected_slots"] = preselected
     await query.edit_message_text(
-        "⏰ *Когда принимать?* — выбери один или несколько:",
+        "⏰ *Когда принимать?* — выбери один или несколько:\n\n_Время слотов меняется в ⚙️ Настройки → ⏰ Время приёмов._",
         parse_mode="Markdown",
         reply_markup=_edit_timeslots_keyboard(preselected, presets)
     )
@@ -1914,7 +1925,7 @@ async def back_edit_to_times(update: Update, context: ContextTypes.DEFAULT_TYPE)
     selected = context.user_data.get("edit_selected_slots", set())
     presets = get_user_time_presets(update.effective_user.id)
     await query.edit_message_text(
-        "⏰ *Когда принимать?* — выбери один или несколько:",
+        "⏰ *Когда принимать?* — выбери один или несколько:\n\n_Время слотов меняется в ⚙️ Настройки → ⏰ Время приёмов._",
         parse_mode="Markdown",
         reply_markup=_edit_timeslots_keyboard(selected, presets)
     )
