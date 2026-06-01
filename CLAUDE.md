@@ -130,7 +130,7 @@ python -m pytest -q
 ```
 
 ## Тесты
-Всего **207** тестов (pytest), все на PostgreSQL (`medbot_test`).
+Всего **211** тестов (pytest), все на PostgreSQL (`medbot_test`).
 
 **Конфиг**: `pytest.ini` (`testpaths = tests`); `tests/conftest.py` — сессионный пул + per-test TRUNCATE + autouse `_clear_rate_counters`.
 **БД**: `conftest.py` инициализирует `medbot_test` через `init_pool(TEST_DSN)` + `TRUNCATE ... RESTART IDENTITY CASCADE` перед каждым тестом.
@@ -155,6 +155,7 @@ python -m pytest -q
 - `test_api_auth.py` — A2: валидный/просроченный/поддельный initData
 - `test_api_endpoints.py` — A3: все эндпоинты API (22 теста)
 - `test_api_a5.py` — A5: изоляция пользователей, CORS, rate limit, edge cases (14 тестов)
+- `test_security_blockers.py` — S1 (IDOR в боте) + S2 (IDOR с dependent_id в API), 4 теста
 
 **Перед рефакторингом хендлеров**: `python -m pytest -q` до и после.
 
@@ -195,10 +196,86 @@ RATE_LIMIT_PER_MINUTE=60                          # rate limiter (sliding window
 
 ## Known Issues
 
-### 🔲 К исправлению
+### 🔲 К исправлению (аудит 2026-06-02)
 
-| # | Файл | Проблема |
-|---|------|----------|
+Полный список и план — в разделе **[Аудит и план исправлений](#аудит-и-план-исправлений-2026-06-02)** ниже.
+
+| # | Файл | Проблема | Приоритет |
+|---|------|----------|-----------|
+| ~~S1~~ | `scheduler.py:180` | ✅ Исправлено: проверка владельца в `handle_intake_callback` + тест | 🔴 |
+| ~~S2~~ | `api/routers/medications.py:54` | ✅ Исправлено: валидация `dependent_id` по владельцу + тест | 🔴 |
+| ~~B1~~ | `broadcast.py:18` | ✅ Исправлено: рассылка читает PostgreSQL через `get_connection()` | 🔴 |
+| S3 | `database.py:188` | `get_or_create_user` затирает `username = NULL` на каждом API-запросе | 🟡 |
+| B2 | `database.py` | `datetime.utcnow()` устарел (Python 3.14) | 🟡 |
+| B3 | `scheduler.py:44` | Блокирующие DB-вызовы в async-корутине планировщика | 🟡 |
+| B4 | `schedule_utils.py:30` | `interval`-правило падает при `interval_days` = NULL/0 | 🟡 |
+| S4 | `api/main.py:28` | Rate limiter: утечка памяти, per-process, не учитывает прокси | 🟡 |
+| S5 | `api/main.py:56` | CORS по умолчанию `*` (fail-open) | 🟡 |
+| B5 | `api/routers/medications.py:15` | Нет серверной валидации `reminder_time`/`month_day`/`weekdays`/`interval_days` | 🟡 |
+| O1 | репо | Артефакты `med_bot.db` (персданные!), `db_errors.log`, `bot_run.log` в рабочей копии | 🟢 |
+| O2 | `.claude/CLAUDE.md` | Дубль CLAUDE.md описывает устаревшую SQLite-версию | 🟢 |
+
+---
+
+## Аудит и план исправлений (2026-06-02)
+
+Full-stack code review + фокус на безопасности БД и кибербезопасности.
+**Хорошие практики уже в проекте:** все SQL параметризованы (`%s`/`ANY`), нет f-string-SQL с пользовательскими данными; `.env`/`med_bot.db`/`*.log` не в git; initData валидируется constant-time HMAC (`hmac.compare_digest`) + срок 24ч; `telegram_id` берётся только из подписи, не от клиента; владелец проверяется через `get_medication_by_id(id, user_id)` в большинстве API-эндпоинтов; контейнер от непривилегированного `appuser`.
+
+**A4 и A5 — подтверждены выполненными** (rate limiter, CORS, нормализация 422, Pydantic-Literal, pytz-валидация TZ, 14 тестов изоляции присутствуют). Roadmap отмечен корректно.
+
+### 🔴 Блокеры (делать первыми)
+
+**S1 · IDOR в боте — `handle_intake_callback`** (`scheduler.py:180-208`)
+callback_data `status:med_id:HH:MM` контролируется клиентом; `log_intake(medication_id, …)` и `apply_intake_stock(medication_id, …)` вызываются без проверки, что `med_id` принадлежит нажавшему. Модифицированный клиент пишет/перезаписывает чужой `intake_log` и меняет чужой `stock_qty`.
+→ Перед записью: `uid = get_or_create_user(effective_user.id); if not get_medication_by_id(med_id, uid): return`. `[тест]` на чужой med_id.
+
+**S2 · IDOR в API — `create_medication.dependent_id`** (`api/routers/medications.py:54-69`, `database.py:add_medication`)
+`dependent_id` из тела не проверяется на принадлежность user_id → лекарство можно привязать к чужому подопечному.
+→ Валидировать `dependent_id ∈ get_dependents(user_id)` перед `add_medication` (иначе 404/400). `[тест]`.
+
+**B1 · `broadcast.py` читает мёртвый SQLite** (`broadcast.py:7,18,24`)
+После миграции P1–P4 рассылка идёт по старым users из `med_bot.db`; пользователи в PostgreSQL её не получат.
+→ Переписать `get_all_user_ids()` на `database.get_connection()` (psycopg).
+
+### 🟡 Важно
+
+**S3 · Затирание username** (`database.py:188`) — `ON CONFLICT DO UPDATE SET username = EXCLUDED.username`; API всегда зовёт без username → NULL на каждый запрос.
+→ `SET username = COALESCE(EXCLUDED.username, users.username)`.
+
+**B2 · `datetime.utcnow()` устарел** (`database.py`: `get_history`, `get_history_by_days`, `get_admin_stats`, `log_intake`) — DeprecationWarning в 3.14, naive datetime.
+→ `datetime.now(timezone.utc).strftime(...)`.
+
+**B3 · Блокирующий I/O в event loop** (`scheduler.py:44`, `handle_intake_callback`) — синхронный psycopg в корутине каждую минуту блокирует loop.
+→ `await asyncio.to_thread(get_active_schedule_rows)` и аналогично для `log_intake`/`apply_intake_stock`/`get_schedules_by_medication`.
+
+**B4 · `interval`-правило без `interval_days`** (`schedule_utils.py:30`) — `% None`/`% 0` → TypeError/ZeroDivisionError; в аналитике (API) не поймано.
+→ `if not row["interval_days"]: return False` в начале ветки.
+
+**S4 · Rate limiter** (`api/main.py:28-39`) — `_counters` растёт по уникальным IP (пустые ключи не чистятся); per-process (не работает с >1 воркера); за прокси (Caddy, D1) видит IP прокси.
+→ Чистить пустые ключи; читать `X-Forwarded-For` от доверенного прокси; для прода — общий стор (Redis) или задокументировать single-worker. Привязать к D1/D2.
+
+**S5 · CORS fail-open** (`api/main.py:56`) — дефолт `*`.
+→ Вне dev требовать явный `MINIAPP_ORIGIN`; при отсутствии — не поднимать или логировать warning.
+
+**B5 · Нет серверной валидации правил** (`api/routers/medications.py:15-23`) — `reminder_time`, `weekdays`, `month_day`, `interval_days`, `anchor_date` принимаются без проверки.
+→ Pydantic-валидаторы: `reminder_time` ⇒ `HH:MM` (через `parse_time`), `month_day` 1–31, `interval_days` > 0 + `anchor_date` обязателен для `interval`, формат `weekdays`. Закрывает и B4 на входе. `[тест]`.
+
+### 🟢 Желательно (гигиена / рефакторинг под roadmap)
+
+**O1 · Артефакты в рабочей копии** — удалить `med_bot.db` (содержит персданные!), `db_errors.log`, `bot_run.log`. Уже в `.gitignore`, но лежат на диске.
+**O2 · Дубль `.claude/CLAUDE.md`** — описывает устаревшую SQLite-архитектуру; удалить или синхронизировать.
+**O3 · `handlers/meds.py` (108 КБ, монолит)** — разбить (add/edit/common) и вынести переиспользуемую валидацию расписания **перед M3** (форма-редактор в Mini App).
+**O4 · Повтор `get_or_create_user`** в ~12 эндпоинтах — лишний INSERT+roundtrip на запрос; резолвить user_id в зависимости (один раз на запрос).
+**O5 · Markdown v1 хрупкий** — `parse_mode="Markdown"` + неполный `escape_md`; рассмотреть MarkdownV2/HTML для пользовательских строк (имена лекарств/подопечных).
+**O6 · Пины зависимостей** — прогнать `pip-audit`; зафиксировать версии для воспроизводимых сборок (привязать к D3).
+
+### Порядок выполнения
+1. **S1 → S2 → B1** (безопасность данных + сломанная рассылка) — все `S`, < 1д суммарно.
+2. **S3 → B4 → B2** (порча/совместимость данных) — `S`.
+3. **B5** (валидация API, закрывает B4 на входе) + **B3** (отзывчивость бота) — `S`.
+4. **S4 → S5** — вместе с D1/D2 (Caddy/прокси), т.к. зависят от схемы развёртывания.
+5. **O1, O2** — разовая гигиена; **O3, O4** — перед фазой M (Mini App).
 
 ---
 
