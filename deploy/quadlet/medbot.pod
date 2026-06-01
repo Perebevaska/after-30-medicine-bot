@@ -1,0 +1,5 @@
+[Unit]
+Description=Med Bot pod
+
+[Pod]
+# Порты не нужны — бот работает через long polling

@@ -1,0 +1,19 @@
+[Unit]
+Description=Med Bot — Telegram bot
+After=medbot-db.service
+Requires=medbot-db.service
+
+[Container]
+Image=localhost/med-bot:prod
+Pod=medbot.pod
+# Секреты из файла на хосте (не коммитится)
+EnvironmentFile=%h/med-bot/.env
+# Внутри пода контейнеры делят сеть → db доступен на localhost
+Environment=DATABASE_URL=postgresql://medbot:medbot@localhost/medbot
+
+[Service]
+Restart=on-failure
+RestartSec=10s
+
+[Install]
+WantedBy=default.target

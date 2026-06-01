@@ -1,0 +1,29 @@
+services:
+  db:
+    image: docker.io/library/postgres:16-alpine
+    environment:
+      POSTGRES_USER: medbot
+      POSTGRES_PASSWORD: medbot
+      POSTGRES_DB: medbot
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U medbot"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  bot:
+    image: localhost/med-bot:dev
+    env_file: .env
+    environment:
+      # Переопределяет DATABASE_URL из .env для работы внутри compose-сети
+      DATABASE_URL: postgresql://medbot:medbot@db/medbot
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:
