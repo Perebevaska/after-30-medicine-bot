@@ -1,5 +1,7 @@
 .env
 med_bot.db
+med_bot.db-wal
+med_bot.db-shm
 venv/
 __pycache__/
 *.pyc

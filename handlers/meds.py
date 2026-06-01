@@ -1215,7 +1215,7 @@ async def _save_multi_medication(edit_target, context, user_id: int,
                                 freq_b.get("weekdays"), freq_b.get("month_day"))
 
     text = (
-        f"✅ Лекарство добавлено!\n\n"
+        f"✅ Лекарство {'обновлено' if is_edit_mode else 'добавлено'}!\n\n"
         f"💊 *{escape_md(name)}*\n"
         f"🍽 {MEAL_LABELS[meal]}\n\n"
         f"Дозировка А: *{escape_md(dosage_a)}*\n"

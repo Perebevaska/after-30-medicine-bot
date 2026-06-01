@@ -9,7 +9,7 @@ _geolocator = Nominatim(user_agent="med_bot")
 from geopy.exc import GeocoderTimedOut, GeocoderServiceError
 from database import get_or_create_user, get_user_timezone, set_user_timezone, get_schedules_for_user, get_today_intake_statuses
 from constants import SETUP_TZ, SETUP_CITY
-from utils import handle_db_errors, get_tz_for_user, escape_md
+from utils import handle_db_errors, get_tz_for_user, escape_md, local_day_bounds_utc
 
 
 def _geo_keyboard() -> ReplyKeyboardMarkup:
@@ -56,7 +56,8 @@ async def handle_menu_callback(update, context):
             await msg.reply_text("💊 Сегодня нет запланированных лекарств.")
             return
         user_tz = get_tz_for_user(user.id)
-        today = datetime.now(user_tz).date()
+        now_local = datetime.now(user_tz)
+        today = now_local.date()
         meds: dict = {}
         for row in rows:
             if not _rule_fires_today(row, today):
@@ -70,7 +71,8 @@ async def handle_menu_callback(update, context):
         if not meds:
             await msg.reply_text("💊 Сегодня нет запланированных лекарств.")
             return
-        statuses = get_today_intake_statuses(user.id)
+        start_utc, end_utc = local_day_bounds_utc(user_tz, now_local)
+        statuses = get_today_intake_statuses(user.id, start_utc, end_utc)
         lines = ["📋 *Лекарства на сегодня:*\n"]
         for med in meds.values():
             meal = _MEAL_LABELS.get(med["meal_relation"], "")

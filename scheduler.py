@@ -1,9 +1,9 @@
 import logging
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 import pytz
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from database import get_all_schedules, log_intake, get_users_with_daily_plan
-from utils import escape_md
+from utils import escape_md, get_tz_for_user, local_day_bounds_utc
 
 logger = logging.getLogger(__name__)
 
@@ -45,9 +45,17 @@ def _rule_fires_today(row, today_local: date) -> bool:
     return False
 
 
+def _prune_pending(now_utc: datetime):
+    """Удаляет из _pending записи старше 2 часов (защита от роста в режиме once)."""
+    cutoff = now_utc - timedelta(seconds=7200)
+    for key in [k for k, ts in _pending.items() if ts < cutoff]:
+        del _pending[key]
+
+
 async def send_reminders(app):
     """Проверяет расписание и отправляет напоминания с учётом TZ каждого пользователя."""
     now_utc = datetime.now(pytz.utc)
+    _prune_pending(now_utc)
     schedules = get_all_schedules()
 
     for row in schedules:
@@ -108,8 +116,16 @@ async def send_reminders(app):
     await _send_daily_plans(app)
 
 
+def _prune_daily_plan_sent():
+    """Удаляет из _daily_plan_sent записи старше 2 дней (локальная дата ±1 от UTC)."""
+    cutoff = (datetime.now(pytz.utc).date() - timedelta(days=2)).isoformat()
+    stale = {k for k in _daily_plan_sent if k[1] < cutoff}
+    _daily_plan_sent.difference_update(stale)
+
+
 async def _send_daily_plans(app):
     """Отправляет утренний план дня пользователям, у которых наступило время plan_time."""
+    _prune_daily_plan_sent()
     rows = get_users_with_daily_plan()
     if not rows:
         return
@@ -191,7 +207,9 @@ async def handle_intake_callback(update, context):
         return
 
     try:
-        log_intake(medication_id, scheduled_time, status)
+        user_tz = get_tz_for_user(update.effective_user.id)
+        start_utc, end_utc = local_day_bounds_utc(user_tz)
+        log_intake(medication_id, scheduled_time, status, start_utc, end_utc)
     except Exception as e:
         logger.error("Ошибка записи приёма: %s", e)
         await query.edit_message_text("⚠️ Не удалось записать приём. Попробуй ещё раз.")

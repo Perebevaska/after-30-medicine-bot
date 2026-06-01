@@ -21,12 +21,18 @@ class DatabaseError(Exception):
 def get_connection():
     """Контекстный менеджер для подключения к БД."""
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(DB_PATH, timeout=5.0)
     except sqlite3.Error as e:
         db_logger.error("Не удалось подключиться к БД: %s", e)
         raise DatabaseError("База данных недоступна") from e
 
     conn.row_factory = sqlite3.Row
+    # WAL — параллельные чтение/запись (планировщик + пользователь);
+    # busy_timeout — ждать снятия блокировки вместо мгновенного "database is locked";
+    # foreign_keys — включить проверку внешних ключей (per-connection).
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA busy_timeout = 5000")
+    conn.execute("PRAGMA foreign_keys = ON")
     try:
         yield conn
         conn.commit()
@@ -102,6 +108,17 @@ def init_db():
                 anchor_date   TEXT,
                 FOREIGN KEY (medication_id) REFERENCES medications(id)
             );
+
+            CREATE INDEX IF NOT EXISTS idx_medications_user_active
+                ON medications(user_id, active);
+            CREATE INDEX IF NOT EXISTS idx_medications_dependent
+                ON medications(dependent_id);
+            CREATE INDEX IF NOT EXISTS idx_schedule_rules_medication
+                ON schedule_rules(medication_id);
+            CREATE INDEX IF NOT EXISTS idx_intake_log_medication
+                ON intake_log(medication_id, scheduled_time);
+            CREATE INDEX IF NOT EXISTS idx_intake_log_taken_at
+                ON intake_log(taken_at);
         """)
 
 
@@ -327,8 +344,9 @@ def delete_dependent(telegram_id: int, dependent_id: int) -> list:
             placeholders = ",".join("?" * len(med_ids))
             conn.execute(f"DELETE FROM intake_log WHERE medication_id IN ({placeholders})", med_ids)
             conn.execute(f"DELETE FROM schedule_rules WHERE medication_id IN ({placeholders})", med_ids)
+            # dependent_id = NULL обязательно: иначе DELETE подопечного нарушит FK
             conn.execute(
-                "UPDATE medications SET active = 0 WHERE dependent_id = ? AND user_id = ?",
+                "UPDATE medications SET active = 0, dependent_id = NULL WHERE dependent_id = ? AND user_id = ?",
                 (dependent_id, user_id)
             )
         conn.execute("DELETE FROM dependents WHERE id = ?", (dependent_id,))
@@ -621,27 +639,35 @@ def get_admin_stats() -> dict:
         return {"total_users": total_users, "total_meds": total_meds, "active_today": active_today}
 
 
-def get_today_intake_statuses(telegram_id: int) -> dict:
-    """Возвращает {(medication_id, scheduled_time): status} для сегодняшних записей."""
+def get_today_intake_statuses(telegram_id: int, start_utc: str, end_utc: str) -> dict:
+    """Возвращает {(medication_id, scheduled_time): status} для записей в локальных сутках пользователя.
+
+    Диапазон [start_utc, end_utc) задаётся в UTC и соответствует «сегодня» в TZ пользователя.
+    """
     with get_connection() as conn:
         rows = conn.execute(
             """SELECT i.medication_id, i.scheduled_time, i.status
                FROM intake_log i
                JOIN medications m ON m.id = i.medication_id
                JOIN users u ON u.id = m.user_id
-               WHERE u.telegram_id = ? AND date(i.taken_at) = date('now')""",
-            (telegram_id,)
+               WHERE u.telegram_id = ? AND i.taken_at >= ? AND i.taken_at < ?""",
+            (telegram_id, start_utc, end_utc)
         ).fetchall()
     return {(r["medication_id"], r["scheduled_time"]): r["status"] for r in rows}
 
 
-def log_intake(medication_id: int, scheduled_time: str, status: str):
-    """Записывает факт приёма или пропуска лекарства. Обновляет запись если уже есть за сегодня."""
+def log_intake(medication_id: int, scheduled_time: str, status: str,
+               start_utc: str, end_utc: str):
+    """Записывает факт приёма или пропуска лекарства. Обновляет запись если уже есть за сегодня.
+
+    «Сегодня» определяется диапазоном [start_utc, end_utc) в TZ пользователя.
+    """
     with get_connection() as conn:
         existing = conn.execute(
             """SELECT id FROM intake_log
-               WHERE medication_id = ? AND scheduled_time = ? AND date(taken_at) = date('now')""",
-            (medication_id, scheduled_time)
+               WHERE medication_id = ? AND scheduled_time = ?
+               AND taken_at >= ? AND taken_at < ?""",
+            (medication_id, scheduled_time, start_utc, end_utc)
         ).fetchone()
         if existing:
             conn.execute(
