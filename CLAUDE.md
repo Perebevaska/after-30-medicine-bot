@@ -219,95 +219,174 @@ ADMIN_ID=telegram_id_админа
 - `escape_md()` применяется ко всем пользовательским строкам при отображении в `parse_mode="Markdown"`; stats.py и план используют HTML — пользовательские строки (название, дозировка, имя подопечного) экранируются через `escape_html()`
 - **«Сегодня» по TZ пользователя**: `log_intake()` и `get_today_intake_statuses()` принимают диапазон `[start_utc, end_utc)` из `local_day_bounds_utc()`, а не UTC `date('now')`
 
-## Known Issues & Bug Tracker
-
-### ✅ Исправлено
-
-| # | Файл | Проблема |
-|---|------|----------|
-| 1 | `scheduler.py` | Scheduler использовал серверный TZ вместо TZ каждого пользователя |
-| 2 | `scheduler.py` | Режим "повтор каждые 5 минут" не был реализован |
-| 3 | `database.py` | `get_today_stats` / `get_history_detailed` использовали `date('now')` (UTC) вместо TZ пользователя |
-| 4 | `handlers/meds.py`, `handlers/timezone.py` | Многие DB-функции без `@handle_db_errors` |
-| 5 | `handlers/timezone.py` | Нет обработки таймаута geopy |
-| 6 | `handlers/meds.py` | Лишние DB-запросы в цепочке edit (`get_or_create_user` × 5) |
-| 7 | `scheduler.py` | `handle_intake_callback` без try/except вокруг `log_intake` |
-| 8 | `handlers/meds.py` | TIMES/MEAL состояния без паттернов — ловили любой callback |
-| 9 | `database.py` | `log_intake` делал INSERT при каждом нажатии — теперь upsert |
-| 10 | `scheduler.py` | Ключи удалённых лекарств висели в `_pending` |
-| 11 | `handlers/meds.py` | При смене количества приёмов показывались старые времена |
-| 12 | `scheduler.py` | `handle_intake_callback` брал `parts[2]` — обрезал минуты |
-| 13 | `handlers/meds.py` | `_check_time` не нормализовал формат |
-| 14 | `handlers/timezone.py` | `handle_menu_callback` не был обёрнут в `@handle_db_errors` |
-| 15 | `handlers/meds.py` | `keep_edit_schedule` не показывал `🔢 X раз в день` |
-| 16 | `handlers/meds.py` | Мёртвый код `add_freq_time` / `edit_freq_time` |
-| 17 | `handlers/timezone.py` | `handle_menu_callback` рендерил настройки хардкодом |
-| 18 | `handlers/timezone.py` | После установки TZ пишет "Используй /meds" |
-| 19 | `scheduler.py` | `meal_labels` dict пересоздавался на каждой итерации |
-| 20 | `handlers/stats.py` | Нет защиты от лимита 4096 символов |
-| 21 | `handlers/meds.py`, `handlers/settings.py` | `_parse_time` дублирована — перенесена в `utils.py` |
-| 22 | `handlers/timezone.py` | `TimezoneFinder()` создавался при каждом запросе |
-| 23 | `utils.py` | `handle_db_errors` без `functools.wraps` |
-| 24 | `handlers/meds.py` | Нет предупреждения для дней 29–31 в monthly расписании |
-| 25 | `handlers/settings.py` | Нет описаний настроек в `/settings` |
-| 26 | `broadcast.py` | Отдельный скрипт рассылки |
-| 27 | `handlers/admin.py`, `database.py` | Кнопка "🔧 Админ панель" в `/settings` |
-| 29 | `handlers/meds.py` | Нельзя отредактировать лекарство с разными дозировками |
-| 30 | `handlers/meds.py` | В multi-dosage edit: устаревшее сообщение "нельзя изменить расписание", кнопка питания не там |
-| 31 | `handlers/stats.py`, `handlers/export.py` | Экспорт истории и плана в PDF |
-| 32 | `database.py` | Таблица `schedules` не удалялась |
-| 33 | `handlers/meds.py`, `utils.py`, `scheduler.py` | Аудит валидации: `escape_md()`, лимиты NAME/DOSAGE_MAX_LEN |
-| 35 | `handlers/timezone.py` | После установки TZ новому пользователю непонятно что делать |
-| 36 | `handlers/stats.py` | В `/stats` нет плана лекарств на неделю |
-| 37 | `handlers/stats.py`, `utils.py` | HTML без экранирования: имена/дозировки с `<`, `>`, `&` ломали статистику и план (сообщение не отправлялось). Добавлен `escape_html()` |
-| 38 | `database.py`, `scheduler.py`, `handlers/timezone.py`, `utils.py` | «Сегодня» считалось по UTC `date('now')`, а не по TZ пользователя → рассинхрон статусов и upsert у границы суток. Введён `local_day_bounds_utc()` |
-| 39 | `handlers/meds.py` | Multi-dosage edit показывал «Лекарство добавлено» вместо «обновлено» |
-| 40 | `database.py` | Нет `PRAGMA busy_timeout/WAL/foreign_keys` → риск `database is locked` |
-| 41 | `database.py` | Нет индексов → full-scan в планировщике и статистике. Добавлены 5 индексов |
-| 42 | `database.py` | `delete_dependent` не занулял `dependent_id` → нарушение FK после включения `foreign_keys=ON` |
-| 43 | `scheduler.py` | Утечки памяти: `_pending` (режим once) и `_daily_plan_sent` не очищались. Добавлен TTL-prune |
-| 44 | `database.py`, `scheduler.py` | Планировщик делал 2 full-scan/мин (`get_all_schedules` + `get_users_with_daily_plan`). Объединено в `get_active_schedule_rows()` — один проход |
-| 45 | `database.py`, `handlers/settings.py` | `fetch_settings_data` открывала 5 соединений на рендер. Сведено к одному `get_user_settings_row()` |
-| 46 | `database.py`, `handlers/meds.py` | Список лекарств делал N+1 (`get_schedules_by_medication` в цикле). Заменено на `get_rules_grouped_for_user()` |
-| 47 | `handlers/settings.py`, `handlers/timezone.py`, `bot.py` | Из под-экранов `/settings` (часовой пояс, время приёмов) нельзя вернуться в настройки. Добавлены «◀️ Назад»: `settings:back` для пресетов, reply-кнопка «◀️ Назад в настройки» для гео-флоу (`with_back`) |
-| 48 | `constants.py`, `handlers/settings.py`, `handlers/timezone.py` | Дублирование текста «О проекте» в двух местах. Вынесено в `ABOUT_TEXT` |
-| 49 | `database.py` | `db_logger` без `propagate=False` — ошибки БД дублировались в консоль root-логгера |
-| 50 | `database.py` | `migrate()` повторно создавал таблицу `dependents` (уже в `init_db`). Удалён избыточный `CREATE TABLE` |
-| 51 | `tests/`, `pytest.ini`, `requirements-dev.txt` | Не было тестов. Добавлены 58 unit-тестов на чистые функции (pytest) |
-| 52 | `handlers/meds.py` | Дубль входа в add-флоу (`add_start` ≈ `handle_add_med_callback`). Объединено в `_begin_add_flow()` |
-| 53 | `handlers/meds.py`, `tests/test_handlers.py` | Q1 (частично): success-сообщения сведены в `_med_saved_text()`, валидация диапазонов — в `_parse_int_range()` (8 save-хендлеров + 6 валидаций). Под защитой 24 характеризационных тестов |
-| 54 | `handlers/timezone.py`, `stats.py`, `settings.py`, `meds.py`, `bot.py`, `tests/test_menu.py` | Непоследовательные «Назад»: часть экранов меню без возврата. Сделана единая точка входа `/menu` + навигация edit-in-place с «◀️ В меню» (`menu:main`) на всех экранах |
-| 55 | `handlers/timezone.py`, `bot.py` | `telegram.error.TimedOut` ронял старт (незащищённый `set_my_commands`) и часто срабатывал на дефолтных 5с. Таймауты 20с + try/except в `post_init` |
-| 57 | `database.py`, `handlers/settings.py` | **Баг**: смена пресета времени в `/settings` не прокидывалась в существующие напоминания/список/план (оставалось старое время). `set_user_time_preset` теперь мигрирует правила `reminder_time` старое→новое. Тесты `test_preset_migration` |
-| UX | `handlers/meds.py`, `handlers/settings.py` | Пакет UX: подсказка «время слотов меняется в Настройках» на шаге «Когда принимать»; кнопка «Напоминания о приёме лекарств»→«🔔 Напоминания»; кнопка «📦 Указать запас» на сообщении «Лекарство добавлено/обновлено»; список лекарств — кнопки «Добавить»/«В меню» слиты в последнюю карточку (убран отдельный блок «Хочешь добавить ещё?») |
-| 56 | `schedule_utils.py`, `database.py`, `handlers/stock.py`, `scheduler.py`, `handlers/meds.py`, `bot.py`, `constants.py` | **F5 реализована** — учёт запаса таблеток. Колонки `stock_qty/units_per_dose/low_stock_days`; экран «📦 Запас» (указать/пополнить/единицы/порог/выключить); автосписание при `taken` (идемпотентно через старый статус из `log_intake`); прогноз `days_of_stock_left`; событийное предупреждение при пересечении порога; индикатор в списке лекарств. Тесты: 18+9+5 |
-| Q1b | `handlers/meds.py`, `tests/test_conv_structure.py` | Слияние идентичных наборов состояний add/edit (10 общих состояний) в `_schedule_input_states()` через `**`-распаковку. Под защитой снапшот-теста структуры диалогов |
-| F1 | `handlers/export.py`, `database.py`, `schedule_utils.py`, `handlers/stats.py` | **F1 реализована** — «Отчёт для врача»: PDF-календарь приверженности за 30 дней в **альбомной** ориентации (`FPDF(orientation="L")`). Кнопка «🩺 Отчёт для врача» на экране соблюдения (`export:doctor`, заменила простой `export:adherence` в UI — хендлер оставлен). Дни залиты по соблюдению (`_day_bg`: 🟩≥90/🟨≥50/🟥<50/серый — нет приёмов), внутри — лекарства с кружком (`_dot_color`: зелёный все принято / красный 0 / оранжевый частично, `pdf.ellipse`). Отдельная страница на пациента и каждого подопечного (группировка по `dependent_name`). Данные: `get_adherence_rules` (активные, не на паузе) + `get_taken_intakes` (taken→локальная дата); знаменатель по дням — `schedule_utils.due_by_med_day(..., created_dates)` с клампом по `created_at`. `_prepare_doctor_model` (модель) + `_build_doctor_pdf`/`_render_subject_page` (рендер в `asyncio.to_thread`). Тесты: `test_doctor_report`, `due_by_med_day` в `test_schedule_utils` |
-| F4 | `database.py`, `handlers/meds.py`, `bot.py` | **F4 реализована** — пауза лекарства. Колонка `medications.paused` (0/1); `set_medication_paused()`. На паузе лекарство исключается из `get_active_schedule_rows` (напоминания + план дня), `get_schedules_for_user` («сегодня»/план/PDF-план) и `get_adherence_rules` (не штрафует adherence). UI: кнопка «⏸ Пауза»/«▶️ Возобновить» в карточке списка (`med_pause:`/`med_resume:`, хендлер `handle_pause_toggle` перерисовывает карточку), пометка «⏸ на паузе»; при постановке — `clear_pending_for_medication`. Карточка вынесена в `_med_card_text`/`_med_card_keyboard`. Тесты: `test_pause` (DB-фильтры + toggle-хендлер). NB: исключаем (а не помечаем) на паузе из «сегодня»/плана — консистентно с «нет напоминаний». F5: на паузе напоминания не шлются → событийного списания запаса не происходит |
-| F2 | `streak.py`, `database.py`, `handlers/stats.py`, `handlers/timezone.py` | **F2 реализована** — серия идеальных дней (streak). Чистая логика — отдельный модуль `streak.py`: `compute_streak(rows, status_by_day, today, created_dates)` (идеальный день = все положенные приёмы `taken`; серия = подряд идущие идеальные дни до сегодня; сегодня не рвёт серию пока приёмы `pending`/нет skipped, засчитывается только когда всё `taken`), `streaks_by_subject()` (группировка по `dependent_id` — серия **отдельно** для владельца и каждого подопечного), `streak_window()` (окно 400 дней). DB: `get_streak_rows()` (активные непаузные + `dependent_id`/`created_at`), `get_intake_statuses_window()`. UI: экран `stats:streak` («🔥 Серия» в `/stats`) со строкой по каждому субъекту + майлстоуны (`_streak_phrase`: ⭐≥7/🏆≥30, `_plural_days`); строка серии владельца в приветствии главного меню (`_owner_streak_hint`, defensive try/except). Знаменатель клампится по `created_at`. Тесты: `test_streak` (compute_streak + группировка) |
-| F3 | `schedule_utils.py`, `database.py`, `handlers/stats.py`, `handlers/export.py` | **F3 реализована** — соблюдение режима (adherence) за 30 дней. Экран `stats:adherence` («📊 Соблюдение за 30 дней» в `/stats`): по каждому активному лекарству `taken / положено` с индикатором 🟢≥80/🟡≥50/🔴 + общий итог; под экраном — кнопка «🩺 Отчёт для врача» (`export:doctor`, F1; простой `export:adherence` остался как хендлер, но из UI убран). Числитель — `get_taken_counts()` (status='taken' за период в TZ пользователя); знаменатель — `count_due_by_medication(rules, …, created_dates)` по расписанию (а не по `intake_log`), с клампом по `medications.created_at` (не штрафует за дни до создания). Расчёт вынесен в `stats.adherence_window()` + `stats.compute_adherence()` (переиспользуется экраном и PDF-экспортом; возвращает сырые имена — рендер сам экранирует/форматирует); `_pct_color()` в `stats.py`. Тесты: `test_schedule_utils` (кламп), `test_adherence_db`, `test_adherence_handler`, `test_adherence_export`. ⚠️ деактивированные лекарства теряют `schedule_rules` → в расчёт не входят |
-| F6 | `handlers/timezone.py`, `scheduler.py` | **F6 реализована** — «Принять всё». Кнопка «✅ Принять всё» появляется под «Лекарства на сегодня» только если есть хотя бы один непринятый приём; исчезает когда всё отмечено. Логика (`menu:take_all` в `handle_menu_callback`): перебирает `get_schedules_for_user` + `_rule_fires_today`, пропускает уже `taken`/`skipped` (skipped не перезаписывается), для остальных вызывает `log_intake(..., 'taken')` + `_pending.pop` + `_update_stock_on_intake`. После — перерендеривает экран через `_render_today_screen`. Рефакторинг: `_render_today_screen` извлечена в отдельную функцию; `_update_stock_on_intake` принимает `reply_fn` вместо `query` — переиспользуется из любого контекста. Тесты: `test_today_keyboard_with_pending`, `test_today_keyboard_no_pending` в `test_menu.py` |
+## Known Issues
 
 ### 🔲 К исправлению
 
 | # | Файл | Проблема |
 |---|------|----------|
 
-### 💡 В планах (фичи)
-
-> **Фундамент готов**: `schedule_utils.py` — чистая логика «положенных приёмов» (`due_intakes_on`, `iter_due_by_day`, `count_due_by_medication`, `count_due_total`). Используют F3 (adherence), F5 (запас), F2 (streak, отдельный модуль `streak.py`). `_rule_fires_today` перенесён туда из `scheduler.py` (реэкспортируется для совместимости). Покрыто `tests/test_schedule_utils.py`. ⚠️ Потребители аналитики должны сами ограничивать период началом действия лекарства — для этого `count_due_by_medication` принимает опц. `created_dates` (кламп знаменателя по дате создания, см. F3).
-
-| # | Файл | Описание |
-|---|------|----------|
-| F7 | `database.py`, `handlers/caregiver.py`, `scheduler.py` | **Социальное / Caregiver-расширение** (есть задел: таблица `dependents`, `medications.dependent_id`, режим в `/settings`). Идеи: уведомлять опекуна о пропусках подопечного («Маша не приняла лекарство в 09:00»); сводка приверженности подопечного; возможно — связать двух реальных пользователей (опекун ↔ подопечный по telegram_id, а не только локальная запись), приглашение/подтверждение. Требует продумать приватность и согласие. Строить поверх существующего caregiver-флоу |
-
-### ✅ Исправлено (caregiver)
-
-| # | Файл | Проблема |
-|---|------|----------|
-| 34 | `database.py`, `handlers/meds.py`, `handlers/caregiver.py`, `scheduler.py`, `constants.py` | **Caregiver-режим**: таблица `dependents`, `medications.dependent_id`, `/settings` кнопка с вкл/выкл, шаг «Для кого?» в add-флоу, лимит 10 лекарств на каждого подопечного, напоминания с «(для Маши)», `MAX_DEPENDENTS=2` |
-
 ### Порядок работы с багами
 1. Найти баг → добавить в таблицу "К исправлению"
-2. Исправить → перенести в "Исправлено"
-3. После каждой серии правок — запустить бота и проверить основной флоу: `/start` → `/meds` → добавить → изменить → `/stats`
+2. Исправить → коммит (сообщение = описание бага)
+3. После правок — основной флоу: `/start` → добавить лекарство → изменить → `/stats`
+
+---
+
+## Roadmap
+
+Реализованы F1–F6, 168 тестов. Доменная логика изолирована: `schedule_utils.py`, `streak.py`, `database.py`.
+
+**Размер:** `S` < 1д · `M` 2–5д · `L` 1–2 нед  
+**Критичность:** 🔴 блокер · 🟡 важно · 🟢 желательно  
+**Тест:** `[тест]` — обязательная проверка перед тем как считать задачу закрытой
+
+**Критичный путь:** P0→P1→P2→P3→P5→C1→C2→C3→A1→A2→A3→M1→M2→D1
+
+---
+
+### Фаза 1 — Postgres
+
+P0→P1→P2→P3 строго последовательно. После P3: P4 и P5 параллельно.
+
+**P0** `S` 🔴 Решение по типам *(принять до первой строки кода)*
+Выбрать стратегию и зафиксировать письменно — всё остальное зависит от неё.
+- Таймстампы: TEXT в формате `'YYYY-MM-DD HH:MM:SS'` UTC (минимальный риск, код парсинга не трогаем)
+- Булевы колонки: `INTEGER` (0/1), код с `if row["paused"]` работает как есть
+
+**P1** `M` 🔴 Слой соединений
+`sqlite3` → `psycopg3` + `psycopg_pool.ConnectionPool`. Сохранить контракт `get_connection()` как контекст-менеджер — хендлеры не трогаем. Конфиг через `DATABASE_URL` env.
+
+**P2** `M` 🔴 DDL
+Портировать `init_db()` / `migrate()`: `INTEGER PRIMARY KEY AUTOINCREMENT` → `GENERATED ALWAYS AS IDENTITY`, FK объявить в схеме, убрать все `PRAGMA`.
+
+**P3** `M` 🔴 Запросы `[тест]`
+`?` → `%s`, upsert `INSERT ... ON CONFLICT (...) DO UPDATE`, `date('now')`/`CURRENT_TIMESTAMP` → генерация времени в Python (`datetime.utcnow().strftime(...)`).
+Тест: `pytest -q` до и после — все 168 должны остаться зелёными.
+
+**P4** `S` 🟡 Скрипт миграции данных
+`migrate_sqlite_to_pg.py`: читает `med_bot.db`, пишет в Postgres. Идемпотентный, с проверкой счётчиков строк на входе и выходе.
+
+**P5** `L` 🟡 Тесты на Postgres `[тест]`
+DB-тесты (`test_stock_db`, `test_adherence_db`, `test_doctor_report`, `test_pause`, `test_delete_user_data`, `test_preset_migration`, `test_stock_intake`) — заменить временную SQLite на тестовую схему Postgres (testcontainers-python или тест-БД + truncate между тестами).
+Критерий готовности Фазы 1: **все 168 тестов зелёные**, ручной флоу `/start → добавить → напоминание → ✅/❌ → stats → серия → запас → пауза → PDF` идентичен SQLite-версии.
+
+---
+
+### Фаза 2 — Podman + VPS
+
+C1→C2 строго. После C2: C3 параллельно с A1 (Фаза 3). C4/C5 — после C3, не блокируют.
+
+**C1** `S` 🔴 Containerfile
+Multi-stage, база `python:3.14-slim`, непривилегированный пользователь.
+⚠️ Обязательно установить `fonts-dejavu-core` — fpdf2 ждёт `/usr/share/fonts/truetype/dejavu/`, без этого PDF-экспорт (отчёт врача, план) упадёт в контейнере.
+
+**C2** `S` 🔴 Секреты
+`BOT_TOKEN`, `ADMIN_ID`, `DATABASE_URL` — через Podman secrets или env-файлы. Не класть в образ и не коммитить.
+
+**C3** `M` 🟡 Оркестрация
+Локально: `podman compose` (postgres + bot). VPS: Quadlet-юниты (`db.container`, `bot.container`), общий pod, volume `pgdata`, healthcheck, политика рестарта, `loginctl enable-linger`.
+Режим бота: **long polling** на этом этапе — не требует входящего HTTPS.
+
+**C4** `S` 🟡 Бэкапы `[тест]`
+systemd-timer с `pg_dump`, ротация 7 дней.
+Тест: выполнить restore из дампа на чистой БД и убедиться в корректности данных — до продакшена.
+
+**C5** `S` 🟢 Логи
+Перевести `db_errors.log` и основной лог на stdout/stderr — стандарт для контейнеров, сбор через journald/podman logs.
+
+---
+
+### Фаза 3 — FastAPI (Backend API)
+
+Стартует после P3, не ждёт Quadlet. A1→A2→A3 последовательно.
+
+**A1** `M` 🔴 FastAPI-приложение
+В монорепо; импортирует `database.py`, `schedule_utils.py`, `streak.py`. Запуск через Uvicorn как отдельный контейнер/команда.
+⚠️ APScheduler запускать **только в боте** — иначе дубли напоминаний.
+
+**A2** `S` 🔴 Auth middleware `[тест]`
+Валидация `initData` (HMAC-SHA256 по `BOT_TOKEN`), извлечение `telegram_id` — только из подписи, не с клиента. Без валидации — 401.
+Тест: три кейса — валидный initData, просроченный, поддельный.
+
+**A3** `L` 🔴 Эндпоинты `[тест]`
+Паритет с ботом. Чтение: лекарства, «на сегодня», статистика (week/adherence/streak), запас, план, подопечные, настройки. Запись: CRUD лекарств, log intake (taken/skipped), пауза/возобновление, операции с запасом, пресеты, caregiver. PDF: переиспользовать рендер из `handlers/export.py` через `asyncio.to_thread`.
+Тест: happy path + edge cases, контроллеры тонкие — вся логика в существующих доменных функциях.
+
+**A4** `S` 🟡 Инфра API
+CORS только на домен Mini App, rate limiting, единый формат ошибок.
+
+**A5** `M` 🟡 Тесты API `[тест]`
+Покрыть: auth (A2), все эндпоинты (A3), изоляцию пользователей. Переиспользование domain-функций — нет дублирования логики.
+
+---
+
+### Фаза 4 — Mini App (Frontend)
+
+M1 стартует после A2 (против мок-API, не ждёт A3). M2–M7 параллельно после M1+A3.
+
+**M1** `S` 🔴 Стек
+Vite + React или Svelte, `@telegram-apps/sdk` (или `telegram-web-app.js`), адаптация под `themeParams` (светлая/тёмная тема), TanStack Query для API-запросов.
+
+**M2** `M` 🔴 Дашборд
+«На сегодня» + 🔥 серия + краткое соблюдение + быстрые ✅/❌ прямо на экране.
+
+**M3** `L` 🔴 Редактор лекарства `[тест]`
+Форма вместо ConversationHandler: название, дозировка, разная дозировка (multi-dosage), тип расписания (daily/interval/weekdays/monthly), приём с пищей, мульти-слоты времени. Покрывает add и edit.
+Тест: проверить создание и редактирование каждого типа расписания на iOS, Android, Desktop.
+
+**M4** `M` 🟡 Список лекарств
+Скроллируемые карточки, пауза/возобновление, удаление, переход в редактор (M3).
+
+**M5** `M` 🟡 Запас
+Числовые поля (остаток/пополнение/единицы/порог) + прогноз дней + история.
+
+**M6** `M` 🟡 Статистика
+Adherence бар-чарт 30 дней, визуализация серии, история. PDF-отчёт врача — просмотр и скачивание через API.
+
+**M7** `M` 🟢 Настройки
+Пресеты времени, режим напоминаний (once/repeat), caregiver/подопечные.
+
+**M8** `S` 🟡 Регистрация и точка входа
+BotFather: зарегистрировать Web App URL. В боте: кнопка «📱 Приложение» в главном меню.
+
+---
+
+### Фаза 5 — Деплой и эксплуатация
+
+**D1** `S` 🔴 Caddy (reverse proxy + HTTPS) `[тест]`
+`/api` → api-контейнер, `/` → статика miniapp, авто-HTTPS через Let's Encrypt.
+Опционально: перевести бота на webhook (теперь есть HTTPS).
+Тест: end-to-end на VPS — HTTPS работает, бот и Mini App читают одну Postgres, переживает `reboot`.
+
+**D2** `M` 🟡 Quadlet для всех пяти контейнеров
+db, bot, api, miniapp, caddy: единый pod, общая сеть, volumes, healthcheck, rootless, авто-рестарт.
+
+**D3** `M` 🟢 CI/CD
+Сборка образов → ghcr → деплой через Podman auto-update или git-pull на VPS. Альтернатива: Coolify на том же VPS.
+
+**D4** `M` 🟢 Наблюдаемость
+Централизованные логи, healthcheck-и, метрики напоминаний (отправлено/подтверждено), алертинг по ошибкам.
+
+---
+
+### UX-интеграция бот ↔ Mini App
+
+Выполняется после появления соответствующих экранов Mini App. В боте **остаются навсегда**: APScheduler-напоминания, ✅/❌ в сообщении напоминания, /start онбординг.
+
+**U1** `S` 🟡 Deep links из напоминаний
+Добавить кнопку в сообщение напоминания → открывает конкретное лекарство/дашборд в Mini App.
+
+**U2** `M` 🟢 Упрощение add/edit в боте
+При добавлении/редактировании — предлагать Mini App первым. ConversationHandler остаётся как fallback для клиентов без поддержки WebApp.
+
+**U3** `S` 🟢 Stats в боте
+Добавить «📊 Подробнее →» deep link в Mini App под текстовой статистикой.
+
+---
+
+### Продуктовые фичи
+
+**F7** `L` 🟡 Caregiver-расширение *(зависит от A3, M3)*
+Уведомления опекуну о пропусках подопечного («Маша не приняла лекарство в 09:00»). Сводка adherence подопечного. Связать двух реальных пользователей (invite/confirm по telegram_id). Приватность и согласие — продумать отдельно.
+Задел уже есть: таблица `dependents`, `medications.dependent_id`, caregiver-режим в `/settings`.
