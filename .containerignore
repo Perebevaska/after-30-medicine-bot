@@ -5,7 +5,6 @@ __pycache__/
 *.pyc
 *.pyo
 med_bot.db
-db_errors.log
 setup_pg.sh
 migrate_sqlite_to_pg.py
 tests/

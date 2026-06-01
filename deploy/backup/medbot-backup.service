@@ -1,0 +1,12 @@
+# Установка: cp medbot-backup.service medbot-backup.timer ~/.config/systemd/user/
+# После установки: systemctl --user daemon-reload && systemctl --user enable --now medbot-backup.timer
+
+[Unit]
+Description=Med Bot — PostgreSQL backup
+
+[Service]
+Type=oneshot
+EnvironmentFile=%h/med-bot/.env
+ExecStart=/bin/bash %h/med-bot/deploy/backup/backup.sh
+StandardOutput=journal
+StandardError=journal

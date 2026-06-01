@@ -2,4 +2,5 @@
 Description=Med Bot pod
 
 [Pod]
-# Порты не нужны — бот работает через long polling
+# Postgres доступен только с localhost хоста — для pg_dump и мониторинга
+PublishPort=127.0.0.1:5432:5432

@@ -11,4 +11,3 @@ __pycache__/
 .claude/
 CLAUDE.md
 *.log
-db_errors.log

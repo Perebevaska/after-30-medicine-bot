@@ -1,4 +1,5 @@
 import os
+import sys
 import logging
 from contextlib import contextmanager
 from datetime import datetime, timedelta
@@ -10,9 +11,9 @@ from psycopg_pool import ConnectionPool
 db_logger = logging.getLogger("db_errors")
 db_logger.setLevel(logging.ERROR)
 db_logger.propagate = False
-_fh = logging.FileHandler("db_errors.log", encoding="utf-8")
-_fh.setFormatter(logging.Formatter("%(asctime)s — %(message)s"))
-db_logger.addHandler(_fh)
+_sh = logging.StreamHandler(sys.stderr)
+_sh.setFormatter(logging.Formatter("%(asctime)s — %(message)s"))
+db_logger.addHandler(_sh)
 
 
 class DatabaseError(Exception):
