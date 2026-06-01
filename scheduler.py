@@ -215,14 +215,17 @@ async def handle_intake_callback(update, context):
     # F5: автосписание запаса + предупреждение при пересечении порога
     try:
         await _update_stock_on_intake(
-            query, medication_id, status, old_status, update.effective_user.id, user_tz
+            query.message.reply_text, medication_id, status, old_status, update.effective_user.id, user_tz
         )
     except Exception as e:
         logger.error("Ошибка обновления запаса: %s", e)
 
 
-async def _update_stock_on_intake(query, medication_id, new_status, old_status, telegram_id, user_tz):
-    """Списывает/возвращает запас при отметке приёма; предупреждает при переходе ниже порога."""
+async def _update_stock_on_intake(reply_fn, medication_id, new_status, old_status, telegram_id, user_tz):
+    """Списывает/возвращает запас при отметке приёма; предупреждает при переходе ниже порога.
+
+    reply_fn — корутина для отправки сообщения (message.reply_text или bot.send_message partial).
+    """
     info = apply_intake_stock(medication_id, new_status, old_status)
     if not info or not info["changed"] or new_status != "taken":
         return
@@ -236,7 +239,7 @@ async def _update_stock_on_intake(query, medication_id, new_status, old_status, 
         user_id = get_or_create_user(telegram_id)
         med = get_medication_by_id(medication_id, user_id)
         name = escape_md(med["name"]) if med else "Лекарство"
-        await query.message.reply_text(
+        await reply_fn(
             f"⚠️ *{name}* скоро закончится: осталось примерно на {after} дн. ({qty:g} шт.).\n"
             f"Не забудь пополнить запас 📦",
             parse_mode="Markdown"

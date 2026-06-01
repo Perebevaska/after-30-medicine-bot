@@ -70,3 +70,17 @@ def test_menu_stats_period_has_back():
 
 def test_back_menu_kb_points_to_main():
     assert _callbacks(tz.back_menu_kb()) == ["menu:main"]
+
+
+def test_today_keyboard_with_pending():
+    kb = tz._today_keyboard(has_pending=True)
+    cbs = _callbacks(kb)
+    assert "menu:take_all" in cbs
+    assert "menu:main" in cbs
+
+
+def test_today_keyboard_no_pending():
+    kb = tz._today_keyboard(has_pending=False)
+    cbs = _callbacks(kb)
+    assert "menu:take_all" not in cbs
+    assert "menu:main" in cbs
