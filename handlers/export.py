@@ -428,6 +428,112 @@ async def export_doctor_report(update, context):
     )
 
 
+# ── Standalone builders для API (возвращают BytesIO или None) ────────────────
+
+def build_plan_pdf(telegram_id: int) -> io.BytesIO | None:
+    """План лекарств на 7 дней. Возвращает BytesIO или None если нет данных."""
+    user_tz = get_tz_for_user(telegram_id)
+    today = datetime.now(user_tz).date()
+    rows = get_schedules_for_user(telegram_id)
+    sections = []
+    for offset in range(7):
+        day = today + timedelta(days=offset)
+        day_label = f"{day.day} {MONTHS_SHORT[day.month - 1]} ({_WEEKDAY_NAMES[day.weekday()]})"
+        meds: dict = {}
+        for row in rows:
+            if not _rule_fires_today(row, day):
+                continue
+            mid = row["medication_id"]
+            if mid not in meds:
+                meds[mid] = {"name": row["name"], "meal_relation": row["meal_relation"],
+                             "dep_name": row["dependent_name"], "times": []}
+            meds[mid]["times"].append((row["reminder_time"], row["rule_dosage"] or row["med_dosage"]))
+        if not meds:
+            continue
+        lines = []
+        for med in meds.values():
+            meal = _MEAL_LABELS.get(med["meal_relation"], "")
+            dep = f" ({med['dep_name']})" if med["dep_name"] else ""
+            for t, d in sorted(med["times"]):
+                lines.append(f"{t}  {med['name']}{dep} — {d}  ({meal})")
+        sections.append((day_label, lines))
+    if not sections:
+        return None
+    title = "План лекарств на 7 дней"
+    subtitle = f"с {today.strftime('%d.%m.%Y')} по {(today + timedelta(days=6)).strftime('%d.%m.%Y')}"
+    return _build_pdf(title, subtitle, sections)
+
+
+def build_week_stats_pdf(telegram_id: int) -> io.BytesIO | None:
+    """История приёмов за 7 дней. Возвращает BytesIO или None если нет данных."""
+    import pytz as _pytz
+    user_id = get_or_create_user(telegram_id)
+    user_tz = get_tz_for_user(telegram_id)
+    now = datetime.now(user_tz)
+    week_start = now - timedelta(days=7)
+    since_day = user_tz.localize(datetime(week_start.year, week_start.month, week_start.day))
+    since_utc = since_day.astimezone(_pytz.utc).strftime("%Y-%m-%d %H:%M:%S")
+    rows = get_history_detailed(user_id, since_utc)
+    if not rows:
+        return None
+    days: OrderedDict = OrderedDict()
+    total_taken = total_all = 0
+    for r in rows:
+        utc_dt = datetime.strptime(r["taken_at"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=_pytz.utc)
+        local_dt = utc_dt.astimezone(user_tz)
+        day_str = f"{local_dt.day} {MONTHS_SHORT[local_dt.month - 1]} ({_WEEKDAY_NAMES[local_dt.weekday()]})"
+        dep_suffix = f" ({r['dependent_name']})" if r["dependent_name"] else ""
+        days.setdefault(day_str, []).append(
+            f"{local_dt.strftime('%H:%M')}  {r['name']}{dep_suffix} {r['dosage']} — "
+            f"{'Принято' if r['status'] == 'taken' else 'Пропущено'}"
+        )
+        total_all += 1
+        if r["status"] == "taken":
+            total_taken += 1
+    pct = int(total_taken / total_all * 100) if total_all else 0
+    sections = list(days.items()) + [(f"Итого: {total_taken}/{total_all} ({pct}%)", [])]
+    return _build_pdf("История приёмов за 7 дней", f"до {now.strftime('%d.%m.%Y')}", sections)
+
+
+def build_adherence_pdf(telegram_id: int) -> io.BytesIO | None:
+    """Соблюдение режима за 30 дней. Возвращает BytesIO или None если нет данных."""
+    user_id = get_or_create_user(telegram_id)
+    user_tz = get_tz_for_user(telegram_id)
+    rules = get_adherence_rules(user_id)
+    if not rules:
+        return None
+    today, start_day, start_utc, end_utc = adherence_window(user_tz)
+    taken = get_taken_counts(user_id, start_utc, end_utc)
+    items, total_taken, total_planned = compute_adherence(rules, taken, start_day, today, user_tz)
+    if not total_planned:
+        return None
+    lines = [
+        f"{it['name']}{' (' + it['dep'] + ')' if it['dep'] else ''} — {it['pct']}%  ({it['taken']}/{it['due']})"
+        for it in items
+    ]
+    overall = round(total_taken / total_planned * 100)
+    sections = [("Соблюдение по лекарствам", lines), (f"Итого: {total_taken}/{total_planned} ({overall}%)", [])]
+    title, subtitle = "Соблюдение режима за 30 дней", f"с {start_day.strftime('%d.%m.%Y')} по {today.strftime('%d.%m.%Y')}"
+    return _build_pdf(title, subtitle, sections)
+
+
+def build_doctor_pdf(telegram_id: int, user_label: str) -> io.BytesIO | None:
+    """Отчёт для врача (календарь). Возвращает BytesIO или None если нет данных."""
+    user_id = get_or_create_user(telegram_id)
+    user_tz = get_tz_for_user(telegram_id)
+    rules = get_adherence_rules(user_id)
+    if not rules:
+        return None
+    today, start_day, start_utc, end_utc = adherence_window(user_tz)
+    taken_rows = get_taken_intakes(user_id, start_utc, end_utc)
+    subjects, days = _prepare_doctor_model(rules, taken_rows, user_tz, start_day, today, user_label)
+    if not subjects:
+        return None
+    period_str = f"{start_day.strftime('%d.%m.%Y')}–{today.strftime('%d.%m.%Y')}"
+    gen_str = datetime.now(user_tz).strftime("%d.%m.%Y")
+    return _build_doctor_pdf(subjects, days, start_day, today, period_str, gen_str)
+
+
 def get_handlers():
     """Возвращает handlers для экспорта в PDF (план, история, соблюдение, отчёт врача)."""
     return [

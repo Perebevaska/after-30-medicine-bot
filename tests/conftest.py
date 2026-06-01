@@ -1,7 +1,13 @@
-"""Общие фикстуры для DB-тестов на PostgreSQL."""
+"""Общие фикстуры для DB-тестов и API-тестов на PostgreSQL."""
+import os
 import pytest
 
 TEST_DSN = "postgresql://medbot:medbot@127.0.0.1/medbot_test"
+TEST_TELEGRAM_ID = 77001
+
+# Устанавливаем env vars до любых импортов database/api
+os.environ.setdefault("DATABASE_URL", TEST_DSN)
+os.environ.setdefault("BOT_TOKEN", "test-bot-token-1234567890")
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -25,3 +31,16 @@ def db(_pg_schema):
             "RESTART IDENTITY CASCADE"
         )
     return d
+
+
+@pytest.fixture(scope="module")
+def api_client(_pg_schema):
+    """TestClient для API с переопределённой авторизацией (telegram_id=TEST_TELEGRAM_ID)."""
+    from starlette.testclient import TestClient
+    from api.main import app
+    from api.auth import require_telegram_user
+
+    app.dependency_overrides[require_telegram_user] = lambda: TEST_TELEGRAM_ID
+    with TestClient(app, raise_server_exceptions=True) as client:
+        yield client
+    app.dependency_overrides.clear()
