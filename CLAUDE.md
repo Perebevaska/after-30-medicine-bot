@@ -135,8 +135,10 @@ pytest -q
 
 ## Тесты
 - `tests/test_pure.py` — unit-тесты чистых функций: `parse_time`, `escape_md`, `escape_html`, `local_day_bounds_utc`, `_rule_fires_today`, `_compute_next_fire`, `_next_fire_label`, `_freq_label`, `_format_schedule_rule`, `_monthday_warning`, `_current_schedule_summary`
-- Не трогают БД и Telegram — функции импортируются напрямую
+- `tests/test_handlers.py` — характеризационные тесты save-хендлеров (add/edit × daily/interval/weekdays/monthly): фиксируют текст «✅ Лекарство добавлено/обновлено» и валидацию диапазонов; БД мокается в namespace `handlers.meds`, Telegram заменён фейками
+- Не трогают реальную БД и сеть — функции/хендлеры вызываются напрямую
 - Конфиг — `pytest.ini` (`testpaths = tests`); dev-зависимости — `requirements-dev.txt`
+- **Перед рефакторингом хендлеров**: запусти `pytest` до и после — `test_handlers.py` ловит изменения текста сообщений
 
 ## Conversational States
 Состояния определены в `constants.py`:
@@ -252,12 +254,13 @@ ADMIN_ID=telegram_id_админа
 | 50 | `database.py` | `migrate()` повторно создавал таблицу `dependents` (уже в `init_db`). Удалён избыточный `CREATE TABLE` |
 | 51 | `tests/`, `pytest.ini`, `requirements-dev.txt` | Не было тестов. Добавлены 58 unit-тестов на чистые функции (pytest) |
 | 52 | `handlers/meds.py` | Дубль входа в add-флоу (`add_start` ≈ `handle_add_med_callback`). Объединено в `_begin_add_flow()` |
+| 53 | `handlers/meds.py`, `tests/test_handlers.py` | Q1 (частично): success-сообщения сведены в `_med_saved_text()`, валидация диапазонов — в `_parse_int_range()` (8 save-хендлеров + 6 валидаций). Под защитой 24 характеризационных тестов |
 
 ### 🔲 К исправлению
 
 | # | Файл | Проблема |
 |---|------|----------|
-| Q1 | `handlers/meds.py` | Глубокая дедупликация add/edit-флоу (общие success-сообщения, валидация числовых диапазонов, слияние состояний). Делать отдельной веткой — нужны тесты на уровне хендлеров |
+| Q1b | `handlers/meds.py` | Остаток Q1: слияние почти идентичных наборов состояний в `get_add_handler`/`get_edit_handler` (низкий приоритет, высокий риск — только с интеграционными тестами PTB) |
 
 ### ✅ Исправлено (caregiver)
 

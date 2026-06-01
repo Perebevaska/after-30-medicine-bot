@@ -283,6 +283,30 @@ def _monthday_warning(day: int) -> str:
     return ""
 
 
+def _med_saved_text(action: str, name: str, dosage: str, meal: str,
+                    total: int, times: list, freq_suffix: str = "", warning: str = "") -> str:
+    """Единый текст результата сохранения лекарства с одной дозировкой.
+
+    action — «добавлено» или «обновлено»; freq_suffix — «» (daily) или « — <частота>».
+    """
+    return (
+        f"✅ Лекарство {action}!\n\n"
+        f"💊 {name} — {dosage}\n"
+        f"🍽 {MEAL_LABELS[meal]}\n"
+        f"🔢 {total} раз в день\n"
+        f"⏰ {', '.join(times)}{freq_suffix}{warning}"
+    )
+
+
+def _parse_int_range(text: str, lo: int, hi: int):
+    """Парсит целое из text и проверяет диапазон [lo, hi]. None — не число или вне диапазона."""
+    try:
+        n = int(text.strip())
+    except (ValueError, TypeError, AttributeError):
+        return None
+    return n if lo <= n <= hi else None
+
+
 def _freq_label(freq: str, interval_days, weekdays_str, month_day) -> str:
     """Возвращает короткое человекочитаемое описание частоты (каждый день / каждые N дн. и т.д.)."""
     if freq == "daily":
@@ -832,11 +856,9 @@ async def choose_freq_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for t in collected:
             add_schedule_rule(med_id, t, "daily")
         await query.edit_message_text(
-            f"✅ Лекарство добавлено!\n\n"
-            f"💊 {context.user_data['name']} — {context.user_data['dosage']}\n"
-            f"🍽 {MEAL_LABELS[context.user_data['meal']]}\n"
-            f"🔢 {total} раз в день\n"
-            f"⏰ {', '.join(collected)}"
+            _med_saved_text("добавлено", context.user_data["name"],
+                            context.user_data["dosage"], context.user_data["meal"],
+                            total, collected)
         )
         context.user_data.clear()
         return ConversationHandler.END
@@ -865,10 +887,8 @@ async def choose_freq_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @handle_db_errors
 async def add_freq_interval(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Принимает интервал N дней (2–90), сохраняет лекарство или переходит к расписанию Б."""
-    try:
-        n = int(update.message.text.strip())
-        assert 2 <= n <= 90
-    except (ValueError, AssertionError):
+    n = _parse_int_range(update.message.text, 2, 90)
+    if n is None:
         await update.message.reply_text("Введи число от 2 до 90:", reply_markup=_ADD_FREQ_INTERVAL_KB)
         return FREQ_INTERVAL
     if context.user_data.get("multi_dosage"):
@@ -895,11 +915,9 @@ async def add_freq_interval(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for t in collected:
         add_schedule_rule(med_id, t, "interval", interval_days=n, anchor_date=anchor_date)
     await update.message.reply_text(
-        f"✅ Лекарство добавлено!\n\n"
-        f"💊 {context.user_data['name']} — {context.user_data['dosage']}\n"
-        f"🍽 {MEAL_LABELS[context.user_data['meal']]}\n"
-        f"🔢 {total} раз в день\n"
-        f"⏰ {', '.join(collected)} — {_freq_label('interval', n, None, None)}"
+        _med_saved_text("добавлено", context.user_data["name"], context.user_data["dosage"],
+                        context.user_data["meal"], total, collected,
+                        freq_suffix=f" — {_freq_label('interval', n, None, None)}")
     )
     context.user_data.clear()
     return ConversationHandler.END
@@ -945,11 +963,9 @@ async def confirm_weekdays(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for t in collected:
         add_schedule_rule(med_id, t, "weekdays", weekdays=weekdays)
     await query.edit_message_text(
-        f"✅ Лекарство добавлено!\n\n"
-        f"💊 {context.user_data['name']} — {context.user_data['dosage']}\n"
-        f"🍽 {MEAL_LABELS[context.user_data['meal']]}\n"
-        f"🔢 {total} раз в день\n"
-        f"⏰ {', '.join(collected)} — {_freq_label('weekdays', None, weekdays, None)}"
+        _med_saved_text("добавлено", context.user_data["name"], context.user_data["dosage"],
+                        context.user_data["meal"], total, collected,
+                        freq_suffix=f" — {_freq_label('weekdays', None, weekdays, None)}")
     )
     context.user_data.clear()
     return ConversationHandler.END
@@ -958,10 +974,8 @@ async def confirm_weekdays(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @handle_db_errors
 async def add_freq_monthday(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Принимает число месяца (1–31) для ежемесячного расписания А."""
-    try:
-        day = int(update.message.text.strip())
-        assert 1 <= day <= 31
-    except (ValueError, AssertionError):
+    day = _parse_int_range(update.message.text, 1, 31)
+    if day is None:
         await update.message.reply_text("Введи число от 1 до 31:", reply_markup=_ADD_FREQ_MONTHDAY_KB)
         return FREQ_MONTHDAY
     if context.user_data.get("multi_dosage"):
@@ -984,12 +998,9 @@ async def add_freq_monthday(update: Update, context: ContextTypes.DEFAULT_TYPE):
         add_schedule_rule(med_id, t, "monthly", month_day=day)
     warning = _monthday_warning(day)
     await update.message.reply_text(
-        f"✅ Лекарство добавлено!\n\n"
-        f"💊 {context.user_data['name']} — {context.user_data['dosage']}\n"
-        f"🍽 {MEAL_LABELS[context.user_data['meal']]}\n"
-        f"🔢 {total} раз в день\n"
-        f"⏰ {', '.join(collected)} — {_freq_label('monthly', None, None, day)}"
-        f"{warning}"
+        _med_saved_text("добавлено", context.user_data["name"], context.user_data["dosage"],
+                        context.user_data["meal"], total, collected,
+                        freq_suffix=f" — {_freq_label('monthly', None, None, day)}", warning=warning)
     )
     context.user_data.clear()
     return ConversationHandler.END
@@ -1045,10 +1056,8 @@ async def choose_freq_type_b(update: Update, context: ContextTypes.DEFAULT_TYPE)
 @handle_db_errors
 async def add_freq_interval_b_days(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Принимает интервал N дней для расписания Б и запрашивает дату начала (anchor_date)."""
-    try:
-        n = int(update.message.text.strip())
-        assert 2 <= n <= 90
-    except (ValueError, AssertionError):
+    n = _parse_int_range(update.message.text, 2, 90)
+    if n is None:
         await update.message.reply_text(
             "Введи число от 2 до 90:",
             reply_markup=_back_cancel_kb("back_multi_to_freq_type_b")
@@ -1120,10 +1129,8 @@ async def confirm_weekdays_b(update: Update, context: ContextTypes.DEFAULT_TYPE)
 @handle_db_errors
 async def add_freq_monthday_b(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Принимает число месяца для расписания Б и сохраняет multi-dosage лекарство."""
-    try:
-        day = int(update.message.text.strip())
-        assert 1 <= day <= 31
-    except (ValueError, AssertionError):
+    day = _parse_int_range(update.message.text, 1, 31)
+    if day is None:
         await update.message.reply_text(
             "Введи число от 1 до 31:",
             reply_markup=_back_cancel_kb("back_multi_to_freq_type_b")
@@ -1674,11 +1681,9 @@ async def _route_after_edit_meal(query, context):
                           context.user_data["edit_name"], context.user_data["edit_dosage"],
                           context.user_data["edit_meal"], total, rules)
         await query.edit_message_text(
-            f"✅ Лекарство обновлено!\n\n"
-            f"💊 {context.user_data['edit_name']} — {context.user_data['edit_dosage']}\n"
-            f"🍽 {MEAL_LABELS[context.user_data['edit_meal']]}\n"
-            f"🔢 {total} раз в день\n"
-            f"⏰ {', '.join(collected)}"
+            _med_saved_text("обновлено", context.user_data["edit_name"],
+                            context.user_data["edit_dosage"], context.user_data["edit_meal"],
+                            total, collected)
         )
         context.user_data.clear()
         return ConversationHandler.END
@@ -1744,10 +1749,8 @@ async def edit_timeslots_confirm(update: Update, context: ContextTypes.DEFAULT_T
 @handle_db_errors
 async def edit_freq_interval(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Принимает интервал N дней при редактировании и сохраняет обновлённое расписание."""
-    try:
-        n = int(update.message.text.strip())
-        assert 2 <= n <= 90
-    except (ValueError, AssertionError):
+    n = _parse_int_range(update.message.text, 2, 90)
+    if n is None:
         await update.message.reply_text("Введи число от 2 до 90:", reply_markup=_EDIT_FREQ_INTERVAL_KB)
         return EDIT_FREQ_INTERVAL
     user_id = context.user_data["edit_user_id"]
@@ -1760,11 +1763,9 @@ async def edit_freq_interval(update: Update, context: ContextTypes.DEFAULT_TYPE)
                       context.user_data["edit_name"], context.user_data["edit_dosage"],
                       context.user_data["edit_meal"], total, rules)
     await update.message.reply_text(
-        f"✅ Лекарство обновлено!\n\n"
-        f"💊 {context.user_data['edit_name']} — {context.user_data['edit_dosage']}\n"
-        f"🍽 {MEAL_LABELS[context.user_data['edit_meal']]}\n"
-        f"🔢 {total} раз в день\n"
-        f"⏰ {', '.join(collected)} — {_freq_label('interval', n, None, None)}"
+        _med_saved_text("обновлено", context.user_data["edit_name"], context.user_data["edit_dosage"],
+                        context.user_data["edit_meal"], total, collected,
+                        freq_suffix=f" — {_freq_label('interval', n, None, None)}")
     )
     context.user_data.clear()
     return ConversationHandler.END
@@ -1800,11 +1801,9 @@ async def confirm_edit_weekdays(update: Update, context: ContextTypes.DEFAULT_TY
                       context.user_data["edit_name"], context.user_data["edit_dosage"],
                       context.user_data["edit_meal"], total, rules)
     await query.edit_message_text(
-        f"✅ Лекарство обновлено!\n\n"
-        f"💊 {context.user_data['edit_name']} — {context.user_data['edit_dosage']}\n"
-        f"🍽 {MEAL_LABELS[context.user_data['edit_meal']]}\n"
-        f"🔢 {total} раз в день\n"
-        f"⏰ {', '.join(collected)} — {_freq_label('weekdays', None, weekdays, None)}"
+        _med_saved_text("обновлено", context.user_data["edit_name"], context.user_data["edit_dosage"],
+                        context.user_data["edit_meal"], total, collected,
+                        freq_suffix=f" — {_freq_label('weekdays', None, weekdays, None)}")
     )
     context.user_data.clear()
     return ConversationHandler.END
@@ -1813,10 +1812,8 @@ async def confirm_edit_weekdays(update: Update, context: ContextTypes.DEFAULT_TY
 @handle_db_errors
 async def edit_freq_monthday(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Принимает число месяца при редактировании и сохраняет обновлённое расписание."""
-    try:
-        day = int(update.message.text.strip())
-        assert 1 <= day <= 31
-    except (ValueError, AssertionError):
+    day = _parse_int_range(update.message.text, 1, 31)
+    if day is None:
         await update.message.reply_text("Введи число от 1 до 31:", reply_markup=_EDIT_FREQ_MONTHDAY_KB)
         return EDIT_FREQ_MONTHDAY
     user_id = context.user_data["edit_user_id"]
@@ -1829,12 +1826,9 @@ async def edit_freq_monthday(update: Update, context: ContextTypes.DEFAULT_TYPE)
                       context.user_data["edit_meal"], total, rules)
     warning = _monthday_warning(day)
     await update.message.reply_text(
-        f"✅ Лекарство обновлено!\n\n"
-        f"💊 {context.user_data['edit_name']} — {context.user_data['edit_dosage']}\n"
-        f"🍽 {MEAL_LABELS[context.user_data['edit_meal']]}\n"
-        f"🔢 {total} раз в день\n"
-        f"⏰ {', '.join(collected)} — {_freq_label('monthly', None, None, day)}"
-        f"{warning}"
+        _med_saved_text("обновлено", context.user_data["edit_name"], context.user_data["edit_dosage"],
+                        context.user_data["edit_meal"], total, collected,
+                        freq_suffix=f" — {_freq_label('monthly', None, None, day)}", warning=warning)
     )
     context.user_data.clear()
     return ConversationHandler.END
