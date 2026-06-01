@@ -178,7 +178,9 @@ ADMIN_ID=telegram_id_админа
 - Пресеты времени (🌅 Утро/☀️ Обед/🌇 Вечер/🌙 Ночь): хранятся в `users.time_morning/lunch/evening/night`, редактируются через `/settings` → "⏰ Настроить время приёмов"
 - `SLOT_ORDER`, `SLOT_LABELS` в `constants.py`; `get_user_time_presets()` / `set_user_time_preset()` в `database.py`
 - **Разная дозировка**: одно `medications`-запись, правила А с `dosage=NULL`, правила Б с `dosage=dosage_b`; планировщик использует `rule_dosage or med_dosage`; список лекарств показывает дату следующего срабатывания через `_next_fire_label()` + `_compute_next_fire()`
-- **Plan на день**: `_daily_plan_sent: set` в `scheduler.py` предотвращает дубли; `get_users_with_daily_plan()` возвращает строки только для пользователей с `daily_plan_enabled=1`
+- **Один проход планировщика**: `send_reminders()` берёт `get_active_schedule_rows()` (все правила активных лекарств + поля пользователя одним запросом) и передаёт их в `_send_daily_plans(app, schedules)`; план дня фильтруется по `daily_plan_enabled` в Python — без второго запроса к БД
+- **Plan на день**: `_daily_plan_sent: set` в `scheduler.py` предотвращает дубли (TTL-prune старше 2 дней); строки берутся из общего прохода (`daily_plan_enabled=1`)
+- **Настройки одним запросом**: `fetch_settings_data()` использует `get_user_settings_row()` (одна строка вместо 5 соединений); список лекарств — `get_rules_grouped_for_user()` вместо N+1
 - **ADMIN_ID**: читается через `os.getenv("ADMIN_ID")` в обоих `admin.py` и `settings.py`; обёрнут в `try/except ValueError`; `load_dotenv()` вызывается в `bot.py` **до** всех импортов
 - **broadcast.py**: standalone скрипт, не импортирует handlers; завершение ввода текста — строка `.`; режим 2 требует подтверждения словом `да`
 - **PDF export**: `_build_pdf()` в `handlers/export.py` использует DejaVuSans (`/usr/share/fonts/truetype/dejavu/`); вызывается через `asyncio.to_thread` чтобы не блокировать event loop; fontTools лог заглушён до WARNING в `bot.py`
@@ -232,6 +234,9 @@ ADMIN_ID=telegram_id_админа
 | 41 | `database.py` | Нет индексов → full-scan в планировщике и статистике. Добавлены 5 индексов |
 | 42 | `database.py` | `delete_dependent` не занулял `dependent_id` → нарушение FK после включения `foreign_keys=ON` |
 | 43 | `scheduler.py` | Утечки памяти: `_pending` (режим once) и `_daily_plan_sent` не очищались. Добавлен TTL-prune |
+| 44 | `database.py`, `scheduler.py` | Планировщик делал 2 full-scan/мин (`get_all_schedules` + `get_users_with_daily_plan`). Объединено в `get_active_schedule_rows()` — один проход |
+| 45 | `database.py`, `handlers/settings.py` | `fetch_settings_data` открывала 5 соединений на рендер. Сведено к одному `get_user_settings_row()` |
+| 46 | `database.py`, `handlers/meds.py` | Список лекарств делал N+1 (`get_schedules_by_medication` в цикле). Заменено на `get_rules_grouped_for_user()` |
 
 ### 🔲 К исправлению
 

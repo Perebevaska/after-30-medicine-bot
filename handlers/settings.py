@@ -2,10 +2,10 @@ import os
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (ContextTypes, CallbackQueryHandler, ConversationHandler,
                            MessageHandler, filters)
-from database import (get_user_timezone, get_reminder_mode, set_reminder_mode,
+from database import (get_reminder_mode, set_reminder_mode,
                       get_user_time_presets, set_user_time_preset,
                       get_daily_plan_settings, set_daily_plan_enabled, set_daily_plan_time,
-                      delete_user_data, get_caregiver_mode)
+                      delete_user_data, get_user_settings_row)
 from scheduler import clear_pending_for_medication
 from constants import PRESET_TIME, DAILY_PLAN_TIME, SLOT_ORDER, SLOT_LABELS
 from utils import handle_db_errors, parse_time
@@ -74,12 +74,24 @@ def _daily_plan_keyboard(dp: dict) -> InlineKeyboardMarkup:
 
 
 def fetch_settings_data(telegram_id: int) -> tuple:
-    """Возвращает (tz, mode_label, presets, daily_plan, caregiver_enabled) для рендеринга настроек."""
-    tz = get_user_timezone(telegram_id)
-    mode = get_reminder_mode(telegram_id)
-    presets = get_user_time_presets(telegram_id)
-    dp = get_daily_plan_settings(telegram_id)
-    caregiver_enabled = get_caregiver_mode(telegram_id)
+    """Возвращает (tz, mode_label, presets, daily_plan, caregiver_enabled) одним запросом к БД."""
+    row = get_user_settings_row(telegram_id)
+    if row is None:
+        tz, mode = "UTC", "once"
+        presets = {"morning": "09:00", "lunch": "12:00", "evening": "18:00", "night": "22:00"}
+        dp = {"enabled": True, "time": "08:00"}
+        caregiver_enabled = False
+    else:
+        tz = row["timezone"] or "UTC"
+        mode = row["reminder_mode"] or "once"
+        presets = {
+            "morning": row["time_morning"] or "09:00",
+            "lunch":   row["time_lunch"]   or "12:00",
+            "evening": row["time_evening"] or "18:00",
+            "night":   row["time_night"]   or "22:00",
+        }
+        dp = {"enabled": bool(row["daily_plan_enabled"]), "time": row["daily_plan_time"] or "08:00"}
+        caregiver_enabled = bool(row["caregiver_enabled"])
     mode_label = "🔔 Один раз" if mode == "once" else "🔁 Повторять каждые 5 минут"
     return tz, mode_label, presets, dp, caregiver_enabled
 

@@ -2,7 +2,7 @@ import logging
 from datetime import datetime, date, timedelta
 import pytz
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-from database import get_all_schedules, log_intake, get_users_with_daily_plan
+from database import get_active_schedule_rows, log_intake
 from utils import escape_md, get_tz_for_user, local_day_bounds_utc
 
 logger = logging.getLogger(__name__)
@@ -56,7 +56,7 @@ async def send_reminders(app):
     """Проверяет расписание и отправляет напоминания с учётом TZ каждого пользователя."""
     now_utc = datetime.now(pytz.utc)
     _prune_pending(now_utc)
-    schedules = get_all_schedules()
+    schedules = get_active_schedule_rows()
 
     for row in schedules:
         try:
@@ -113,7 +113,7 @@ async def send_reminders(app):
         except Exception as e:
             logger.error("Ошибка отправки напоминания: %s", e)
 
-    await _send_daily_plans(app)
+    await _send_daily_plans(app, schedules)
 
 
 def _prune_daily_plan_sent():
@@ -123,10 +123,14 @@ def _prune_daily_plan_sent():
     _daily_plan_sent.difference_update(stale)
 
 
-async def _send_daily_plans(app):
-    """Отправляет утренний план дня пользователям, у которых наступило время plan_time."""
+async def _send_daily_plans(app, schedules):
+    """Отправляет утренний план дня пользователям, у которых наступило время plan_time.
+
+    Использует строки из общего прохода планировщика (schedules), фильтруя по
+    daily_plan_enabled — без отдельного запроса к БД.
+    """
     _prune_daily_plan_sent()
-    rows = get_users_with_daily_plan()
+    rows = [r for r in schedules if r["daily_plan_enabled"]]
     if not rows:
         return
 

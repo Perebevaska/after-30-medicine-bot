@@ -397,20 +397,26 @@ def get_user_medications(user_id: int) -> list:
         ).fetchall()
 
 
-def get_all_schedules() -> list:
-    """Возвращает все правила расписания для планировщика."""
+def get_active_schedule_rows() -> list:
+    """Все правила расписания активных лекарств + поля пользователя — один проход.
+
+    Покрывает и напоминания (reminder_mode), и план дня (daily_plan_enabled /
+    daily_plan_time). Фильтрация по плану дня выполняется в Python, без второго запроса.
+    """
     with get_connection() as conn:
         return conn.execute(
-            """SELECT sr.reminder_time, sr.frequency, sr.interval_days,
-                      sr.weekdays, sr.month_day, sr.anchor_date,
-                      m.name, m.dosage AS med_dosage, m.meal_relation,
-                      u.telegram_id, u.timezone, u.reminder_mode, sr.medication_id,
-                      sr.dosage AS rule_dosage, d.name AS dependent_name
+            """SELECT u.telegram_id, u.timezone, u.reminder_mode,
+                      u.daily_plan_enabled, u.daily_plan_time,
+                      m.id AS medication_id, m.name, m.dosage AS med_dosage, m.meal_relation,
+                      sr.reminder_time, sr.frequency, sr.interval_days,
+                      sr.weekdays, sr.month_day, sr.anchor_date, sr.dosage AS rule_dosage,
+                      d.name AS dependent_name
                FROM schedule_rules sr
                JOIN medications m ON m.id = sr.medication_id
                JOIN users u ON u.id = m.user_id
                LEFT JOIN dependents d ON d.id = m.dependent_id
-               WHERE m.active = 1"""
+               WHERE m.active = 1
+               ORDER BY u.telegram_id, m.id, sr.reminder_time"""
         ).fetchall()
 
 
@@ -514,6 +520,27 @@ def get_schedules_by_medication(medication_id: int) -> list:
         ).fetchall()
 
 
+def get_rules_grouped_for_user(user_id: int) -> dict:
+    """Возвращает {medication_id: [rule, ...]} для всех активных лекарств пользователя одним запросом.
+
+    Заменяет N+1 (get_schedules_by_medication в цикле) при рендере списка лекарств.
+    """
+    with get_connection() as conn:
+        rows = conn.execute(
+            """SELECT sr.medication_id, sr.reminder_time, sr.frequency,
+                      sr.interval_days, sr.weekdays, sr.month_day, sr.anchor_date, sr.dosage
+               FROM schedule_rules sr
+               JOIN medications m ON m.id = sr.medication_id
+               WHERE m.user_id = ? AND m.active = 1
+               ORDER BY sr.medication_id""",
+            (user_id,)
+        ).fetchall()
+    grouped: dict = {}
+    for r in rows:
+        grouped.setdefault(r["medication_id"], []).append(r)
+    return grouped
+
+
 def update_medication(medication_id: int, user_id: int, name: str, dosage: str,
                       meal_relation: str, times_per_day: int, new_rules: list):
     """Обновляет лекарство и его расписание. new_rules — список dict с полями rule."""
@@ -533,6 +560,18 @@ def update_medication(medication_id: int, user_id: int, name: str, dosage: str,
                  rule.get("interval_days"), rule.get("weekdays"),
                  rule.get("month_day"), rule.get("anchor_date"), rule.get("dosage"))
             )
+
+
+def get_user_settings_row(telegram_id: int):
+    """Возвращает строку настроек пользователя одним запросом (для экрана /settings)."""
+    with get_connection() as conn:
+        return conn.execute(
+            """SELECT timezone, reminder_mode,
+                      time_morning, time_lunch, time_evening, time_night,
+                      daily_plan_enabled, daily_plan_time, caregiver_enabled
+               FROM users WHERE telegram_id = ?""",
+            (telegram_id,)
+        ).fetchone()
 
 
 def get_daily_plan_settings(telegram_id: int) -> dict:
@@ -581,24 +620,6 @@ def get_schedules_for_user(telegram_id: int) -> list:
                WHERE u.telegram_id = ?
                ORDER BY m.id, sr.reminder_time""",
             (telegram_id,)
-        ).fetchall()
-
-
-def get_users_with_daily_plan() -> list:
-    """Возвращает строки schedule_rules для пользователей с включённым планом дня."""
-    with get_connection() as conn:
-        return conn.execute(
-            """SELECT u.telegram_id, u.timezone, u.daily_plan_time,
-                      m.id AS medication_id, m.name, m.dosage AS med_dosage, m.meal_relation,
-                      sr.reminder_time, sr.frequency, sr.interval_days,
-                      sr.weekdays, sr.month_day, sr.anchor_date, sr.dosage AS rule_dosage,
-                      d.name AS dependent_name
-               FROM users u
-               JOIN medications m ON m.user_id = u.id AND m.active = 1
-               JOIN schedule_rules sr ON sr.medication_id = m.id
-               LEFT JOIN dependents d ON d.id = m.dependent_id
-               WHERE u.daily_plan_enabled = 1
-               ORDER BY u.telegram_id, m.id, sr.reminder_time"""
         ).fetchall()
 
 

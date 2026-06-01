@@ -7,7 +7,8 @@ from database import (get_or_create_user, add_medication, add_schedule_rule,
                       get_user_medications, deactivate_medication,
                       get_medication_by_id, get_schedules_by_medication, update_medication,
                       count_active_medications, get_user_time_presets,
-                      get_caregiver_mode, get_dependents, add_dependent, count_dependents)
+                      get_caregiver_mode, get_dependents, add_dependent, count_dependents,
+                      get_rules_grouped_for_user)
 from scheduler import clear_pending_for_medication
 from constants import (NAME, DOSAGE, MEAL, TIMES, SCHEDULE,
                        EDIT_NAME, EDIT_DOSAGE, EDIT_MEAL, EDIT_TIMES, EDIT_SCHEDULE,
@@ -391,9 +392,10 @@ async def show_meds_list(message, user):
         )
         return
 
+    rules_by_med = get_rules_grouped_for_user(user_id)
     await message.reply_text("💊 Твои лекарства:")
     for med in meds:
-        rules = get_schedules_by_medication(med["id"])
+        rules = rules_by_med.get(med["id"], [])
         has_advanced = any(r["frequency"] != "daily" for r in rules)
 
         is_multi_dosage = any(r["dosage"] for r in rules)
