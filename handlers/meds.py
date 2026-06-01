@@ -1935,6 +1935,65 @@ async def back_edit_to_meal(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ── ConversationHandler factories ──────────────────────────────────────────
 
+def _schedule_input_states(times_back: list) -> dict:
+    """Общие состояния ввода расписания (multi-dosage), переиспользуемые add- и edit-флоу.
+
+    Идентичны в обоих флоу, кроме TIMES, где различается навигация «Назад»
+    (передаётся списком хендлеров times_back).
+    """
+    return {
+        TIMES: [
+            CallbackQueryHandler(add_timeslot_toggle, pattern="^timeslot:"),
+            CallbackQueryHandler(add_timeslots_confirm, pattern="^timeslots_confirm$"),
+            *times_back,
+        ],
+        TIMES_B: [
+            CallbackQueryHandler(add_timeslot_b_toggle, pattern="^timeslotb:"),
+            CallbackQueryHandler(add_timeslots_b_confirm, pattern="^timeslotsb_confirm$"),
+            CallbackQueryHandler(back_multi_to_times_a, pattern="^back_multi_to_times_a$"),
+        ],
+        MEAL: [
+            CallbackQueryHandler(add_meal, pattern="^(before|after|with|any)$"),
+            CallbackQueryHandler(back_add_to_times, pattern="^back_add_to_times$"),
+        ],
+        FREQ_TYPE: [
+            CallbackQueryHandler(choose_freq_type, pattern="^freq:"),
+            CallbackQueryHandler(back_add_to_meal, pattern="^back_add_to_meal$"),
+        ],
+        FREQ_INTERVAL: [
+            MessageHandler(filters.TEXT & ~filters.COMMAND, add_freq_interval),
+            CallbackQueryHandler(back_add_to_freq_type, pattern="^back_add_to_freq_type$"),
+        ],
+        FREQ_WEEKDAYS: [
+            CallbackQueryHandler(toggle_weekday, pattern="^weekday:\\d+$"),
+            CallbackQueryHandler(confirm_weekdays, pattern="^weekdays_confirm$"),
+            CallbackQueryHandler(back_add_to_freq_type, pattern="^back_add_to_freq_type$"),
+        ],
+        FREQ_MONTHDAY: [
+            MessageHandler(filters.TEXT & ~filters.COMMAND, add_freq_monthday),
+            CallbackQueryHandler(back_add_to_freq_type, pattern="^back_add_to_freq_type$"),
+        ],
+        FREQ_TYPE_B: [
+            CallbackQueryHandler(choose_freq_type_b, pattern="^freqb:"),
+            CallbackQueryHandler(back_add_to_meal, pattern="^back_add_to_meal$"),
+        ],
+        FREQ_INTERVAL_B: [
+            MessageHandler(filters.TEXT & ~filters.COMMAND, add_freq_interval_b_days),
+            CallbackQueryHandler(add_freq_interval_b_anchor, pattern="^freqb_anchor:"),
+            CallbackQueryHandler(back_multi_to_freq_type_b, pattern="^back_multi_to_freq_type_b$"),
+        ],
+        FREQ_WEEKDAYS_B: [
+            CallbackQueryHandler(toggle_weekday_b, pattern="^weekdayb:\\d+$"),
+            CallbackQueryHandler(confirm_weekdays_b, pattern="^weekdaysb_confirm$"),
+            CallbackQueryHandler(back_multi_to_freq_type_b, pattern="^back_multi_to_freq_type_b$"),
+        ],
+        FREQ_MONTHDAY_B: [
+            MessageHandler(filters.TEXT & ~filters.COMMAND, add_freq_monthday_b),
+            CallbackQueryHandler(back_multi_to_freq_type_b, pattern="^back_multi_to_freq_type_b$"),
+        ],
+    }
+
+
 def get_add_handler(cancel_handler):
     """Возвращает ConversationHandler для добавления лекарства (включая multi-dosage флоу)."""
     return ConversationHandler(
@@ -1961,56 +2020,10 @@ def get_add_handler(cancel_handler):
                 MessageHandler(filters.TEXT & ~filters.COMMAND, add_dosage_b),
                 CallbackQueryHandler(back_multi_to_dosage_a, pattern="^back_multi_to_dosage_a$"),
             ],
-            TIMES: [
-                CallbackQueryHandler(add_timeslot_toggle, pattern="^timeslot:"),
-                CallbackQueryHandler(add_timeslots_confirm, pattern="^timeslots_confirm$"),
+            **_schedule_input_states([
                 CallbackQueryHandler(back_add_to_dosage, pattern="^back_add_to_dosage$"),
                 CallbackQueryHandler(back_multi_to_dosage_b, pattern="^back_multi_to_dosage_b$"),
-            ],
-            TIMES_B: [
-                CallbackQueryHandler(add_timeslot_b_toggle, pattern="^timeslotb:"),
-                CallbackQueryHandler(add_timeslots_b_confirm, pattern="^timeslotsb_confirm$"),
-                CallbackQueryHandler(back_multi_to_times_a, pattern="^back_multi_to_times_a$"),
-            ],
-            MEAL: [
-                CallbackQueryHandler(add_meal, pattern="^(before|after|with|any)$"),
-                CallbackQueryHandler(back_add_to_times, pattern="^back_add_to_times$"),
-            ],
-            FREQ_TYPE: [
-                CallbackQueryHandler(choose_freq_type, pattern="^freq:"),
-                CallbackQueryHandler(back_add_to_meal, pattern="^back_add_to_meal$"),
-            ],
-            FREQ_INTERVAL: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, add_freq_interval),
-                CallbackQueryHandler(back_add_to_freq_type, pattern="^back_add_to_freq_type$"),
-            ],
-            FREQ_WEEKDAYS: [
-                CallbackQueryHandler(toggle_weekday, pattern="^weekday:\\d+$"),
-                CallbackQueryHandler(confirm_weekdays, pattern="^weekdays_confirm$"),
-                CallbackQueryHandler(back_add_to_freq_type, pattern="^back_add_to_freq_type$"),
-            ],
-            FREQ_MONTHDAY: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, add_freq_monthday),
-                CallbackQueryHandler(back_add_to_freq_type, pattern="^back_add_to_freq_type$"),
-            ],
-            FREQ_TYPE_B: [
-                CallbackQueryHandler(choose_freq_type_b, pattern="^freqb:"),
-                CallbackQueryHandler(back_add_to_meal, pattern="^back_add_to_meal$"),
-            ],
-            FREQ_INTERVAL_B: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, add_freq_interval_b_days),
-                CallbackQueryHandler(add_freq_interval_b_anchor, pattern="^freqb_anchor:"),
-                CallbackQueryHandler(back_multi_to_freq_type_b, pattern="^back_multi_to_freq_type_b$"),
-            ],
-            FREQ_WEEKDAYS_B: [
-                CallbackQueryHandler(toggle_weekday_b, pattern="^weekdayb:\\d+$"),
-                CallbackQueryHandler(confirm_weekdays_b, pattern="^weekdaysb_confirm$"),
-                CallbackQueryHandler(back_multi_to_freq_type_b, pattern="^back_multi_to_freq_type_b$"),
-            ],
-            FREQ_MONTHDAY_B: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, add_freq_monthday_b),
-                CallbackQueryHandler(back_multi_to_freq_type_b, pattern="^back_multi_to_freq_type_b$"),
-            ],
+            ]),
         },
         fallbacks=[
             cancel_handler,
@@ -2069,56 +2082,11 @@ def get_edit_handler(cancel_handler):
                 MessageHandler(filters.TEXT & ~filters.COMMAND, edit_freq_monthday),
                 CallbackQueryHandler(back_edit_to_meal, pattern="^back_edit_to_meal$"),
             ],
-            # States for multi-dosage schedule change (reuses add-flow handlers)
-            TIMES: [
-                CallbackQueryHandler(add_timeslot_toggle, pattern="^timeslot:"),
-                CallbackQueryHandler(add_timeslots_confirm, pattern="^timeslots_confirm$"),
+            # Состояния изменения расписания multi-dosage переиспользуют add-флоу
+            # (общий блок), отличается только навигация «Назад» в TIMES.
+            **_schedule_input_states([
                 CallbackQueryHandler(back_edit_to_freq_type, pattern="^back_edit_to_freq_type$"),
-            ],
-            TIMES_B: [
-                CallbackQueryHandler(add_timeslot_b_toggle, pattern="^timeslotb:"),
-                CallbackQueryHandler(add_timeslots_b_confirm, pattern="^timeslotsb_confirm$"),
-                CallbackQueryHandler(back_multi_to_times_a, pattern="^back_multi_to_times_a$"),
-            ],
-            MEAL: [
-                CallbackQueryHandler(add_meal, pattern="^(before|after|with|any)$"),
-                CallbackQueryHandler(back_add_to_times, pattern="^back_add_to_times$"),
-            ],
-            FREQ_TYPE: [
-                CallbackQueryHandler(choose_freq_type, pattern="^freq:"),
-                CallbackQueryHandler(back_add_to_meal, pattern="^back_add_to_meal$"),
-            ],
-            FREQ_INTERVAL: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, add_freq_interval),
-                CallbackQueryHandler(back_add_to_freq_type, pattern="^back_add_to_freq_type$"),
-            ],
-            FREQ_WEEKDAYS: [
-                CallbackQueryHandler(toggle_weekday, pattern="^weekday:\\d+$"),
-                CallbackQueryHandler(confirm_weekdays, pattern="^weekdays_confirm$"),
-                CallbackQueryHandler(back_add_to_freq_type, pattern="^back_add_to_freq_type$"),
-            ],
-            FREQ_MONTHDAY: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, add_freq_monthday),
-                CallbackQueryHandler(back_add_to_freq_type, pattern="^back_add_to_freq_type$"),
-            ],
-            FREQ_TYPE_B: [
-                CallbackQueryHandler(choose_freq_type_b, pattern="^freqb:"),
-                CallbackQueryHandler(back_add_to_meal, pattern="^back_add_to_meal$"),
-            ],
-            FREQ_INTERVAL_B: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, add_freq_interval_b_days),
-                CallbackQueryHandler(add_freq_interval_b_anchor, pattern="^freqb_anchor:"),
-                CallbackQueryHandler(back_multi_to_freq_type_b, pattern="^back_multi_to_freq_type_b$"),
-            ],
-            FREQ_WEEKDAYS_B: [
-                CallbackQueryHandler(toggle_weekday_b, pattern="^weekdayb:\\d+$"),
-                CallbackQueryHandler(confirm_weekdays_b, pattern="^weekdaysb_confirm$"),
-                CallbackQueryHandler(back_multi_to_freq_type_b, pattern="^back_multi_to_freq_type_b$"),
-            ],
-            FREQ_MONTHDAY_B: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, add_freq_monthday_b),
-                CallbackQueryHandler(back_multi_to_freq_type_b, pattern="^back_multi_to_freq_type_b$"),
-            ],
+            ]),
         },
         fallbacks=[
             cancel_handler,
