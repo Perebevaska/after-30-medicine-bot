@@ -5,7 +5,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CallbackQueryHandler
 from database import get_or_create_user, get_today_stats, get_history_detailed, get_schedules_for_user
 from constants import MONTHS_GEN, MONTHS_SHORT
-from utils import handle_db_errors, get_tz_for_user
+from utils import handle_db_errors, get_tz_for_user, escape_html
 from scheduler import _rule_fires_today
 
 _WEEKDAY_NAMES = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
@@ -48,7 +48,7 @@ async def show_stats_today(update: Update, context: ContextTypes.DEFAULT_TYPE):
     total_all = 0
 
     for r in rows:
-        key = f"{r['name']} {r['dosage']}"
+        key = f"{escape_html(r['name'])} {escape_html(r['dosage'])}"
         t = r["taken_at"] or r["scheduled_time"]
         if len(t) > 10:
             utc_dt = datetime.strptime(t, "%Y-%m-%d %H:%M:%S").replace(tzinfo=pytz.utc)
@@ -106,7 +106,8 @@ async def show_stats_week(update: Update, context: ContextTypes.DEFAULT_TYPE):
     total_all = 0
 
     for r in rows:
-        med_key = f"{r['name']} {r['dosage']}"
+        dep_suffix = f" ({escape_html(r['dependent_name'])})" if r["dependent_name"] else ""
+        med_key = f"{escape_html(r['name'])}{dep_suffix} {escape_html(r['dosage'])}"
         utc_dt = datetime.strptime(r["taken_at"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=pytz.utc)
         local_dt = utc_dt.astimezone(user_tz)
         day_str = f"{local_dt.day} {MONTHS_SHORT[local_dt.month - 1]}"
@@ -171,7 +172,7 @@ async def show_week_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 continue
             mid = row["medication_id"]
             if mid not in meds:
-                meds[mid] = {"name": row["name"], "times": []}
+                meds[mid] = {"name": row["name"], "dep_name": row["dependent_name"], "times": []}
             dosage = row["rule_dosage"] or row["med_dosage"]
             meds[mid]["times"].append((row["reminder_time"], dosage))
 
@@ -181,9 +182,10 @@ async def show_week_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         blocks.append(f"📅 <b>{day_label}</b>")
         for med in meds.values():
             times_str = "  ".join(
-                f"{t} — {d}" for t, d in sorted(med["times"])
+                f"{t} — {escape_html(d)}" for t, d in sorted(med["times"])
             )
-            blocks.append(f"  💊 {med['name']}: {times_str}")
+            dep_label = f" <i>({escape_html(med['dep_name'])})</i>" if med["dep_name"] else ""
+            blocks.append(f"  💊 {escape_html(med['name'])}{dep_label}: {times_str}")
         blocks.append("")
 
     if len(blocks) == 2:

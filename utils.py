@@ -1,4 +1,5 @@
 import functools
+from datetime import datetime, timedelta
 import pytz
 from telegram.ext import ContextTypes, ConversationHandler
 from telegram import Update
@@ -7,12 +8,37 @@ from database import get_user_timezone, DatabaseError
 NAME_MAX_LEN = 50
 DOSAGE_MAX_LEN = 30
 
+_UTC_FMT = "%Y-%m-%d %H:%M:%S"
+
+
+def local_day_bounds_utc(user_tz, now_local=None) -> tuple:
+    """Возвращает (start_utc, end_utc) — границы локальных суток пользователя как UTC-строки.
+
+    Используется для запросов intake_log по «сегодня» в TZ пользователя
+    вместо UTC `date('now')`.
+    """
+    now_local = now_local or datetime.now(user_tz)
+    day_start = user_tz.localize(datetime(now_local.year, now_local.month, now_local.day))
+    start_utc = day_start.astimezone(pytz.utc)
+    end_utc = start_utc + timedelta(days=1)
+    return start_utc.strftime(_UTC_FMT), end_utc.strftime(_UTC_FMT)
+
 
 def escape_md(text: str) -> str:
     """Экранирует спецсимволы Telegram Markdown v1."""
     for ch in ('*', '_', '`', '['):
         text = text.replace(ch, '\\' + ch)
     return text
+
+
+def escape_html(text: str) -> str:
+    """Экранирует спецсимволы для Telegram parse_mode=HTML (&, <, >)."""
+    return (
+        str(text)
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
 
 
 def parse_time(time_str: str) -> str:

@@ -7,6 +7,7 @@ DB_PATH = "med_bot.db"
 # Логгер для ошибок БД — пишет в файл
 db_logger = logging.getLogger("db_errors")
 db_logger.setLevel(logging.ERROR)
+db_logger.propagate = False  # не дублировать ошибки БД в root-логгер (консоль)
 _fh = logging.FileHandler("db_errors.log", encoding="utf-8")
 _fh.setFormatter(logging.Formatter("%(asctime)s — %(message)s"))
 db_logger.addHandler(_fh)
@@ -21,12 +22,18 @@ class DatabaseError(Exception):
 def get_connection():
     """Контекстный менеджер для подключения к БД."""
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(DB_PATH, timeout=5.0)
     except sqlite3.Error as e:
         db_logger.error("Не удалось подключиться к БД: %s", e)
         raise DatabaseError("База данных недоступна") from e
 
     conn.row_factory = sqlite3.Row
+    # WAL — параллельные чтение/запись (планировщик + пользователь);
+    # busy_timeout — ждать снятия блокировки вместо мгновенного "database is locked";
+    # foreign_keys — включить проверку внешних ключей (per-connection).
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA busy_timeout = 5000")
+    conn.execute("PRAGMA foreign_keys = ON")
     try:
         yield conn
         conn.commit()
@@ -57,7 +64,15 @@ def init_db():
                 time_night TEXT DEFAULT '22:00',
                 daily_plan_enabled INTEGER DEFAULT 1,
                 daily_plan_time TEXT DEFAULT '08:00',
+                caregiver_enabled INTEGER DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS dependents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES users(id)
             );
 
             CREATE TABLE IF NOT EXISTS medications (
@@ -68,8 +83,10 @@ def init_db():
                 meal_relation TEXT NOT NULL CHECK(meal_relation IN ('before', 'after', 'with', 'any')),
                 times_per_day INTEGER NOT NULL,
                 active INTEGER DEFAULT 1,
+                dependent_id INTEGER DEFAULT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users(id)
+                FOREIGN KEY (user_id) REFERENCES users(id),
+                FOREIGN KEY (dependent_id) REFERENCES dependents(id)
             );
 
             CREATE TABLE IF NOT EXISTS intake_log (
@@ -92,6 +109,17 @@ def init_db():
                 anchor_date   TEXT,
                 FOREIGN KEY (medication_id) REFERENCES medications(id)
             );
+
+            CREATE INDEX IF NOT EXISTS idx_medications_user_active
+                ON medications(user_id, active);
+            CREATE INDEX IF NOT EXISTS idx_medications_dependent
+                ON medications(dependent_id);
+            CREATE INDEX IF NOT EXISTS idx_schedule_rules_medication
+                ON schedule_rules(medication_id);
+            CREATE INDEX IF NOT EXISTS idx_intake_log_medication
+                ON intake_log(medication_id, scheduled_time);
+            CREATE INDEX IF NOT EXISTS idx_intake_log_taken_at
+                ON intake_log(taken_at);
         """)
 
 
@@ -118,6 +146,15 @@ def migrate():
         sr_cols = [r[1] for r in conn.execute("PRAGMA table_info(schedule_rules)")]
         if "dosage" not in sr_cols:
             conn.execute("ALTER TABLE schedule_rules ADD COLUMN dosage TEXT DEFAULT NULL")
+
+        if "caregiver_enabled" not in cols:
+            conn.execute("ALTER TABLE users ADD COLUMN caregiver_enabled INTEGER DEFAULT 0")
+
+        # dependents создаётся в init_db() (вызывается до migrate), поэтому здесь
+        # достаточно добавить ссылочную колонку для старых БД.
+        med_cols = [r[1] for r in conn.execute("PRAGMA table_info(medications)")]
+        if "dependent_id" not in med_cols:
+            conn.execute("ALTER TABLE medications ADD COLUMN dependent_id INTEGER DEFAULT NULL REFERENCES dependents(id)")
 
         # Дропаем устаревшую таблицу schedules (данные давно в schedule_rules)
         conn.execute("DROP TABLE IF EXISTS schedules")
@@ -204,24 +241,121 @@ def set_user_time_preset(telegram_id: int, slot: str, time: str):
         conn.execute(f"UPDATE users SET {col} = ? WHERE telegram_id = ?", (time, telegram_id))
 
 
-def count_active_medications(user_id: int) -> int:
-    """Возвращает количество активных лекарств пользователя."""
+def count_active_medications(user_id: int, dependent_id: int = None) -> int:
+    """Возвращает количество активных лекарств для user_id (dependent_id=None — для себя)."""
     with get_connection() as conn:
-        row = conn.execute(
-            "SELECT COUNT(*) FROM medications WHERE user_id = ? AND active = 1",
-            (user_id,)
-        ).fetchone()
+        if dependent_id is None:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM medications WHERE user_id = ? AND active = 1 AND dependent_id IS NULL",
+                (user_id,)
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM medications WHERE user_id = ? AND active = 1 AND dependent_id = ?",
+                (user_id, dependent_id)
+            ).fetchone()
         return row[0]
 
 
+def get_caregiver_mode(telegram_id: int) -> bool:
+    """Возвращает True если caregiver-режим включён."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT caregiver_enabled FROM users WHERE telegram_id = ?", (telegram_id,)
+        ).fetchone()
+        return bool(row["caregiver_enabled"]) if row else False
+
+
+def set_caregiver_mode(telegram_id: int, enabled: bool):
+    """Включает или выключает caregiver-режим."""
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE users SET caregiver_enabled = ? WHERE telegram_id = ?",
+            (1 if enabled else 0, telegram_id)
+        )
+
+
+def get_dependents(telegram_id: int) -> list:
+    """Возвращает список подопечных пользователя [{id, name}, ...]."""
+    with get_connection() as conn:
+        user = conn.execute(
+            "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
+        ).fetchone()
+        if not user:
+            return []
+        return [dict(r) for r in conn.execute(
+            "SELECT id, name FROM dependents WHERE user_id = ? ORDER BY id",
+            (user["id"],)
+        ).fetchall()]
+
+
+def count_dependents(telegram_id: int) -> int:
+    """Возвращает количество подопечных пользователя."""
+    with get_connection() as conn:
+        user = conn.execute(
+            "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
+        ).fetchone()
+        if not user:
+            return 0
+        return conn.execute(
+            "SELECT COUNT(*) FROM dependents WHERE user_id = ?", (user["id"],)
+        ).fetchone()[0]
+
+
+def add_dependent(telegram_id: int, name: str) -> int:
+    """Добавляет подопечного. Возвращает id новой записи."""
+    with get_connection() as conn:
+        user = conn.execute(
+            "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
+        ).fetchone()
+        if not user:
+            raise DatabaseError("Пользователь не найден")
+        conn.execute(
+            "INSERT INTO dependents (user_id, name) VALUES (?, ?)", (user["id"], name)
+        )
+        return conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+
+def delete_dependent(telegram_id: int, dependent_id: int) -> list:
+    """Удаляет подопечного и деактивирует его лекарства. Возвращает список ID лекарств."""
+    with get_connection() as conn:
+        user = conn.execute(
+            "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
+        ).fetchone()
+        if not user:
+            return []
+        user_id = user["id"]
+        dep = conn.execute(
+            "SELECT id FROM dependents WHERE id = ? AND user_id = ?", (dependent_id, user_id)
+        ).fetchone()
+        if not dep:
+            return []
+        med_ids = [r["id"] for r in conn.execute(
+            "SELECT id FROM medications WHERE user_id = ? AND dependent_id = ?",
+            (user_id, dependent_id)
+        ).fetchall()]
+        if med_ids:
+            placeholders = ",".join("?" * len(med_ids))
+            conn.execute(f"DELETE FROM intake_log WHERE medication_id IN ({placeholders})", med_ids)
+            conn.execute(f"DELETE FROM schedule_rules WHERE medication_id IN ({placeholders})", med_ids)
+            # dependent_id = NULL обязательно: иначе DELETE подопечного нарушит FK
+            conn.execute(
+                "UPDATE medications SET active = 0, dependent_id = NULL WHERE dependent_id = ? AND user_id = ?",
+                (dependent_id, user_id)
+            )
+        conn.execute("DELETE FROM dependents WHERE id = ?", (dependent_id,))
+        return med_ids
+
+
 def add_medication(user_id: int, name: str, dosage: str,
-                   meal_relation: str, times_per_day: int) -> int:
+                   meal_relation: str, times_per_day: int,
+                   dependent_id: int = None) -> int:
     """Добавляет лекарство и возвращает его id."""
     with get_connection() as conn:
         conn.execute(
-            """INSERT INTO medications (user_id, name, dosage, meal_relation, times_per_day)
-               VALUES (?, ?, ?, ?, ?)""",
-            (user_id, name, dosage, meal_relation, times_per_day)
+            """INSERT INTO medications (user_id, name, dosage, meal_relation, times_per_day, dependent_id)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (user_id, name, dosage, meal_relation, times_per_day, dependent_id)
         )
         return conn.execute("SELECT last_insert_rowid()").fetchone()[0]
 
@@ -245,27 +379,38 @@ def add_schedule_rule(medication_id: int, reminder_time: str, frequency: str,
 
 
 def get_user_medications(user_id: int) -> list:
-    """Возвращает активные лекарства пользователя."""
+    """Возвращает активные лекарства пользователя с именем подопечного."""
     with get_connection() as conn:
         return conn.execute(
-            "SELECT * FROM medications WHERE user_id = ? AND active = 1 ORDER BY id",
+            """SELECT m.*, d.name AS dependent_name
+               FROM medications m
+               LEFT JOIN dependents d ON d.id = m.dependent_id
+               WHERE m.user_id = ? AND m.active = 1
+               ORDER BY m.id""",
             (user_id,)
         ).fetchall()
 
 
-def get_all_schedules() -> list:
-    """Возвращает все правила расписания для планировщика."""
+def get_active_schedule_rows() -> list:
+    """Все правила расписания активных лекарств + поля пользователя — один проход.
+
+    Покрывает и напоминания (reminder_mode), и план дня (daily_plan_enabled /
+    daily_plan_time). Фильтрация по плану дня выполняется в Python, без второго запроса.
+    """
     with get_connection() as conn:
         return conn.execute(
-            """SELECT sr.reminder_time, sr.frequency, sr.interval_days,
-                      sr.weekdays, sr.month_day, sr.anchor_date,
-                      m.name, m.dosage AS med_dosage, m.meal_relation,
-                      u.telegram_id, u.timezone, u.reminder_mode, sr.medication_id,
-                      sr.dosage AS rule_dosage
+            """SELECT u.telegram_id, u.timezone, u.reminder_mode,
+                      u.daily_plan_enabled, u.daily_plan_time,
+                      m.id AS medication_id, m.name, m.dosage AS med_dosage, m.meal_relation,
+                      sr.reminder_time, sr.frequency, sr.interval_days,
+                      sr.weekdays, sr.month_day, sr.anchor_date, sr.dosage AS rule_dosage,
+                      d.name AS dependent_name
                FROM schedule_rules sr
                JOIN medications m ON m.id = sr.medication_id
                JOIN users u ON u.id = m.user_id
-               WHERE m.active = 1"""
+               LEFT JOIN dependents d ON d.id = m.dependent_id
+               WHERE m.active = 1
+               ORDER BY u.telegram_id, m.id, sr.reminder_time"""
         ).fetchall()
 
 
@@ -301,11 +446,11 @@ def get_history_detailed(user_id: int, since_utc: str) -> list:
     with get_connection() as conn:
         return conn.execute(
             """SELECT m.name, m.dosage, m.id as med_id,
-                      i.scheduled_time,
-                      i.status,
-                      i.taken_at
+                      i.scheduled_time, i.status, i.taken_at,
+                      d.name AS dependent_name
                FROM intake_log i
                JOIN medications m ON m.id = i.medication_id
+               LEFT JOIN dependents d ON d.id = m.dependent_id
                WHERE m.user_id = ?
                AND i.taken_at >= ?
                ORDER BY i.taken_at DESC, m.name, i.scheduled_time""",
@@ -369,6 +514,27 @@ def get_schedules_by_medication(medication_id: int) -> list:
         ).fetchall()
 
 
+def get_rules_grouped_for_user(user_id: int) -> dict:
+    """Возвращает {medication_id: [rule, ...]} для всех активных лекарств пользователя одним запросом.
+
+    Заменяет N+1 (get_schedules_by_medication в цикле) при рендере списка лекарств.
+    """
+    with get_connection() as conn:
+        rows = conn.execute(
+            """SELECT sr.medication_id, sr.reminder_time, sr.frequency,
+                      sr.interval_days, sr.weekdays, sr.month_day, sr.anchor_date, sr.dosage
+               FROM schedule_rules sr
+               JOIN medications m ON m.id = sr.medication_id
+               WHERE m.user_id = ? AND m.active = 1
+               ORDER BY sr.medication_id""",
+            (user_id,)
+        ).fetchall()
+    grouped: dict = {}
+    for r in rows:
+        grouped.setdefault(r["medication_id"], []).append(r)
+    return grouped
+
+
 def update_medication(medication_id: int, user_id: int, name: str, dosage: str,
                       meal_relation: str, times_per_day: int, new_rules: list):
     """Обновляет лекарство и его расписание. new_rules — список dict с полями rule."""
@@ -388,6 +554,18 @@ def update_medication(medication_id: int, user_id: int, name: str, dosage: str,
                  rule.get("interval_days"), rule.get("weekdays"),
                  rule.get("month_day"), rule.get("anchor_date"), rule.get("dosage"))
             )
+
+
+def get_user_settings_row(telegram_id: int):
+    """Возвращает строку настроек пользователя одним запросом (для экрана /settings)."""
+    with get_connection() as conn:
+        return conn.execute(
+            """SELECT timezone, reminder_mode,
+                      time_morning, time_lunch, time_evening, time_night,
+                      daily_plan_enabled, daily_plan_time, caregiver_enabled
+               FROM users WHERE telegram_id = ?""",
+            (telegram_id,)
+        ).fetchone()
 
 
 def get_daily_plan_settings(telegram_id: int) -> dict:
@@ -427,29 +605,15 @@ def get_schedules_for_user(telegram_id: int) -> list:
             """SELECT u.telegram_id, u.timezone,
                       m.id AS medication_id, m.name, m.dosage AS med_dosage, m.meal_relation,
                       sr.reminder_time, sr.frequency, sr.interval_days,
-                      sr.weekdays, sr.month_day, sr.anchor_date, sr.dosage AS rule_dosage
+                      sr.weekdays, sr.month_day, sr.anchor_date, sr.dosage AS rule_dosage,
+                      d.name AS dependent_name
                FROM users u
                JOIN medications m ON m.user_id = u.id AND m.active = 1
                JOIN schedule_rules sr ON sr.medication_id = m.id
+               LEFT JOIN dependents d ON d.id = m.dependent_id
                WHERE u.telegram_id = ?
                ORDER BY m.id, sr.reminder_time""",
             (telegram_id,)
-        ).fetchall()
-
-
-def get_users_with_daily_plan() -> list:
-    """Возвращает строки schedule_rules для пользователей с включённым планом дня."""
-    with get_connection() as conn:
-        return conn.execute(
-            """SELECT u.telegram_id, u.timezone, u.daily_plan_time,
-                      m.id AS medication_id, m.name, m.dosage AS med_dosage, m.meal_relation,
-                      sr.reminder_time, sr.frequency, sr.interval_days,
-                      sr.weekdays, sr.month_day, sr.anchor_date, sr.dosage AS rule_dosage
-               FROM users u
-               JOIN medications m ON m.user_id = u.id AND m.active = 1
-               JOIN schedule_rules sr ON sr.medication_id = m.id
-               WHERE u.daily_plan_enabled = 1
-               ORDER BY u.telegram_id, m.id, sr.reminder_time"""
         ).fetchall()
 
 
@@ -470,6 +634,7 @@ def delete_user_data(telegram_id: int) -> list:
             conn.execute(f"DELETE FROM intake_log WHERE medication_id IN ({placeholders})", med_ids)
             conn.execute(f"DELETE FROM schedule_rules WHERE medication_id IN ({placeholders})", med_ids)
             conn.execute("DELETE FROM medications WHERE user_id = ?", (user_id,))
+        conn.execute("DELETE FROM dependents WHERE user_id = ?", (user_id,))
         conn.execute("DELETE FROM users WHERE telegram_id = ?", (telegram_id,))
         return med_ids
 
@@ -489,27 +654,35 @@ def get_admin_stats() -> dict:
         return {"total_users": total_users, "total_meds": total_meds, "active_today": active_today}
 
 
-def get_today_intake_statuses(telegram_id: int) -> dict:
-    """Возвращает {(medication_id, scheduled_time): status} для сегодняшних записей."""
+def get_today_intake_statuses(telegram_id: int, start_utc: str, end_utc: str) -> dict:
+    """Возвращает {(medication_id, scheduled_time): status} для записей в локальных сутках пользователя.
+
+    Диапазон [start_utc, end_utc) задаётся в UTC и соответствует «сегодня» в TZ пользователя.
+    """
     with get_connection() as conn:
         rows = conn.execute(
             """SELECT i.medication_id, i.scheduled_time, i.status
                FROM intake_log i
                JOIN medications m ON m.id = i.medication_id
                JOIN users u ON u.id = m.user_id
-               WHERE u.telegram_id = ? AND date(i.taken_at) = date('now')""",
-            (telegram_id,)
+               WHERE u.telegram_id = ? AND i.taken_at >= ? AND i.taken_at < ?""",
+            (telegram_id, start_utc, end_utc)
         ).fetchall()
     return {(r["medication_id"], r["scheduled_time"]): r["status"] for r in rows}
 
 
-def log_intake(medication_id: int, scheduled_time: str, status: str):
-    """Записывает факт приёма или пропуска лекарства. Обновляет запись если уже есть за сегодня."""
+def log_intake(medication_id: int, scheduled_time: str, status: str,
+               start_utc: str, end_utc: str):
+    """Записывает факт приёма или пропуска лекарства. Обновляет запись если уже есть за сегодня.
+
+    «Сегодня» определяется диапазоном [start_utc, end_utc) в TZ пользователя.
+    """
     with get_connection() as conn:
         existing = conn.execute(
             """SELECT id FROM intake_log
-               WHERE medication_id = ? AND scheduled_time = ? AND date(taken_at) = date('now')""",
-            (medication_id, scheduled_time)
+               WHERE medication_id = ? AND scheduled_time = ?
+               AND taken_at >= ? AND taken_at < ?""",
+            (medication_id, scheduled_time, start_utc, end_utc)
         ).fetchone()
         if existing:
             conn.execute(

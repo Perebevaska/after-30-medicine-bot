@@ -15,7 +15,7 @@ from database import init_db, migrate
 from scheduler import send_reminders, handle_intake_callback
 from handlers import meds
 from handlers import timezone as tz_handler
-from handlers import stats, settings, admin, export
+from handlers import stats, settings, admin, export, caregiver
 from utils import cancel
 from constants import SETUP_TZ, SETUP_CITY
 
@@ -92,12 +92,15 @@ def main():
     app.add_handler(settings.get_preset_handler(cancel_handler))
     app.add_handler(settings.get_daily_plan_time_handler(cancel_handler))
     app.add_handler(CallbackQueryHandler(settings.handle_show_presets, pattern="^settings:presets$"))
+    app.add_handler(CallbackQueryHandler(settings.handle_settings_back, pattern="^settings:back$"))
     app.add_handler(CallbackQueryHandler(settings.handle_daily_plan_settings, pattern="^settings:daily_plan$"))
     app.add_handler(CallbackQueryHandler(settings.handle_daily_plan_toggle, pattern="^daily_plan:toggle$"))
     app.add_handler(CallbackQueryHandler(settings.handle_daily_plan_back, pattern="^daily_plan:back$"))
     app.add_handler(CallbackQueryHandler(settings.handle_delete_request, pattern="^settings:delete$"))
     app.add_handler(CallbackQueryHandler(settings.handle_delete_confirm, pattern="^delete_data_confirm$"))
     app.add_handler(CallbackQueryHandler(settings.handle_delete_cancel, pattern="^delete_data_cancel$"))
+    for h in caregiver.get_handlers(cancel_handler):
+        app.add_handler(h)
     app.add_handler(CallbackQueryHandler(admin.handle_admin_panel, pattern="^admin:panel$"))
     app.add_handler(CallbackQueryHandler(admin.handle_admin_back, pattern="^admin:back$"))
     app.add_handler(CallbackQueryHandler(tz_handler.handle_menu_callback, pattern="^menu:"))

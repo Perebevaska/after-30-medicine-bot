@@ -8,17 +8,22 @@ _tf = TimezoneFinder()
 _geolocator = Nominatim(user_agent="med_bot")
 from geopy.exc import GeocoderTimedOut, GeocoderServiceError
 from database import get_or_create_user, get_user_timezone, set_user_timezone, get_schedules_for_user, get_today_intake_statuses
-from constants import SETUP_TZ, SETUP_CITY
-from utils import handle_db_errors, get_tz_for_user, escape_md
+from constants import SETUP_TZ, SETUP_CITY, ABOUT_TEXT
+from utils import handle_db_errors, get_tz_for_user, escape_md, local_day_bounds_utc
 
 
-def _geo_keyboard() -> ReplyKeyboardMarkup:
-    """Клавиатура запроса геолокации или ручного ввода города."""
-    return ReplyKeyboardMarkup(
-        [[KeyboardButton("📍 Отправить геолокацию", request_location=True)],
-         [KeyboardButton("✍️ Ввести город вручную")]],
-        resize_keyboard=True, one_time_keyboard=True
-    )
+def _geo_keyboard(with_back: bool = False) -> ReplyKeyboardMarkup:
+    """Клавиатура запроса геолокации или ручного ввода города.
+
+    with_back=True добавляет кнопку «◀️ Назад» (для входа из /settings и /timezone).
+    """
+    rows = [
+        [KeyboardButton("📍 Отправить геолокацию", request_location=True)],
+        [KeyboardButton("✍️ Ввести город вручную")],
+    ]
+    if with_back:
+        rows.append([KeyboardButton("◀️ Назад в настройки")])
+    return ReplyKeyboardMarkup(rows, resize_keyboard=True, one_time_keyboard=True)
 
 
 def _main_menu_keyboard():
@@ -56,24 +61,28 @@ async def handle_menu_callback(update, context):
             await msg.reply_text("💊 Сегодня нет запланированных лекарств.")
             return
         user_tz = get_tz_for_user(user.id)
-        today = datetime.now(user_tz).date()
+        now_local = datetime.now(user_tz)
+        today = now_local.date()
         meds: dict = {}
         for row in rows:
             if not _rule_fires_today(row, today):
                 continue
             mid = row["medication_id"]
             if mid not in meds:
-                meds[mid] = {"name": row["name"], "meal_relation": row["meal_relation"], "times": []}
+                meds[mid] = {"name": row["name"], "meal_relation": row["meal_relation"],
+                             "dep_name": row["dependent_name"], "times": []}
             dosage = row["rule_dosage"] or row["med_dosage"]
             meds[mid]["times"].append((row["reminder_time"], mid, dosage))
         if not meds:
             await msg.reply_text("💊 Сегодня нет запланированных лекарств.")
             return
-        statuses = get_today_intake_statuses(user.id)
+        start_utc, end_utc = local_day_bounds_utc(user_tz, now_local)
+        statuses = get_today_intake_statuses(user.id, start_utc, end_utc)
         lines = ["📋 *Лекарства на сегодня:*\n"]
         for med in meds.values():
             meal = _MEAL_LABELS.get(med["meal_relation"], "")
-            lines.append(f"💊 *{escape_md(med['name'])}* — {meal}")
+            dep_label = f" _({escape_md(med['dep_name'])})_" if med["dep_name"] else ""
+            lines.append(f"💊 *{escape_md(med['name'])}*{dep_label} — {meal}")
             for reminder_time, mid, dosage in sorted(med["times"]):
                 st = statuses.get((mid, reminder_time))
                 icon = "✅" if st == "taken" else ("❌" if st == "skipped" else "⏳")
@@ -95,23 +104,16 @@ async def handle_menu_callback(update, context):
 
     elif action == "settings":
         from handlers.settings import _settings_text, _settings_keyboard, fetch_settings_data
-        tz, mode_label, presets, dp = fetch_settings_data(user.id)
+        tz, mode_label, presets, dp, cg = fetch_settings_data(user.id)
         await msg.reply_text(
-            _settings_text(tz, mode_label, presets, dp),
+            _settings_text(tz, mode_label, presets, dp, cg),
             parse_mode="Markdown",
-            reply_markup=_settings_keyboard(mode_label, dp, user.id)
+            reply_markup=_settings_keyboard(mode_label, dp, cg, user.id)
         )
 
     elif action == "about":
         await msg.reply_text(
-            "ℹ️ *О проекте*\n\n"
-            "After 30 Med Bot — вайб-кодинг проект: написан в паре с AI (Claude).\n"
-            "Код живой, рабочий, итерируем дальше 🚀\n\n"
-            "📦 [GitHub](https://github.com/Perebevaska/after-30-medicine-bot)\n\n"
-            "*В планах:*\n"
-            "💊 Напоминание о пополнении запаса таблеток\n"
-            "👨‍👩‍👧 Caregiver режим — следить за приёмами другого пользователя\n"
-            "📱 Telegram Mini App",
+            ABOUT_TEXT,
             parse_mode="Markdown",
             disable_web_page_preview=True
         )
@@ -141,7 +143,7 @@ async def timezone_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик /timezone: запускает флоу смены часового пояса."""
     await update.message.reply_text(
         "Отправь геолокацию или введи город:",
-        reply_markup=_geo_keyboard()
+        reply_markup=_geo_keyboard(with_back=True)
     )
     return SETUP_TZ
 
@@ -152,14 +154,32 @@ async def handle_settings_timezone(update: Update, context: ContextTypes.DEFAULT
     await query.answer()
     await query.message.reply_text(
         "Отправь геолокацию или введи город:",
-        reply_markup=_geo_keyboard()
+        reply_markup=_geo_keyboard(with_back=True)
     )
     return SETUP_TZ
 
 
+async def _back_to_settings_from_tz(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Закрывает флоу TZ и возвращает пользователя на страницу /settings."""
+    from handlers.settings import fetch_settings_data, _settings_text, _settings_keyboard
+    user = update.effective_user
+    tz, mode_label, presets, dp, cg = fetch_settings_data(user.id)
+    # Сначала убираем reply-клавиатуру отдельным сообщением, затем рисуем настройки.
+    await update.message.reply_text("⚙️ Возврат в настройки", reply_markup=ReplyKeyboardRemove())
+    await update.message.reply_text(
+        _settings_text(tz, mode_label, presets, dp, cg),
+        parse_mode="Markdown",
+        reply_markup=_settings_keyboard(mode_label, dp, cg, user.id)
+    )
+    return ConversationHandler.END
+
+
 async def handle_tz_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Маршрутизирует текстовый ввод: «Ввести город вручную» → SETUP_CITY, иначе → handle_city_input."""
-    if update.message.text == "✍️ Ввести город вручную":
+    """Маршрутизирует текстовый ввод: «Назад» → /settings, «Ввести город» → SETUP_CITY, иначе → геокодинг."""
+    text = update.message.text
+    if text == "◀️ Назад в настройки":
+        return await _back_to_settings_from_tz(update, context)
+    if text == "✍️ Ввести город вручную":
         await update.message.reply_text(
             "Введи название города (можно на русском):",
             reply_markup=ReplyKeyboardRemove()

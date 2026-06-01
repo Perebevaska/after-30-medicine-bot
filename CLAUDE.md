@@ -30,17 +30,23 @@ med-bot/
     ├── export.py       # PDF экспорт плана и истории (asyncio.to_thread)
     ├── settings.py     # settings, about, reminder_mode toggle, daily plan
     ├── admin.py        # админ-панель (только ADMIN_ID)
+    ├── caregiver.py    # caregiver-режим: подопечные (dependents), вкл/выкл
     └── timezone.py     # start, timezone setup, main menu, Лекарства на сегодня
 ```
 
 ### Схема БД
-4 активные таблицы:
-- `users` (telegram_id, username, timezone, reminder_mode, time_morning, time_lunch, time_evening, time_night, daily_plan_enabled, daily_plan_time)
-- `medications` (user_id FK, name, dosage, meal_relation, times_per_day, active)
+5 активных таблиц:
+- `users` (telegram_id, username, timezone, reminder_mode, time_morning, time_lunch, time_evening, time_night, daily_plan_enabled, daily_plan_time, **caregiver_enabled**)
+- `dependents` (user_id FK, name) — подопечные caregiver-режима
+- `medications` (user_id FK, name, dosage, meal_relation, times_per_day, active, **dependent_id** FK NULL)
 - `schedule_rules` (medication_id FK, reminder_time, frequency, interval_days, weekdays, month_day, anchor_date, dosage) — `dosage NULL` = берётся из `medications.dosage`
 - `intake_log` (medication_id FK, scheduled_time, taken_at, status: taken/skipped/pending)
 
 Таблица `schedules` удалена в `migrate()` через `DROP TABLE IF EXISTS schedules`.
+
+**Соединение БД** (`get_connection`): `PRAGMA journal_mode=WAL`, `busy_timeout=5000`, `foreign_keys=ON` — параллельные чтение/запись и контроль FK.
+**Индексы** (создаются в `init_db`): `medications(user_id, active)`, `medications(dependent_id)`, `schedule_rules(medication_id)`, `intake_log(medication_id, scheduled_time)`, `intake_log(taken_at)`.
+**Внимание про FK**: при удалении подопечного `delete_dependent` обязан занулять `medications.dependent_id` — иначе `DELETE` нарушит включённый `foreign_keys`.
 
 ### schedule_rules — типы frequency
 | frequency | поля | описание |
@@ -102,6 +108,8 @@ app.add_handler(CallbackQueryHandler(tz_handler.handle_menu_callback, pattern="^
 - `get_tz_for_user(telegram_id)` → `pytz.timezone` объект
 - `cancel` — handler для `/cancel`, завершает любой ConversationHandler
 - `escape_md(text)` — экранирует спецсимволы Telegram Markdown v1 (`*`, `_`, `` ` ``, `[`)
+- `escape_html(text)` — экранирует `&`, `<`, `>` для `parse_mode="HTML"` (stats.py, план)
+- `local_day_bounds_utc(user_tz, now_local=None)` → `(start_utc, end_utc)` — границы локальных суток пользователя как UTC-строки; для запросов «сегодня» по `intake_log`
 - `parse_time(time_str)` → `ЧЧ:ММ` с ведущим нулём; поднимает `ValueError` при ошибке
 - `NAME_MAX_LEN = 50`, `DOSAGE_MAX_LEN = 30` — лимиты длины пользовательского ввода
 
@@ -119,7 +127,16 @@ pip install -r requirements.txt
 python3 broadcast.py
 
 # Миграция БД вызывается автоматически в bot.py при старте
+
+# Тесты (чистые функции, без БД/Telegram)
+pip install -r requirements-dev.txt
+pytest -q
 ```
+
+## Тесты
+- `tests/test_pure.py` — unit-тесты чистых функций: `parse_time`, `escape_md`, `escape_html`, `local_day_bounds_utc`, `_rule_fires_today`, `_compute_next_fire`, `_next_fire_label`, `_freq_label`, `_format_schedule_rule`, `_monthday_warning`, `_current_schedule_summary`
+- Не трогают БД и Telegram — функции импортируются напрямую
+- Конфиг — `pytest.ini` (`testpaths = tests`); dev-зависимости — `requirements-dev.txt`
 
 ## Conversational States
 Состояния определены в `constants.py`:
@@ -132,6 +149,8 @@ python3 broadcast.py
 - `DAILY_PLAN_TIME` (23) — ввод времени плана дня
 - `DOSAGE_B, TIMES_B, FREQ_TYPE_B, FREQ_INTERVAL_B, FREQ_WEEKDAYS_B, FREQ_MONTHDAY_B` (29-34) — ветка «Разная дозировка» при добавлении
 - `EDIT_DOSAGE_B` (35) — ввод дозировки Б при редактировании multi-dosage
+- `SELECT_DEPENDENT` (36) — выбор «Для кого?» в начале add-флоу (caregiver)
+- `ADD_DEPENDENT_NAME` (37) — ввод имени нового подопечного (settings + add-флоу)
 
 Все диалоги поддерживают `/cancel` для выхода.
 
@@ -168,11 +187,14 @@ ADMIN_ID=telegram_id_админа
 - Пресеты времени (🌅 Утро/☀️ Обед/🌇 Вечер/🌙 Ночь): хранятся в `users.time_morning/lunch/evening/night`, редактируются через `/settings` → "⏰ Настроить время приёмов"
 - `SLOT_ORDER`, `SLOT_LABELS` в `constants.py`; `get_user_time_presets()` / `set_user_time_preset()` в `database.py`
 - **Разная дозировка**: одно `medications`-запись, правила А с `dosage=NULL`, правила Б с `dosage=dosage_b`; планировщик использует `rule_dosage or med_dosage`; список лекарств показывает дату следующего срабатывания через `_next_fire_label()` + `_compute_next_fire()`
-- **Plan на день**: `_daily_plan_sent: set` в `scheduler.py` предотвращает дубли; `get_users_with_daily_plan()` возвращает строки только для пользователей с `daily_plan_enabled=1`
+- **Один проход планировщика**: `send_reminders()` берёт `get_active_schedule_rows()` (все правила активных лекарств + поля пользователя одним запросом) и передаёт их в `_send_daily_plans(app, schedules)`; план дня фильтруется по `daily_plan_enabled` в Python — без второго запроса к БД
+- **Plan на день**: `_daily_plan_sent: set` в `scheduler.py` предотвращает дубли (TTL-prune старше 2 дней); строки берутся из общего прохода (`daily_plan_enabled=1`)
+- **Настройки одним запросом**: `fetch_settings_data()` использует `get_user_settings_row()` (одна строка вместо 5 соединений); список лекарств — `get_rules_grouped_for_user()` вместо N+1
 - **ADMIN_ID**: читается через `os.getenv("ADMIN_ID")` в обоих `admin.py` и `settings.py`; обёрнут в `try/except ValueError`; `load_dotenv()` вызывается в `bot.py` **до** всех импортов
 - **broadcast.py**: standalone скрипт, не импортирует handlers; завершение ввода текста — строка `.`; режим 2 требует подтверждения словом `да`
 - **PDF export**: `_build_pdf()` в `handlers/export.py` использует DejaVuSans (`/usr/share/fonts/truetype/dejavu/`); вызывается через `asyncio.to_thread` чтобы не блокировать event loop; fontTools лог заглушён до WARNING в `bot.py`
-- `escape_md()` применяется ко всем пользовательским строкам при отображении в `parse_mode="Markdown"`; stats.py использует HTML и не требует экранирования
+- `escape_md()` применяется ко всем пользовательским строкам при отображении в `parse_mode="Markdown"`; stats.py и план используют HTML — пользовательские строки (название, дозировка, имя подопечного) экранируются через `escape_html()`
+- **«Сегодня» по TZ пользователя**: `log_intake()` и `get_today_intake_statuses()` принимают диапазон `[start_utc, end_utc)` из `local_day_bounds_utc()`, а не UTC `date('now')`
 
 ## Known Issues & Bug Tracker
 
@@ -214,12 +236,34 @@ ADMIN_ID=telegram_id_админа
 | 33 | `handlers/meds.py`, `utils.py`, `scheduler.py` | Аудит валидации: `escape_md()`, лимиты NAME/DOSAGE_MAX_LEN |
 | 35 | `handlers/timezone.py` | После установки TZ новому пользователю непонятно что делать |
 | 36 | `handlers/stats.py` | В `/stats` нет плана лекарств на неделю |
+| 37 | `handlers/stats.py`, `utils.py` | HTML без экранирования: имена/дозировки с `<`, `>`, `&` ломали статистику и план (сообщение не отправлялось). Добавлен `escape_html()` |
+| 38 | `database.py`, `scheduler.py`, `handlers/timezone.py`, `utils.py` | «Сегодня» считалось по UTC `date('now')`, а не по TZ пользователя → рассинхрон статусов и upsert у границы суток. Введён `local_day_bounds_utc()` |
+| 39 | `handlers/meds.py` | Multi-dosage edit показывал «Лекарство добавлено» вместо «обновлено» |
+| 40 | `database.py` | Нет `PRAGMA busy_timeout/WAL/foreign_keys` → риск `database is locked` |
+| 41 | `database.py` | Нет индексов → full-scan в планировщике и статистике. Добавлены 5 индексов |
+| 42 | `database.py` | `delete_dependent` не занулял `dependent_id` → нарушение FK после включения `foreign_keys=ON` |
+| 43 | `scheduler.py` | Утечки памяти: `_pending` (режим once) и `_daily_plan_sent` не очищались. Добавлен TTL-prune |
+| 44 | `database.py`, `scheduler.py` | Планировщик делал 2 full-scan/мин (`get_all_schedules` + `get_users_with_daily_plan`). Объединено в `get_active_schedule_rows()` — один проход |
+| 45 | `database.py`, `handlers/settings.py` | `fetch_settings_data` открывала 5 соединений на рендер. Сведено к одному `get_user_settings_row()` |
+| 46 | `database.py`, `handlers/meds.py` | Список лекарств делал N+1 (`get_schedules_by_medication` в цикле). Заменено на `get_rules_grouped_for_user()` |
+| 47 | `handlers/settings.py`, `handlers/timezone.py`, `bot.py` | Из под-экранов `/settings` (часовой пояс, время приёмов) нельзя вернуться в настройки. Добавлены «◀️ Назад»: `settings:back` для пресетов, reply-кнопка «◀️ Назад в настройки» для гео-флоу (`with_back`) |
+| 48 | `constants.py`, `handlers/settings.py`, `handlers/timezone.py` | Дублирование текста «О проекте» в двух местах. Вынесено в `ABOUT_TEXT` |
+| 49 | `database.py` | `db_logger` без `propagate=False` — ошибки БД дублировались в консоль root-логгера |
+| 50 | `database.py` | `migrate()` повторно создавал таблицу `dependents` (уже в `init_db`). Удалён избыточный `CREATE TABLE` |
+| 51 | `tests/`, `pytest.ini`, `requirements-dev.txt` | Не было тестов. Добавлены 58 unit-тестов на чистые функции (pytest) |
+| 52 | `handlers/meds.py` | Дубль входа в add-флоу (`add_start` ≈ `handle_add_med_callback`). Объединено в `_begin_add_flow()` |
 
 ### 🔲 К исправлению
 
 | # | Файл | Проблема |
 |---|------|----------|
-| 34 | `database.py`, `handlers/meds.py`, `scheduler.py`, `constants.py` | **Caregiver-режим**: новая таблица `dependents (id, user_id FK, name)` + колонка `medications.dependent_id FK NULL`. UX: шаг "Для кого?" в начале add-флоу → `[👤 Для себя] [👧 Маша] [➕ Новый подопечный]`. Список `/meds` разбит на секции. Напоминание: `💊 Амоксициллин (для Маши) — 250 мг`. Лимит 10 лекарств считается отдельно на каждого. Новое состояние `SELECT_DEPENDENT = 36`. |
+| Q1 | `handlers/meds.py` | Глубокая дедупликация add/edit-флоу (общие success-сообщения, валидация числовых диапазонов, слияние состояний). Делать отдельной веткой — нужны тесты на уровне хендлеров |
+
+### ✅ Исправлено (caregiver)
+
+| # | Файл | Проблема |
+|---|------|----------|
+| 34 | `database.py`, `handlers/meds.py`, `handlers/caregiver.py`, `scheduler.py`, `constants.py` | **Caregiver-режим**: таблица `dependents`, `medications.dependent_id`, `/settings` кнопка с вкл/выкл, шаг «Для кого?» в add-флоу, лимит 10 лекарств на каждого подопечного, напоминания с «(для Маши)», `MAX_DEPENDENTS=2` |
 
 ### Порядок работы с багами
 1. Найти баг → добавить в таблицу "К исправлению"

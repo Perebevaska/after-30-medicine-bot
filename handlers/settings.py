@@ -2,12 +2,12 @@ import os
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (ContextTypes, CallbackQueryHandler, ConversationHandler,
                            MessageHandler, filters)
-from database import (get_user_timezone, get_reminder_mode, set_reminder_mode,
+from database import (get_reminder_mode, set_reminder_mode,
                       get_user_time_presets, set_user_time_preset,
                       get_daily_plan_settings, set_daily_plan_enabled, set_daily_plan_time,
-                      delete_user_data)
+                      delete_user_data, get_user_settings_row)
 from scheduler import clear_pending_for_medication
-from constants import PRESET_TIME, DAILY_PLAN_TIME, SLOT_ORDER, SLOT_LABELS
+from constants import PRESET_TIME, DAILY_PLAN_TIME, SLOT_ORDER, SLOT_LABELS, ABOUT_TEXT
 from utils import handle_db_errors, parse_time
 
 try:
@@ -16,38 +16,46 @@ except ValueError:
     ADMIN_ID = 0
 
 
-def _settings_text(tz: str, mode_label: str, presets: dict, daily_plan: dict) -> str:
+def _settings_text(tz: str, mode_label: str, presets: dict, daily_plan: dict,
+                   caregiver_enabled: bool = False) -> str:
     """Формирует текст страницы настроек с описанием всех параметров."""
     p = presets
     presets_line = f"🌅{p['morning']}  ☀️{p['lunch']}  🌇{p['evening']}  🌙{p['night']}"
     dp_line = f"✅ Вкл — {daily_plan['time']}" if daily_plan["enabled"] else "❌ Выкл"
+    cg_line = "✅ Вкл" if caregiver_enabled else "❌ Выкл"
     return (
         f"⚙️ *Настройки*\n\n"
         f"🌍 Часовой пояс: `{tz}`\n"
         f"🔔 Напоминания о приёме лекарств: {mode_label}\n"
         f"⏰ Время приёмов: {presets_line}\n"
-        f"📋 План на день: {dp_line}\n\n"
+        f"📋 План на день: {dp_line}\n"
+        f"👨‍👩‍👧 Caregiver-режим: {cg_line}\n\n"
         f"_🌍 Используется для точного времени напоминаний._\n"
         f"_🔔 «Один раз» — уведомление приходит один раз в назначенное время. "
         f"«Повторять» — каждые 5 мин до подтверждения приёма._\n"
         f"_⏰ Временные слоты при добавлении лекарства (Утро / Обед / Вечер / Ночь)._\n"
         f"_📋 Присылает утреннее сообщение со списком лекарств на сегодня._\n"
+        f"_👨‍👩‍👧 Отслеживание приёма лекарств для близких (до 2 подопечных)._\n"
         f"_🗑 Удаляет все твои лекарства, расписания, историю приёмов и настройки._"
     )
 
 
-def _settings_keyboard(mode_label: str, daily_plan: dict, telegram_id: int = 0) -> InlineKeyboardMarkup:
+def _settings_keyboard(mode_label: str, daily_plan: dict,
+                       caregiver_enabled: bool = False,
+                       telegram_id: int = 0) -> InlineKeyboardMarkup:
     """Inline-клавиатура настроек; добавляет кнопку Админ панели если telegram_id == ADMIN_ID."""
     dp_label = (
         f"📋 План на день: ✅ {daily_plan['time']}"
         if daily_plan["enabled"]
         else "📋 План на день: ❌ Выкл"
     )
+    cg_label = "👨‍👩‍👧 Caregiver-режим: ✅ Вкл" if caregiver_enabled else "👨‍👩‍👧 Caregiver-режим: ❌ Выкл"
     rows = [
         [InlineKeyboardButton("🌍 Изменить часовой пояс", callback_data="settings:timezone")],
         [InlineKeyboardButton(f"Напоминания о приёме лекарств: {mode_label}", callback_data="settings:reminder")],
         [InlineKeyboardButton("⏰ Настроить время приёмов", callback_data="settings:presets")],
         [InlineKeyboardButton(dp_label, callback_data="settings:daily_plan")],
+        [InlineKeyboardButton(cg_label, callback_data="settings:caregiver")],
         [InlineKeyboardButton("🗑 Удалить мои данные", callback_data="settings:delete")],
     ]
     if telegram_id == ADMIN_ID:
@@ -66,13 +74,26 @@ def _daily_plan_keyboard(dp: dict) -> InlineKeyboardMarkup:
 
 
 def fetch_settings_data(telegram_id: int) -> tuple:
-    """Возвращает (tz, mode_label, presets, daily_plan) для рендеринга настроек."""
-    tz = get_user_timezone(telegram_id)
-    mode = get_reminder_mode(telegram_id)
-    presets = get_user_time_presets(telegram_id)
-    dp = get_daily_plan_settings(telegram_id)
+    """Возвращает (tz, mode_label, presets, daily_plan, caregiver_enabled) одним запросом к БД."""
+    row = get_user_settings_row(telegram_id)
+    if row is None:
+        tz, mode = "UTC", "once"
+        presets = {"morning": "09:00", "lunch": "12:00", "evening": "18:00", "night": "22:00"}
+        dp = {"enabled": True, "time": "08:00"}
+        caregiver_enabled = False
+    else:
+        tz = row["timezone"] or "UTC"
+        mode = row["reminder_mode"] or "once"
+        presets = {
+            "morning": row["time_morning"] or "09:00",
+            "lunch":   row["time_lunch"]   or "12:00",
+            "evening": row["time_evening"] or "18:00",
+            "night":   row["time_night"]   or "22:00",
+        }
+        dp = {"enabled": bool(row["daily_plan_enabled"]), "time": row["daily_plan_time"] or "08:00"}
+        caregiver_enabled = bool(row["caregiver_enabled"])
     mode_label = "🔔 Один раз" if mode == "once" else "🔁 Повторять каждые 5 минут"
-    return tz, mode_label, presets, dp
+    return tz, mode_label, presets, dp, caregiver_enabled
 
 
 def _presets_keyboard(presets: dict) -> InlineKeyboardMarkup:
@@ -83,6 +104,7 @@ def _presets_keyboard(presets: dict) -> InlineKeyboardMarkup:
             f"✏️ {SLOT_LABELS[slot]}: {presets[slot]}",
             callback_data=f"preset:{slot}"
         )])
+    rows.append([InlineKeyboardButton("◀️ Назад", callback_data="settings:back")])
     return InlineKeyboardMarkup(rows)
 
 
@@ -90,11 +112,11 @@ def _presets_keyboard(presets: dict) -> InlineKeyboardMarkup:
 async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик /settings: показывает текущие настройки пользователя."""
     user = update.effective_user
-    tz, mode_label, presets, dp = fetch_settings_data(user.id)
+    tz, mode_label, presets, dp, cg = fetch_settings_data(user.id)
     await update.message.reply_text(
-        _settings_text(tz, mode_label, presets, dp),
+        _settings_text(tz, mode_label, presets, dp, cg),
         parse_mode="Markdown",
-        reply_markup=_settings_keyboard(mode_label, dp, user.id)
+        reply_markup=_settings_keyboard(mode_label, dp, cg, user.id)
     )
 
 
@@ -107,11 +129,11 @@ async def handle_reminder_callback(update: Update, context: ContextTypes.DEFAULT
     mode = get_reminder_mode(user.id)
     new_mode = "repeat" if mode == "once" else "once"
     set_reminder_mode(user.id, new_mode)
-    tz, mode_label, presets, dp = fetch_settings_data(user.id)
+    tz, mode_label, presets, dp, cg = fetch_settings_data(user.id)
     await query.edit_message_text(
-        _settings_text(tz, mode_label, presets, dp),
+        _settings_text(tz, mode_label, presets, dp, cg),
         parse_mode="Markdown",
-        reply_markup=_settings_keyboard(mode_label, dp, user.id)
+        reply_markup=_settings_keyboard(mode_label, dp, cg, user.id)
     )
 
 
@@ -122,7 +144,7 @@ async def handle_show_presets(update: Update, context: ContextTypes.DEFAULT_TYPE
     await query.answer()
     user = update.effective_user
     presets = get_user_time_presets(user.id)
-    await query.message.reply_text(
+    await query.edit_message_text(
         "⏰ *Время приёмов*\n\nНажми чтобы изменить:",
         parse_mode="Markdown",
         reply_markup=_presets_keyboard(presets)
@@ -226,11 +248,11 @@ async def handle_daily_plan_back(update: Update, context: ContextTypes.DEFAULT_T
     query = update.callback_query
     await query.answer()
     user = update.effective_user
-    tz, mode_label, presets, dp = fetch_settings_data(user.id)
+    tz, mode_label, presets, dp, cg = fetch_settings_data(user.id)
     await query.edit_message_text(
-        _settings_text(tz, mode_label, presets, dp),
+        _settings_text(tz, mode_label, presets, dp, cg),
         parse_mode="Markdown",
-        reply_markup=_settings_keyboard(mode_label, dp, user.id)
+        reply_markup=_settings_keyboard(mode_label, dp, cg, user.id)
     )
 
 
@@ -326,25 +348,32 @@ async def handle_delete_cancel(update: Update, context: ContextTypes.DEFAULT_TYP
     query = update.callback_query
     await query.answer()
     user = update.effective_user
-    tz, mode_label, presets, dp = fetch_settings_data(user.id)
+    tz, mode_label, presets, dp, cg = fetch_settings_data(user.id)
     await query.edit_message_text(
-        _settings_text(tz, mode_label, presets, dp),
+        _settings_text(tz, mode_label, presets, dp, cg),
         parse_mode="Markdown",
-        reply_markup=_settings_keyboard(mode_label, dp, user.id)
+        reply_markup=_settings_keyboard(mode_label, dp, cg, user.id)
+    )
+
+
+@handle_db_errors
+async def handle_settings_back(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Возврат на главную страницу настроек из под-экранов (пресеты и т.п.)."""
+    query = update.callback_query
+    await query.answer()
+    user = update.effective_user
+    tz, mode_label, presets, dp, cg = fetch_settings_data(user.id)
+    await query.edit_message_text(
+        _settings_text(tz, mode_label, presets, dp, cg),
+        parse_mode="Markdown",
+        reply_markup=_settings_keyboard(mode_label, dp, cg, user.id)
     )
 
 
 async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик /about: показывает информацию о проекте и планах развития."""
     await update.message.reply_text(
-        "ℹ️ *О проекте*\n\n"
-        "After 30 Med Bot — вайб-кодинг проект: написан в паре с AI (Claude).\n"
-        "Код живой, рабочий, итерируем дальше 🚀\n\n"
-        "📦 [GitHub](https://github.com/Perebevaska/after-30-medicine-bot)\n\n"
-        "*В планах:*\n"
-        "💊 Напоминание о пополнении запаса таблеток\n"
-        "👨‍👩‍👧 Caregiver режим — следить за приёмами другого пользователя\n"
-        "📱 Telegram Mini App",
+        ABOUT_TEXT,
         parse_mode="Markdown",
         disable_web_page_preview=True
     )

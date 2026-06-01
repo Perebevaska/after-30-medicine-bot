@@ -41,9 +41,9 @@ async def handle_admin_back(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     from handlers.settings import _settings_text, _settings_keyboard, fetch_settings_data
     user = update.effective_user
-    tz, mode_label, presets, dp = fetch_settings_data(user.id)
+    tz, mode_label, presets, dp, cg = fetch_settings_data(user.id)
     await query.edit_message_text(
-        _settings_text(tz, mode_label, presets, dp),
+        _settings_text(tz, mode_label, presets, dp, cg),
         parse_mode="Markdown",
-        reply_markup=_settings_keyboard(mode_label, dp, user.id)
+        reply_markup=_settings_keyboard(mode_label, dp, cg, user.id)
     )
