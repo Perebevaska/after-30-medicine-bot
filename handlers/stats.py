@@ -173,31 +173,24 @@ async def show_stats_week(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(text, parse_mode="HTML", reply_markup=_report_keyboard("export:week"))
 
 
-@handle_db_errors
-async def show_adherence(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Показывает процент соблюдения режима за 30 дней (F3): принято / положено по расписанию."""
-    query = update.callback_query
-    await query.answer()
-    user = update.effective_user
-    user_id = get_or_create_user(user.id, user.username)
-    user_tz = get_tz_for_user(user.id)
+def adherence_window(user_tz):
+    """Окно расчёта adherence: (today_local, start_day_local, start_utc, end_utc) за _ADHERENCE_DAYS дней."""
     today = datetime.now(user_tz).date()
     start_day = today - timedelta(days=_ADHERENCE_DAYS - 1)
-
-    rules = get_adherence_rules(user_id)
-    if not rules:
-        await query.edit_message_text(
-            "💊 Нет активных лекарств для расчёта соблюдения.", reply_markup=_nav_keyboard()
-        )
-        return
-
     start_local = user_tz.localize(datetime(start_day.year, start_day.month, start_day.day))
     end_local = user_tz.localize(datetime(today.year, today.month, today.day)) + timedelta(days=1)
     start_utc = start_local.astimezone(pytz.utc).strftime("%Y-%m-%d %H:%M:%S")
     end_utc = end_local.astimezone(pytz.utc).strftime("%Y-%m-%d %H:%M:%S")
-    taken = get_taken_counts(user_id, start_utc, end_utc)
+    return today, start_day, start_utc, end_utc
 
-    # метаданные и дата начала действия каждого лекарства (в TZ пользователя)
+
+def compute_adherence(rules, taken: dict, start_day, today, user_tz):
+    """Считает соблюдение по лекарствам. Возвращает (items, total_taken, total_planned).
+
+    items — список dict {pct, taken, due, name, dep, mid}, отсортирован «худшие сверху».
+    name/dep — сырые (без экранирования): рендер сам экранирует под HTML/PDF.
+    Знаменатель — положенные приёмы по расписанию с клампом по created_at каждого лекарства.
+    """
     meta: dict = {}
     created_dates: dict = {}
     for r in rules:
@@ -210,11 +203,9 @@ async def show_adherence(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except (ValueError, TypeError):
             cd = start_day
         created_dates[mid] = cd
-        dep = f" ({escape_html(r['dependent_name'])})" if r["dependent_name"] else ""
-        meta[mid] = {"name": escape_html(r["name"]), "dep": dep}
+        meta[mid] = {"name": r["name"], "dep": r["dependent_name"]}
 
     planned = count_due_by_medication(rules, start_day, today, created_dates)
-
     items = []
     total_taken = 0
     total_planned = 0
@@ -225,7 +216,31 @@ async def show_adherence(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pct = min(100, round(tk / due * 100))
         total_taken += min(tk, due)
         total_planned += due
-        items.append((pct, tk, due, mid))
+        items.append({"pct": pct, "taken": tk, "due": due,
+                      "name": meta[mid]["name"], "dep": meta[mid]["dep"], "mid": mid})
+    items.sort(key=lambda x: (x["pct"], x["mid"]))  # худшие сверху
+    return items, total_taken, total_planned
+
+
+@handle_db_errors
+async def show_adherence(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показывает процент соблюдения режима за 30 дней (F3): принято / положено по расписанию."""
+    query = update.callback_query
+    await query.answer()
+    user = update.effective_user
+    user_id = get_or_create_user(user.id, user.username)
+    user_tz = get_tz_for_user(user.id)
+
+    rules = get_adherence_rules(user_id)
+    if not rules:
+        await query.edit_message_text(
+            "💊 Нет активных лекарств для расчёта соблюдения.", reply_markup=_nav_keyboard()
+        )
+        return
+
+    today, start_day, start_utc, end_utc = adherence_window(user_tz)
+    taken = get_taken_counts(user_id, start_utc, end_utc)
+    items, total_taken, total_planned = compute_adherence(rules, taken, start_day, today, user_tz)
 
     if not total_planned:
         await query.edit_message_text(
@@ -233,17 +248,21 @@ async def show_adherence(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    items.sort(key=lambda x: (x[0], x[3]))  # худшие сверху
     blocks = ["📊 <b>Соблюдение за 30 дней</b>\n"]
-    for pct, tk, due, mid in items:
-        m = meta[mid]
-        blocks.append(f"{_pct_color(pct)} <b>{m['name']}</b>{m['dep']} — {pct}% ({tk}/{due})")
+    for it in items:
+        dep = f" ({escape_html(it['dep'])})" if it["dep"] else ""
+        blocks.append(
+            f"{_pct_color(it['pct'])} <b>{escape_html(it['name'])}</b>{dep} "
+            f"— {it['pct']}% ({it['taken']}/{it['due']})"
+        )
 
     overall = round(total_taken / total_planned * 100)
     blocks.append("\n──────────────────")
     blocks.append(f"<b>Итог: {total_taken}/{total_planned} ({overall}%) {_pct_color(overall)}</b>")
 
-    await query.edit_message_text("\n".join(blocks), parse_mode="HTML", reply_markup=_nav_keyboard())
+    await query.edit_message_text(
+        "\n".join(blocks), parse_mode="HTML", reply_markup=_report_keyboard("export:adherence")
+    )
 
 
 @handle_db_errors

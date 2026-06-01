@@ -6,10 +6,12 @@ from datetime import datetime, timedelta
 from fpdf import FPDF
 from telegram.ext import CallbackQueryHandler
 
-from database import get_schedules_for_user, get_history_detailed, get_or_create_user
+from database import (get_schedules_for_user, get_history_detailed, get_or_create_user,
+                      get_adherence_rules, get_taken_counts)
 from utils import get_tz_for_user, handle_db_errors
 from constants import MONTHS_SHORT
 from scheduler import _rule_fires_today, _MEAL_LABELS  # _MEAL_LABELS: строчные варианты для текста
+from handlers.stats import adherence_window, compute_adherence
 
 _FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 _FONT_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
@@ -142,9 +144,51 @@ async def export_week_stats(update, context):
     await query.message.reply_document(document=buf, filename=filename, caption="📈 История приёмов за 7 дней")
 
 
+@handle_db_errors
+async def export_adherence(update, context):
+    """Генерирует PDF-отчёт о соблюдении режима за 30 дней (F3) и отправляет пользователю."""
+    query = update.callback_query
+    await query.answer("Генерирую PDF...")
+    user = update.effective_user
+    user_id = get_or_create_user(user.id, user.username)
+    user_tz = get_tz_for_user(user.id)
+
+    rules = get_adherence_rules(user_id)
+    if not rules:
+        await query.message.reply_text("Нет активных лекарств для отчёта.")
+        return
+
+    today, start_day, start_utc, end_utc = adherence_window(user_tz)
+    taken = get_taken_counts(user_id, start_utc, end_utc)
+    items, total_taken, total_planned = compute_adherence(rules, taken, start_day, today, user_tz)
+
+    if not total_planned:
+        await query.message.reply_text("За последние 30 дней нет запланированных приёмов.")
+        return
+
+    lines = []
+    for it in items:
+        dep = f" ({it['dep']})" if it["dep"] else ""
+        lines.append(f"{it['name']}{dep} — {it['pct']}%  ({it['taken']}/{it['due']})")
+
+    overall = round(total_taken / total_planned * 100)
+    sections = [
+        ("Соблюдение по лекарствам", lines),
+        (f"Итого: {total_taken}/{total_planned} ({overall}%)", []),
+    ]
+    title = "Соблюдение режима за 30 дней"
+    subtitle = f"с {start_day.strftime('%d.%m.%Y')} по {today.strftime('%d.%m.%Y')}"
+    buf = await asyncio.to_thread(_build_pdf, title, subtitle, sections)
+    filename = f"adherence_{today.strftime('%Y%m%d')}.pdf"
+    await query.message.reply_document(
+        document=buf, filename=filename, caption="📊 Соблюдение режима за 30 дней"
+    )
+
+
 def get_handlers():
-    """Возвращает handlers для экспорта в PDF (план и история)."""
+    """Возвращает handlers для экспорта в PDF (план, история, соблюдение)."""
     return [
         CallbackQueryHandler(export_week_plan, pattern="^export:plan$"),
         CallbackQueryHandler(export_week_stats, pattern="^export:week$"),
+        CallbackQueryHandler(export_adherence, pattern="^export:adherence$"),
     ]
