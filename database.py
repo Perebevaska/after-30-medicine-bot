@@ -7,6 +7,7 @@ DB_PATH = "med_bot.db"
 # Логгер для ошибок БД — пишет в файл
 db_logger = logging.getLogger("db_errors")
 db_logger.setLevel(logging.ERROR)
+db_logger.propagate = False  # не дублировать ошибки БД в root-логгер (консоль)
 _fh = logging.FileHandler("db_errors.log", encoding="utf-8")
 _fh.setFormatter(logging.Formatter("%(asctime)s — %(message)s"))
 db_logger.addHandler(_fh)
@@ -149,18 +150,11 @@ def migrate():
         if "caregiver_enabled" not in cols:
             conn.execute("ALTER TABLE users ADD COLUMN caregiver_enabled INTEGER DEFAULT 0")
 
+        # dependents создаётся в init_db() (вызывается до migrate), поэтому здесь
+        # достаточно добавить ссылочную колонку для старых БД.
         med_cols = [r[1] for r in conn.execute("PRAGMA table_info(medications)")]
         if "dependent_id" not in med_cols:
             conn.execute("ALTER TABLE medications ADD COLUMN dependent_id INTEGER DEFAULT NULL REFERENCES dependents(id)")
-
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS dependents (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER NOT NULL,
-                name TEXT NOT NULL,
-                FOREIGN KEY (user_id) REFERENCES users(id)
-            )
-        """)
 
         # Дропаем устаревшую таблицу schedules (данные давно в schedule_rules)
         conn.execute("DROP TABLE IF EXISTS schedules")

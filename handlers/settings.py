@@ -7,7 +7,7 @@ from database import (get_reminder_mode, set_reminder_mode,
                       get_daily_plan_settings, set_daily_plan_enabled, set_daily_plan_time,
                       delete_user_data, get_user_settings_row)
 from scheduler import clear_pending_for_medication
-from constants import PRESET_TIME, DAILY_PLAN_TIME, SLOT_ORDER, SLOT_LABELS
+from constants import PRESET_TIME, DAILY_PLAN_TIME, SLOT_ORDER, SLOT_LABELS, ABOUT_TEXT
 from utils import handle_db_errors, parse_time
 
 try:
@@ -373,14 +373,7 @@ async def handle_settings_back(update: Update, context: ContextTypes.DEFAULT_TYP
 async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик /about: показывает информацию о проекте и планах развития."""
     await update.message.reply_text(
-        "ℹ️ *О проекте*\n\n"
-        "After 30 Med Bot — вайб-кодинг проект: написан в паре с AI (Claude).\n"
-        "Код живой, рабочий, итерируем дальше 🚀\n\n"
-        "📦 [GitHub](https://github.com/Perebevaska/after-30-medicine-bot)\n\n"
-        "*В планах:*\n"
-        "💊 Напоминание о пополнении запаса таблеток\n"
-        "👨‍👩‍👧 Caregiver режим — следить за приёмами другого пользователя\n"
-        "📱 Telegram Mini App",
+        ABOUT_TEXT,
         parse_mode="Markdown",
         disable_web_page_preview=True
     )

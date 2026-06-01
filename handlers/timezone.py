@@ -8,7 +8,7 @@ _tf = TimezoneFinder()
 _geolocator = Nominatim(user_agent="med_bot")
 from geopy.exc import GeocoderTimedOut, GeocoderServiceError
 from database import get_or_create_user, get_user_timezone, set_user_timezone, get_schedules_for_user, get_today_intake_statuses
-from constants import SETUP_TZ, SETUP_CITY
+from constants import SETUP_TZ, SETUP_CITY, ABOUT_TEXT
 from utils import handle_db_errors, get_tz_for_user, escape_md, local_day_bounds_utc
 
 
@@ -113,14 +113,7 @@ async def handle_menu_callback(update, context):
 
     elif action == "about":
         await msg.reply_text(
-            "ℹ️ *О проекте*\n\n"
-            "After 30 Med Bot — вайб-кодинг проект: написан в паре с AI (Claude).\n"
-            "Код живой, рабочий, итерируем дальше 🚀\n\n"
-            "📦 [GitHub](https://github.com/Perebevaska/after-30-medicine-bot)\n\n"
-            "*В планах:*\n"
-            "💊 Напоминание о пополнении запаса таблеток\n"
-            "👨‍👩‍👧 Caregiver режим — следить за приёмами другого пользователя\n"
-            "📱 Telegram Mini App",
+            ABOUT_TEXT,
             parse_mode="Markdown",
             disable_web_page_preview=True
         )
