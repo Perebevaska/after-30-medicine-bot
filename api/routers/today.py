@@ -1,5 +1,5 @@
 import asyncio
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 import database as db
 from api.auth import require_telegram_user
@@ -49,6 +49,9 @@ async def get_today(telegram_id: int = Depends(require_telegram_user)):
 
 @router.post("/intake", status_code=204)
 async def log_intake(body: IntakeIn, telegram_id: int = Depends(require_telegram_user)):
+    user_id = await asyncio.to_thread(db.get_or_create_user, telegram_id)
+    if not await asyncio.to_thread(db.get_medication_by_id, body.medication_id, user_id):
+        raise HTTPException(404, "Лекарство не найдено")
     user_tz = await asyncio.to_thread(get_tz_for_user, telegram_id)
     now_local = datetime.now(user_tz)
     start_utc, end_utc = local_day_bounds_utc(user_tz, now_local)

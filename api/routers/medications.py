@@ -1,5 +1,5 @@
 import asyncio
-from typing import Optional
+from typing import Literal, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 import database as db
@@ -8,10 +8,13 @@ from constants import MAX_MEDICATIONS_PER_USER
 
 router = APIRouter(prefix="/medications", tags=["medications"])
 
+_MealRelation = Literal["before", "after", "with", "any"]
+_Frequency = Literal["daily", "interval", "weekdays", "monthly"]
+
 
 class RuleIn(BaseModel):
     reminder_time: str
-    frequency: str = "daily"
+    frequency: _Frequency = "daily"
     interval_days: Optional[int] = None
     weekdays: Optional[str] = None
     month_day: Optional[int] = None
@@ -22,7 +25,7 @@ class RuleIn(BaseModel):
 class MedicationIn(BaseModel):
     name: str
     dosage: str
-    meal_relation: str
+    meal_relation: _MealRelation
     times_per_day: int
     dependent_id: Optional[int] = None
     rules: list[RuleIn]
@@ -31,7 +34,7 @@ class MedicationIn(BaseModel):
 class MedicationUpdate(BaseModel):
     name: str
     dosage: str
-    meal_relation: str
+    meal_relation: _MealRelation
     times_per_day: int
     rules: list[RuleIn]
 

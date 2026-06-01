@@ -1,5 +1,6 @@
 import asyncio
-from fastapi import APIRouter, Depends
+import pytz
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 import database as db
 from api.auth import require_telegram_user
@@ -38,6 +39,10 @@ async def get_settings(telegram_id: int = Depends(require_telegram_user)):
 
 @router.put("/timezone", status_code=204)
 async def set_timezone(body: TimezoneIn, telegram_id: int = Depends(require_telegram_user)):
+    try:
+        pytz.timezone(body.timezone)
+    except pytz.exceptions.UnknownTimeZoneError:
+        raise HTTPException(400, "Неизвестный часовой пояс")
     await asyncio.to_thread(db.set_user_timezone, telegram_id, body.timezone)
 
 

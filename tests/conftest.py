@@ -33,6 +33,16 @@ def db(_pg_schema):
     return d
 
 
+@pytest.fixture(autouse=True)
+def _clear_rate_counters():
+    """Сбрасывает счётчики rate limiter перед каждым тестом."""
+    try:
+        import api.main as m
+        m._counters.clear()
+    except Exception:
+        pass
+
+
 @pytest.fixture(scope="module")
 def api_client(_pg_schema):
     """TestClient для API с переопределённой авторизацией (telegram_id=TEST_TELEGRAM_ID)."""
