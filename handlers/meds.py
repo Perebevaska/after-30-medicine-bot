@@ -283,6 +283,30 @@ def _monthday_warning(day: int) -> str:
     return ""
 
 
+def _med_saved_text(action: str, name: str, dosage: str, meal: str,
+                    total: int, times: list, freq_suffix: str = "", warning: str = "") -> str:
+    """Единый текст результата сохранения лекарства с одной дозировкой.
+
+    action — «добавлено» или «обновлено»; freq_suffix — «» (daily) или « — <частота>».
+    """
+    return (
+        f"✅ Лекарство {action}!\n\n"
+        f"💊 {name} — {dosage}\n"
+        f"🍽 {MEAL_LABELS[meal]}\n"
+        f"🔢 {total} раз в день\n"
+        f"⏰ {', '.join(times)}{freq_suffix}{warning}"
+    )
+
+
+def _parse_int_range(text: str, lo: int, hi: int):
+    """Парсит целое из text и проверяет диапазон [lo, hi]. None — не число или вне диапазона."""
+    try:
+        n = int(text.strip())
+    except (ValueError, TypeError, AttributeError):
+        return None
+    return n if lo <= n <= hi else None
+
+
 def _freq_label(freq: str, interval_days, weekdays_str, month_day) -> str:
     """Возвращает короткое человекочитаемое описание частоты (каждый день / каждые N дн. и т.д.)."""
     if freq == "daily":
@@ -386,9 +410,10 @@ async def show_meds_list(message, user):
     if not meds:
         await message.reply_text(
             "У тебя пока нет лекарств.",
-            reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("➕ Добавить лекарство", callback_data="add_med")
-            ]])
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("➕ Добавить лекарство", callback_data="add_med")],
+                [InlineKeyboardButton("◀️ В меню", callback_data="menu:main")],
+            ])
         )
         return
 
@@ -439,9 +464,10 @@ async def show_meds_list(message, user):
 
     await message.reply_text(
         "➕ Хочешь добавить ещё?",
-        reply_markup=InlineKeyboardMarkup([[
-            InlineKeyboardButton("➕ Добавить лекарство", callback_data="add_med")
-        ]])
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("➕ Добавить лекарство", callback_data="add_med")],
+            [InlineKeyboardButton("◀️ В меню", callback_data="menu:main")],
+        ])
     )
 
 
@@ -832,11 +858,9 @@ async def choose_freq_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for t in collected:
             add_schedule_rule(med_id, t, "daily")
         await query.edit_message_text(
-            f"✅ Лекарство добавлено!\n\n"
-            f"💊 {context.user_data['name']} — {context.user_data['dosage']}\n"
-            f"🍽 {MEAL_LABELS[context.user_data['meal']]}\n"
-            f"🔢 {total} раз в день\n"
-            f"⏰ {', '.join(collected)}"
+            _med_saved_text("добавлено", context.user_data["name"],
+                            context.user_data["dosage"], context.user_data["meal"],
+                            total, collected)
         )
         context.user_data.clear()
         return ConversationHandler.END
@@ -865,10 +889,8 @@ async def choose_freq_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @handle_db_errors
 async def add_freq_interval(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Принимает интервал N дней (2–90), сохраняет лекарство или переходит к расписанию Б."""
-    try:
-        n = int(update.message.text.strip())
-        assert 2 <= n <= 90
-    except (ValueError, AssertionError):
+    n = _parse_int_range(update.message.text, 2, 90)
+    if n is None:
         await update.message.reply_text("Введи число от 2 до 90:", reply_markup=_ADD_FREQ_INTERVAL_KB)
         return FREQ_INTERVAL
     if context.user_data.get("multi_dosage"):
@@ -895,11 +917,9 @@ async def add_freq_interval(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for t in collected:
         add_schedule_rule(med_id, t, "interval", interval_days=n, anchor_date=anchor_date)
     await update.message.reply_text(
-        f"✅ Лекарство добавлено!\n\n"
-        f"💊 {context.user_data['name']} — {context.user_data['dosage']}\n"
-        f"🍽 {MEAL_LABELS[context.user_data['meal']]}\n"
-        f"🔢 {total} раз в день\n"
-        f"⏰ {', '.join(collected)} — {_freq_label('interval', n, None, None)}"
+        _med_saved_text("добавлено", context.user_data["name"], context.user_data["dosage"],
+                        context.user_data["meal"], total, collected,
+                        freq_suffix=f" — {_freq_label('interval', n, None, None)}")
     )
     context.user_data.clear()
     return ConversationHandler.END
@@ -945,11 +965,9 @@ async def confirm_weekdays(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for t in collected:
         add_schedule_rule(med_id, t, "weekdays", weekdays=weekdays)
     await query.edit_message_text(
-        f"✅ Лекарство добавлено!\n\n"
-        f"💊 {context.user_data['name']} — {context.user_data['dosage']}\n"
-        f"🍽 {MEAL_LABELS[context.user_data['meal']]}\n"
-        f"🔢 {total} раз в день\n"
-        f"⏰ {', '.join(collected)} — {_freq_label('weekdays', None, weekdays, None)}"
+        _med_saved_text("добавлено", context.user_data["name"], context.user_data["dosage"],
+                        context.user_data["meal"], total, collected,
+                        freq_suffix=f" — {_freq_label('weekdays', None, weekdays, None)}")
     )
     context.user_data.clear()
     return ConversationHandler.END
@@ -958,10 +976,8 @@ async def confirm_weekdays(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @handle_db_errors
 async def add_freq_monthday(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Принимает число месяца (1–31) для ежемесячного расписания А."""
-    try:
-        day = int(update.message.text.strip())
-        assert 1 <= day <= 31
-    except (ValueError, AssertionError):
+    day = _parse_int_range(update.message.text, 1, 31)
+    if day is None:
         await update.message.reply_text("Введи число от 1 до 31:", reply_markup=_ADD_FREQ_MONTHDAY_KB)
         return FREQ_MONTHDAY
     if context.user_data.get("multi_dosage"):
@@ -984,12 +1000,9 @@ async def add_freq_monthday(update: Update, context: ContextTypes.DEFAULT_TYPE):
         add_schedule_rule(med_id, t, "monthly", month_day=day)
     warning = _monthday_warning(day)
     await update.message.reply_text(
-        f"✅ Лекарство добавлено!\n\n"
-        f"💊 {context.user_data['name']} — {context.user_data['dosage']}\n"
-        f"🍽 {MEAL_LABELS[context.user_data['meal']]}\n"
-        f"🔢 {total} раз в день\n"
-        f"⏰ {', '.join(collected)} — {_freq_label('monthly', None, None, day)}"
-        f"{warning}"
+        _med_saved_text("добавлено", context.user_data["name"], context.user_data["dosage"],
+                        context.user_data["meal"], total, collected,
+                        freq_suffix=f" — {_freq_label('monthly', None, None, day)}", warning=warning)
     )
     context.user_data.clear()
     return ConversationHandler.END
@@ -1045,10 +1058,8 @@ async def choose_freq_type_b(update: Update, context: ContextTypes.DEFAULT_TYPE)
 @handle_db_errors
 async def add_freq_interval_b_days(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Принимает интервал N дней для расписания Б и запрашивает дату начала (anchor_date)."""
-    try:
-        n = int(update.message.text.strip())
-        assert 2 <= n <= 90
-    except (ValueError, AssertionError):
+    n = _parse_int_range(update.message.text, 2, 90)
+    if n is None:
         await update.message.reply_text(
             "Введи число от 2 до 90:",
             reply_markup=_back_cancel_kb("back_multi_to_freq_type_b")
@@ -1120,10 +1131,8 @@ async def confirm_weekdays_b(update: Update, context: ContextTypes.DEFAULT_TYPE)
 @handle_db_errors
 async def add_freq_monthday_b(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Принимает число месяца для расписания Б и сохраняет multi-dosage лекарство."""
-    try:
-        day = int(update.message.text.strip())
-        assert 1 <= day <= 31
-    except (ValueError, AssertionError):
+    day = _parse_int_range(update.message.text, 1, 31)
+    if day is None:
         await update.message.reply_text(
             "Введи число от 1 до 31:",
             reply_markup=_back_cancel_kb("back_multi_to_freq_type_b")
@@ -1674,11 +1683,9 @@ async def _route_after_edit_meal(query, context):
                           context.user_data["edit_name"], context.user_data["edit_dosage"],
                           context.user_data["edit_meal"], total, rules)
         await query.edit_message_text(
-            f"✅ Лекарство обновлено!\n\n"
-            f"💊 {context.user_data['edit_name']} — {context.user_data['edit_dosage']}\n"
-            f"🍽 {MEAL_LABELS[context.user_data['edit_meal']]}\n"
-            f"🔢 {total} раз в день\n"
-            f"⏰ {', '.join(collected)}"
+            _med_saved_text("обновлено", context.user_data["edit_name"],
+                            context.user_data["edit_dosage"], context.user_data["edit_meal"],
+                            total, collected)
         )
         context.user_data.clear()
         return ConversationHandler.END
@@ -1744,10 +1751,8 @@ async def edit_timeslots_confirm(update: Update, context: ContextTypes.DEFAULT_T
 @handle_db_errors
 async def edit_freq_interval(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Принимает интервал N дней при редактировании и сохраняет обновлённое расписание."""
-    try:
-        n = int(update.message.text.strip())
-        assert 2 <= n <= 90
-    except (ValueError, AssertionError):
+    n = _parse_int_range(update.message.text, 2, 90)
+    if n is None:
         await update.message.reply_text("Введи число от 2 до 90:", reply_markup=_EDIT_FREQ_INTERVAL_KB)
         return EDIT_FREQ_INTERVAL
     user_id = context.user_data["edit_user_id"]
@@ -1760,11 +1765,9 @@ async def edit_freq_interval(update: Update, context: ContextTypes.DEFAULT_TYPE)
                       context.user_data["edit_name"], context.user_data["edit_dosage"],
                       context.user_data["edit_meal"], total, rules)
     await update.message.reply_text(
-        f"✅ Лекарство обновлено!\n\n"
-        f"💊 {context.user_data['edit_name']} — {context.user_data['edit_dosage']}\n"
-        f"🍽 {MEAL_LABELS[context.user_data['edit_meal']]}\n"
-        f"🔢 {total} раз в день\n"
-        f"⏰ {', '.join(collected)} — {_freq_label('interval', n, None, None)}"
+        _med_saved_text("обновлено", context.user_data["edit_name"], context.user_data["edit_dosage"],
+                        context.user_data["edit_meal"], total, collected,
+                        freq_suffix=f" — {_freq_label('interval', n, None, None)}")
     )
     context.user_data.clear()
     return ConversationHandler.END
@@ -1800,11 +1803,9 @@ async def confirm_edit_weekdays(update: Update, context: ContextTypes.DEFAULT_TY
                       context.user_data["edit_name"], context.user_data["edit_dosage"],
                       context.user_data["edit_meal"], total, rules)
     await query.edit_message_text(
-        f"✅ Лекарство обновлено!\n\n"
-        f"💊 {context.user_data['edit_name']} — {context.user_data['edit_dosage']}\n"
-        f"🍽 {MEAL_LABELS[context.user_data['edit_meal']]}\n"
-        f"🔢 {total} раз в день\n"
-        f"⏰ {', '.join(collected)} — {_freq_label('weekdays', None, weekdays, None)}"
+        _med_saved_text("обновлено", context.user_data["edit_name"], context.user_data["edit_dosage"],
+                        context.user_data["edit_meal"], total, collected,
+                        freq_suffix=f" — {_freq_label('weekdays', None, weekdays, None)}")
     )
     context.user_data.clear()
     return ConversationHandler.END
@@ -1813,10 +1814,8 @@ async def confirm_edit_weekdays(update: Update, context: ContextTypes.DEFAULT_TY
 @handle_db_errors
 async def edit_freq_monthday(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Принимает число месяца при редактировании и сохраняет обновлённое расписание."""
-    try:
-        day = int(update.message.text.strip())
-        assert 1 <= day <= 31
-    except (ValueError, AssertionError):
+    day = _parse_int_range(update.message.text, 1, 31)
+    if day is None:
         await update.message.reply_text("Введи число от 1 до 31:", reply_markup=_EDIT_FREQ_MONTHDAY_KB)
         return EDIT_FREQ_MONTHDAY
     user_id = context.user_data["edit_user_id"]
@@ -1829,12 +1828,9 @@ async def edit_freq_monthday(update: Update, context: ContextTypes.DEFAULT_TYPE)
                       context.user_data["edit_meal"], total, rules)
     warning = _monthday_warning(day)
     await update.message.reply_text(
-        f"✅ Лекарство обновлено!\n\n"
-        f"💊 {context.user_data['edit_name']} — {context.user_data['edit_dosage']}\n"
-        f"🍽 {MEAL_LABELS[context.user_data['edit_meal']]}\n"
-        f"🔢 {total} раз в день\n"
-        f"⏰ {', '.join(collected)} — {_freq_label('monthly', None, None, day)}"
-        f"{warning}"
+        _med_saved_text("обновлено", context.user_data["edit_name"], context.user_data["edit_dosage"],
+                        context.user_data["edit_meal"], total, collected,
+                        freq_suffix=f" — {_freq_label('monthly', None, None, day)}", warning=warning)
     )
     context.user_data.clear()
     return ConversationHandler.END
@@ -1939,6 +1935,65 @@ async def back_edit_to_meal(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ── ConversationHandler factories ──────────────────────────────────────────
 
+def _schedule_input_states(times_back: list) -> dict:
+    """Общие состояния ввода расписания (multi-dosage), переиспользуемые add- и edit-флоу.
+
+    Идентичны в обоих флоу, кроме TIMES, где различается навигация «Назад»
+    (передаётся списком хендлеров times_back).
+    """
+    return {
+        TIMES: [
+            CallbackQueryHandler(add_timeslot_toggle, pattern="^timeslot:"),
+            CallbackQueryHandler(add_timeslots_confirm, pattern="^timeslots_confirm$"),
+            *times_back,
+        ],
+        TIMES_B: [
+            CallbackQueryHandler(add_timeslot_b_toggle, pattern="^timeslotb:"),
+            CallbackQueryHandler(add_timeslots_b_confirm, pattern="^timeslotsb_confirm$"),
+            CallbackQueryHandler(back_multi_to_times_a, pattern="^back_multi_to_times_a$"),
+        ],
+        MEAL: [
+            CallbackQueryHandler(add_meal, pattern="^(before|after|with|any)$"),
+            CallbackQueryHandler(back_add_to_times, pattern="^back_add_to_times$"),
+        ],
+        FREQ_TYPE: [
+            CallbackQueryHandler(choose_freq_type, pattern="^freq:"),
+            CallbackQueryHandler(back_add_to_meal, pattern="^back_add_to_meal$"),
+        ],
+        FREQ_INTERVAL: [
+            MessageHandler(filters.TEXT & ~filters.COMMAND, add_freq_interval),
+            CallbackQueryHandler(back_add_to_freq_type, pattern="^back_add_to_freq_type$"),
+        ],
+        FREQ_WEEKDAYS: [
+            CallbackQueryHandler(toggle_weekday, pattern="^weekday:\\d+$"),
+            CallbackQueryHandler(confirm_weekdays, pattern="^weekdays_confirm$"),
+            CallbackQueryHandler(back_add_to_freq_type, pattern="^back_add_to_freq_type$"),
+        ],
+        FREQ_MONTHDAY: [
+            MessageHandler(filters.TEXT & ~filters.COMMAND, add_freq_monthday),
+            CallbackQueryHandler(back_add_to_freq_type, pattern="^back_add_to_freq_type$"),
+        ],
+        FREQ_TYPE_B: [
+            CallbackQueryHandler(choose_freq_type_b, pattern="^freqb:"),
+            CallbackQueryHandler(back_add_to_meal, pattern="^back_add_to_meal$"),
+        ],
+        FREQ_INTERVAL_B: [
+            MessageHandler(filters.TEXT & ~filters.COMMAND, add_freq_interval_b_days),
+            CallbackQueryHandler(add_freq_interval_b_anchor, pattern="^freqb_anchor:"),
+            CallbackQueryHandler(back_multi_to_freq_type_b, pattern="^back_multi_to_freq_type_b$"),
+        ],
+        FREQ_WEEKDAYS_B: [
+            CallbackQueryHandler(toggle_weekday_b, pattern="^weekdayb:\\d+$"),
+            CallbackQueryHandler(confirm_weekdays_b, pattern="^weekdaysb_confirm$"),
+            CallbackQueryHandler(back_multi_to_freq_type_b, pattern="^back_multi_to_freq_type_b$"),
+        ],
+        FREQ_MONTHDAY_B: [
+            MessageHandler(filters.TEXT & ~filters.COMMAND, add_freq_monthday_b),
+            CallbackQueryHandler(back_multi_to_freq_type_b, pattern="^back_multi_to_freq_type_b$"),
+        ],
+    }
+
+
 def get_add_handler(cancel_handler):
     """Возвращает ConversationHandler для добавления лекарства (включая multi-dosage флоу)."""
     return ConversationHandler(
@@ -1965,56 +2020,10 @@ def get_add_handler(cancel_handler):
                 MessageHandler(filters.TEXT & ~filters.COMMAND, add_dosage_b),
                 CallbackQueryHandler(back_multi_to_dosage_a, pattern="^back_multi_to_dosage_a$"),
             ],
-            TIMES: [
-                CallbackQueryHandler(add_timeslot_toggle, pattern="^timeslot:"),
-                CallbackQueryHandler(add_timeslots_confirm, pattern="^timeslots_confirm$"),
+            **_schedule_input_states([
                 CallbackQueryHandler(back_add_to_dosage, pattern="^back_add_to_dosage$"),
                 CallbackQueryHandler(back_multi_to_dosage_b, pattern="^back_multi_to_dosage_b$"),
-            ],
-            TIMES_B: [
-                CallbackQueryHandler(add_timeslot_b_toggle, pattern="^timeslotb:"),
-                CallbackQueryHandler(add_timeslots_b_confirm, pattern="^timeslotsb_confirm$"),
-                CallbackQueryHandler(back_multi_to_times_a, pattern="^back_multi_to_times_a$"),
-            ],
-            MEAL: [
-                CallbackQueryHandler(add_meal, pattern="^(before|after|with|any)$"),
-                CallbackQueryHandler(back_add_to_times, pattern="^back_add_to_times$"),
-            ],
-            FREQ_TYPE: [
-                CallbackQueryHandler(choose_freq_type, pattern="^freq:"),
-                CallbackQueryHandler(back_add_to_meal, pattern="^back_add_to_meal$"),
-            ],
-            FREQ_INTERVAL: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, add_freq_interval),
-                CallbackQueryHandler(back_add_to_freq_type, pattern="^back_add_to_freq_type$"),
-            ],
-            FREQ_WEEKDAYS: [
-                CallbackQueryHandler(toggle_weekday, pattern="^weekday:\\d+$"),
-                CallbackQueryHandler(confirm_weekdays, pattern="^weekdays_confirm$"),
-                CallbackQueryHandler(back_add_to_freq_type, pattern="^back_add_to_freq_type$"),
-            ],
-            FREQ_MONTHDAY: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, add_freq_monthday),
-                CallbackQueryHandler(back_add_to_freq_type, pattern="^back_add_to_freq_type$"),
-            ],
-            FREQ_TYPE_B: [
-                CallbackQueryHandler(choose_freq_type_b, pattern="^freqb:"),
-                CallbackQueryHandler(back_add_to_meal, pattern="^back_add_to_meal$"),
-            ],
-            FREQ_INTERVAL_B: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, add_freq_interval_b_days),
-                CallbackQueryHandler(add_freq_interval_b_anchor, pattern="^freqb_anchor:"),
-                CallbackQueryHandler(back_multi_to_freq_type_b, pattern="^back_multi_to_freq_type_b$"),
-            ],
-            FREQ_WEEKDAYS_B: [
-                CallbackQueryHandler(toggle_weekday_b, pattern="^weekdayb:\\d+$"),
-                CallbackQueryHandler(confirm_weekdays_b, pattern="^weekdaysb_confirm$"),
-                CallbackQueryHandler(back_multi_to_freq_type_b, pattern="^back_multi_to_freq_type_b$"),
-            ],
-            FREQ_MONTHDAY_B: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, add_freq_monthday_b),
-                CallbackQueryHandler(back_multi_to_freq_type_b, pattern="^back_multi_to_freq_type_b$"),
-            ],
+            ]),
         },
         fallbacks=[
             cancel_handler,
@@ -2073,56 +2082,11 @@ def get_edit_handler(cancel_handler):
                 MessageHandler(filters.TEXT & ~filters.COMMAND, edit_freq_monthday),
                 CallbackQueryHandler(back_edit_to_meal, pattern="^back_edit_to_meal$"),
             ],
-            # States for multi-dosage schedule change (reuses add-flow handlers)
-            TIMES: [
-                CallbackQueryHandler(add_timeslot_toggle, pattern="^timeslot:"),
-                CallbackQueryHandler(add_timeslots_confirm, pattern="^timeslots_confirm$"),
+            # Состояния изменения расписания multi-dosage переиспользуют add-флоу
+            # (общий блок), отличается только навигация «Назад» в TIMES.
+            **_schedule_input_states([
                 CallbackQueryHandler(back_edit_to_freq_type, pattern="^back_edit_to_freq_type$"),
-            ],
-            TIMES_B: [
-                CallbackQueryHandler(add_timeslot_b_toggle, pattern="^timeslotb:"),
-                CallbackQueryHandler(add_timeslots_b_confirm, pattern="^timeslotsb_confirm$"),
-                CallbackQueryHandler(back_multi_to_times_a, pattern="^back_multi_to_times_a$"),
-            ],
-            MEAL: [
-                CallbackQueryHandler(add_meal, pattern="^(before|after|with|any)$"),
-                CallbackQueryHandler(back_add_to_times, pattern="^back_add_to_times$"),
-            ],
-            FREQ_TYPE: [
-                CallbackQueryHandler(choose_freq_type, pattern="^freq:"),
-                CallbackQueryHandler(back_add_to_meal, pattern="^back_add_to_meal$"),
-            ],
-            FREQ_INTERVAL: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, add_freq_interval),
-                CallbackQueryHandler(back_add_to_freq_type, pattern="^back_add_to_freq_type$"),
-            ],
-            FREQ_WEEKDAYS: [
-                CallbackQueryHandler(toggle_weekday, pattern="^weekday:\\d+$"),
-                CallbackQueryHandler(confirm_weekdays, pattern="^weekdays_confirm$"),
-                CallbackQueryHandler(back_add_to_freq_type, pattern="^back_add_to_freq_type$"),
-            ],
-            FREQ_MONTHDAY: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, add_freq_monthday),
-                CallbackQueryHandler(back_add_to_freq_type, pattern="^back_add_to_freq_type$"),
-            ],
-            FREQ_TYPE_B: [
-                CallbackQueryHandler(choose_freq_type_b, pattern="^freqb:"),
-                CallbackQueryHandler(back_add_to_meal, pattern="^back_add_to_meal$"),
-            ],
-            FREQ_INTERVAL_B: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, add_freq_interval_b_days),
-                CallbackQueryHandler(add_freq_interval_b_anchor, pattern="^freqb_anchor:"),
-                CallbackQueryHandler(back_multi_to_freq_type_b, pattern="^back_multi_to_freq_type_b$"),
-            ],
-            FREQ_WEEKDAYS_B: [
-                CallbackQueryHandler(toggle_weekday_b, pattern="^weekdayb:\\d+$"),
-                CallbackQueryHandler(confirm_weekdays_b, pattern="^weekdaysb_confirm$"),
-                CallbackQueryHandler(back_multi_to_freq_type_b, pattern="^back_multi_to_freq_type_b$"),
-            ],
-            FREQ_MONTHDAY_B: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, add_freq_monthday_b),
-                CallbackQueryHandler(back_multi_to_freq_type_b, pattern="^back_multi_to_freq_type_b$"),
-            ],
+            ]),
         },
         fallbacks=[
             cancel_handler,

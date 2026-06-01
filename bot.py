@@ -31,15 +31,20 @@ logger = logging.getLogger(__name__)
 
 
 async def post_init(app):
-    """Регистрирует команды бота в меню Telegram после запуска."""
-    await app.bot.set_my_commands([
-        BotCommand("start",    "🏠 Главное меню"),
-        BotCommand("meds",     "💊 Мои лекарства"),
-        BotCommand("stats",    "📊 Статистика"),
-        BotCommand("settings", "⚙️ Настройки"),
-        BotCommand("about",    "ℹ️ О проекте"),
-        BotCommand("cancel",   "❌ Отменить действие"),
-    ])
+    """Регистрирует команды бота в меню Telegram после запуска.
+
+    В списке только /menu — единая точка входа. /cancel остаётся рабочим
+    как fallback диалогов (выход из текстового ввода), но скрыт из меню.
+
+    Обёрнуто в try/except: транзиентный тайм-аут сети при старте не должен
+    ронять бота — команды переустановятся при следующем перезапуске.
+    """
+    try:
+        await app.bot.set_my_commands([
+            BotCommand("menu", "🏠 Меню"),
+        ])
+    except Exception as e:
+        logger.warning("Не удалось установить команды бота (транзиентно): %s", e)
 
 
 async def error_handler(update, context):
@@ -54,7 +59,19 @@ def main():
     """Точка входа: инициализирует БД, регистрирует все handlers, запускает бота."""
     init_db()
     migrate()
-    app = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
+    # Увеличенные таймауты: дефолтные 5с часто срабатывают на нестабильной
+    # сети (в т.ч. WSL) и дают telegram.error.TimedOut.
+    app = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .post_init(post_init)
+        .connect_timeout(20.0)
+        .read_timeout(20.0)
+        .write_timeout(20.0)
+        .pool_timeout(20.0)
+        .get_updates_read_timeout(42.0)
+        .build()
+    )
 
     cancel_handler = CommandHandler("cancel", cancel)
 
@@ -77,6 +94,7 @@ def main():
     )
 
     app.add_handler(setup_tz_handler)
+    app.add_handler(CommandHandler("menu", tz_handler.menu_command))
     app.add_handler(meds.get_add_handler(cancel_handler))
     app.add_handler(CommandHandler("meds", meds.meds_command))
     app.add_handler(meds.get_edit_handler(cancel_handler))

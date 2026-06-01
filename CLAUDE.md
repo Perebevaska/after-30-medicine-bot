@@ -135,8 +135,12 @@ pytest -q
 
 ## Тесты
 - `tests/test_pure.py` — unit-тесты чистых функций: `parse_time`, `escape_md`, `escape_html`, `local_day_bounds_utc`, `_rule_fires_today`, `_compute_next_fire`, `_next_fire_label`, `_freq_label`, `_format_schedule_rule`, `_monthday_warning`, `_current_schedule_summary`
-- Не трогают БД и Telegram — функции импортируются напрямую
+- `tests/test_handlers.py` — характеризационные тесты save-хендлеров (add/edit × daily/interval/weekdays/monthly): фиксируют текст «✅ Лекарство добавлено/обновлено» и валидацию диапазонов; БД мокается в namespace `handlers.meds`, Telegram заменён фейками
+- `tests/test_menu.py` — навигация меню (`menu:main`/`about`/`stats`) и наличие кнопок «◀️ В меню»
+- `tests/test_conv_structure.py` — снапшот структуры `get_add_handler`/`get_edit_handler` (состояния, callback'и, паттерны); защищает дедуп общих состояний (`_schedule_input_states`)
+- Не трогают реальную БД и сеть — функции/хендлеры вызываются напрямую
 - Конфиг — `pytest.ini` (`testpaths = tests`); dev-зависимости — `requirements-dev.txt`
+- **Перед рефакторингом хендлеров**: запусти `pytest` до и после — `test_handlers.py` ловит изменения текста сообщений
 
 ## Conversational States
 Состояния определены в `constants.py`:
@@ -176,7 +180,10 @@ ADMIN_ID=telegram_id_админа
 - Напоминания в local time пользователя (хранится в `users.timezone`)
 - Режим напоминаний: `once` или `repeat` (каждые 5 минут до подтверждения, до 2 часов)
 - Лимит лекарств: `MAX_MEDICATIONS_PER_USER = 10` (задан в `constants.py`)
-- Главное меню `/start` — inline-кнопки: 📋 Лекарства на сегодня, 💊 Мои лекарства, 📊 Статистика, ⚙️ Настройки, ℹ️ О проекте
+- **Единая точка входа `/menu`** (`menu_command` в `timezone.py`): открывает главное меню. В списке команд бота (`post_init`) только `menu`. `/cancel` остаётся рабочим как fallback диалогов (выход из текстового ввода), но скрыт из меню; `/start` оставлен для онбординга (TZ); `/meds`/`/stats`/`/settings`/`/about` работают, но скрыты
+- **Навигация edit-in-place**: пункты меню (`menu:today/meds/stats/settings/about`) редактируют текущее сообщение; `menu:main` возвращает главное меню. Все под-экраны имеют «◀️ В меню» (`back_menu_kb()` в `timezone.py`, `_stats_period_keyboard`/`_report_keyboard`/`_nav_keyboard` в `stats.py`, кнопка в `_settings_keyboard`, в списке лекарств). Слой навигации — глобальный handler `^menu:`, вне диалогов add/edit (не задевается Q1b)
+- Главное меню — inline-кнопки: 📋 Лекарства на сегодня, 💊 Мои лекарства, 📊 Статистика, ⚙️ Настройки, ℹ️ О проекте
+- **Мои лекарства** — многосообщенный список; «◀️ В меню» на завершающем сообщении (`show_meds_list`)
 - **Лекарства на сегодня** (`menu:today`): показывает расписание на текущий день с иконками ✅/❌/⏳ по данным `get_today_intake_statuses()`
 - **Статистика** (`menu:stats`): кнопки «📈 За 7 дней» и «📆 План на 7 дней»; под каждым отчётом — кнопка «📄 Скачать PDF»
 - `log_intake` — upsert: при повторном нажатии обновляет запись за сегодня вместо дубля
@@ -252,12 +259,15 @@ ADMIN_ID=telegram_id_админа
 | 50 | `database.py` | `migrate()` повторно создавал таблицу `dependents` (уже в `init_db`). Удалён избыточный `CREATE TABLE` |
 | 51 | `tests/`, `pytest.ini`, `requirements-dev.txt` | Не было тестов. Добавлены 58 unit-тестов на чистые функции (pytest) |
 | 52 | `handlers/meds.py` | Дубль входа в add-флоу (`add_start` ≈ `handle_add_med_callback`). Объединено в `_begin_add_flow()` |
+| 53 | `handlers/meds.py`, `tests/test_handlers.py` | Q1 (частично): success-сообщения сведены в `_med_saved_text()`, валидация диапазонов — в `_parse_int_range()` (8 save-хендлеров + 6 валидаций). Под защитой 24 характеризационных тестов |
+| 54 | `handlers/timezone.py`, `stats.py`, `settings.py`, `meds.py`, `bot.py`, `tests/test_menu.py` | Непоследовательные «Назад»: часть экранов меню без возврата. Сделана единая точка входа `/menu` + навигация edit-in-place с «◀️ В меню» (`menu:main`) на всех экранах |
+| 55 | `handlers/timezone.py`, `bot.py` | `telegram.error.TimedOut` ронял старт (незащищённый `set_my_commands`) и часто срабатывал на дефолтных 5с. Таймауты 20с + try/except в `post_init` |
+| Q1b | `handlers/meds.py`, `tests/test_conv_structure.py` | Слияние идентичных наборов состояний add/edit (10 общих состояний) в `_schedule_input_states()` через `**`-распаковку. Под защитой снапшот-теста структуры диалогов |
 
 ### 🔲 К исправлению
 
 | # | Файл | Проблема |
 |---|------|----------|
-| Q1 | `handlers/meds.py` | Глубокая дедупликация add/edit-флоу (общие success-сообщения, валидация числовых диапазонов, слияние состояний). Делать отдельной веткой — нужны тесты на уровне хендлеров |
 
 ### ✅ Исправлено (caregiver)
 
