@@ -178,6 +178,27 @@ async def stock_receive(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.pop("stock_field", None)
     context.user_data.pop("stock_med_id", None)
     await _render_stock(update.message, med_id, user, edit=False)
+
+    # При ручном изменении остатка/расхода/порога уведомляем сразу, если запас уже ниже порога.
+    # Событийное пересечение в handle_intake_callback не срабатывает в этих случаях.
+    if field in ("set", "units", "thr"):
+        try:
+            med = get_medication_by_id(med_id, user_id)
+            if med and med["stock_qty"] is not None:
+                rules = get_schedules_by_medication(med_id)
+                today = datetime.now(get_tz_for_user(user.id)).date()
+                days_left = days_of_stock_left(rules, med["stock_qty"], med["units_per_dose"], today)
+                if days_left is not None and days_left <= med["low_stock_days"]:
+                    name = escape_md(med["name"])
+                    qty = _num(med["stock_qty"])
+                    await update.message.reply_text(
+                        f"⚠️ *{name}* скоро закончится: осталось примерно на {days_left} дн. ({qty} шт.).\n"
+                        f"Не забудь пополнить запас 📦",
+                        parse_mode="Markdown",
+                    )
+        except Exception as e:
+            logger.error("Ошибка проверки порога запаса: %s", e)
+
     return ConversationHandler.END
 
 
