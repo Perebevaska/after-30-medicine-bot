@@ -558,52 +558,41 @@ async def cancel_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ── Add flow: entry ────────────────────────────────────────────────────────
 
+async def _begin_add_flow(send, user, context):
+    """Общий старт add-флоу: caregiver-выбор «Для кого?» или сразу запрос названия.
+
+    send — объект сообщения с методом reply_text (update.message или query.message).
+    """
+    user_id = get_or_create_user(user.id, user.username)
+    context.user_data["_add_user_id"] = user_id
+
+    if get_caregiver_mode(user.id):
+        dependents = get_dependents(user.id)
+        kb = (_dependent_select_keyboard(dependents)
+              if len(dependents) < MAX_DEPENDENTS
+              else _dependent_select_keyboard_no_add(dependents))
+        await send.reply_text("👨‍👩‍👧 Для кого добавляем лекарство?", reply_markup=kb)
+        return SELECT_DEPENDENT
+
+    if count_active_medications(user_id) >= MAX_MEDICATIONS_PER_USER:
+        await send.reply_text(
+            f"⚠️ Достигнут лимит: максимум {MAX_MEDICATIONS_PER_USER} лекарств."
+        )
+        return ConversationHandler.END
+    await send.reply_text("Как называется лекарство?", reply_markup=_CANCEL_BTN)
+    return NAME
+
+
 async def handle_add_med_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Entry point добавления лекарства через кнопку «➕ Добавить»; проверяет лимит."""
     query = update.callback_query
     await query.answer()
-    user = update.effective_user
-    user_id = get_or_create_user(user.id, user.username)
-    context.user_data["_add_user_id"] = user_id
-
-    if get_caregiver_mode(user.id):
-        dependents = get_dependents(user.id)
-        kb = (_dependent_select_keyboard(dependents)
-              if len(dependents) < MAX_DEPENDENTS
-              else _dependent_select_keyboard_no_add(dependents))
-        await query.message.reply_text("👨‍👩‍👧 Для кого добавляем лекарство?", reply_markup=kb)
-        return SELECT_DEPENDENT
-
-    if count_active_medications(user_id) >= MAX_MEDICATIONS_PER_USER:
-        await query.message.reply_text(
-            f"⚠️ Достигнут лимит: максимум {MAX_MEDICATIONS_PER_USER} лекарств."
-        )
-        return ConversationHandler.END
-    await query.message.reply_text("Как называется лекарство?", reply_markup=_CANCEL_BTN)
-    return NAME
+    return await _begin_add_flow(query.message, update.effective_user, context)
 
 
 async def add_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Entry point добавления лекарства через команду /add; проверяет лимит."""
-    user = update.effective_user
-    user_id = get_or_create_user(user.id, user.username)
-    context.user_data["_add_user_id"] = user_id
-
-    if get_caregiver_mode(user.id):
-        dependents = get_dependents(user.id)
-        kb = (_dependent_select_keyboard(dependents)
-              if len(dependents) < MAX_DEPENDENTS
-              else _dependent_select_keyboard_no_add(dependents))
-        await update.message.reply_text("👨‍👩‍👧 Для кого добавляем лекарство?", reply_markup=kb)
-        return SELECT_DEPENDENT
-
-    if count_active_medications(user_id) >= MAX_MEDICATIONS_PER_USER:
-        await update.message.reply_text(
-            f"⚠️ Достигнут лимит: максимум {MAX_MEDICATIONS_PER_USER} лекарств."
-        )
-        return ConversationHandler.END
-    await update.message.reply_text("Как называется лекарство?", reply_markup=_CANCEL_BTN)
-    return NAME
+    return await _begin_add_flow(update.message, update.effective_user, context)
 
 
 async def add_name(update: Update, context: ContextTypes.DEFAULT_TYPE):

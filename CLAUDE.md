@@ -127,7 +127,16 @@ pip install -r requirements.txt
 python3 broadcast.py
 
 # Миграция БД вызывается автоматически в bot.py при старте
+
+# Тесты (чистые функции, без БД/Telegram)
+pip install -r requirements-dev.txt
+pytest -q
 ```
+
+## Тесты
+- `tests/test_pure.py` — unit-тесты чистых функций: `parse_time`, `escape_md`, `escape_html`, `local_day_bounds_utc`, `_rule_fires_today`, `_compute_next_fire`, `_next_fire_label`, `_freq_label`, `_format_schedule_rule`, `_monthday_warning`, `_current_schedule_summary`
+- Не трогают БД и Telegram — функции импортируются напрямую
+- Конфиг — `pytest.ini` (`testpaths = tests`); dev-зависимости — `requirements-dev.txt`
 
 ## Conversational States
 Состояния определены в `constants.py`:
@@ -241,11 +250,14 @@ ADMIN_ID=telegram_id_админа
 | 48 | `constants.py`, `handlers/settings.py`, `handlers/timezone.py` | Дублирование текста «О проекте» в двух местах. Вынесено в `ABOUT_TEXT` |
 | 49 | `database.py` | `db_logger` без `propagate=False` — ошибки БД дублировались в консоль root-логгера |
 | 50 | `database.py` | `migrate()` повторно создавал таблицу `dependents` (уже в `init_db`). Удалён избыточный `CREATE TABLE` |
+| 51 | `tests/`, `pytest.ini`, `requirements-dev.txt` | Не было тестов. Добавлены 58 unit-тестов на чистые функции (pytest) |
+| 52 | `handlers/meds.py` | Дубль входа в add-флоу (`add_start` ≈ `handle_add_med_callback`). Объединено в `_begin_add_flow()` |
 
 ### 🔲 К исправлению
 
 | # | Файл | Проблема |
 |---|------|----------|
+| Q1 | `handlers/meds.py` | Глубокая дедупликация add/edit-флоу (общие success-сообщения, валидация числовых диапазонов, слияние состояний). Делать отдельной веткой — нужны тесты на уровне хендлеров |
 
 ### ✅ Исправлено (caregiver)
 

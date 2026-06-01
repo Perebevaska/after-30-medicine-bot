@@ -5,6 +5,7 @@ med_bot.db-shm
 venv/
 __pycache__/
 *.pyc
+.pytest_cache/
 
 # Claude Code / Cloud
 .claude/
