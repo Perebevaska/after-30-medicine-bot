@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from datetime import datetime, timedelta
 import pytz
@@ -41,7 +42,8 @@ async def send_reminders(app):
     """Проверяет расписание и отправляет напоминания с учётом TZ каждого пользователя."""
     now_utc = datetime.now(pytz.utc)
     _prune_pending(now_utc)
-    schedules = get_active_schedule_rows()
+    # B3: синхронный psycopg-запрос не должен блокировать event loop каждую минуту.
+    schedules = await asyncio.to_thread(get_active_schedule_rows)
 
     for row in schedules:
         try:
@@ -199,16 +201,19 @@ async def handle_intake_callback(update, context):
         telegram_id = update.effective_user.id
         # S1: callback_data контролируется клиентом — проверяем, что лекарство
         # принадлежит нажавшему, иначе можно писать в чужой intake_log / запас.
-        user_id = get_or_create_user(telegram_id)
-        if not get_medication_by_id(medication_id, user_id):
+        # B3: синхронные DB-вызовы — через to_thread, чтобы не блокировать loop.
+        user_id = await asyncio.to_thread(get_or_create_user, telegram_id)
+        if not await asyncio.to_thread(get_medication_by_id, medication_id, user_id):
             logger.warning(
                 "Отклонён callback на чужое/несуществующее лекарство: med=%s от tg=%s",
                 medication_id, telegram_id
             )
             return
-        user_tz = get_tz_for_user(telegram_id)
+        user_tz = await asyncio.to_thread(get_tz_for_user, telegram_id)
         start_utc, end_utc = local_day_bounds_utc(user_tz)
-        old_status = log_intake(medication_id, scheduled_time, status, start_utc, end_utc)
+        old_status = await asyncio.to_thread(
+            log_intake, medication_id, scheduled_time, status, start_utc, end_utc
+        )
     except Exception as e:
         logger.error("Ошибка записи приёма: %s", e)
         await query.edit_message_text("⚠️ Не удалось записать приём. Попробуй ещё раз.")
@@ -236,18 +241,18 @@ async def _update_stock_on_intake(reply_fn, medication_id, new_status, old_statu
 
     reply_fn — корутина для отправки сообщения (message.reply_text или bot.send_message partial).
     """
-    info = apply_intake_stock(medication_id, new_status, old_status)
+    info = await asyncio.to_thread(apply_intake_stock, medication_id, new_status, old_status)
     if not info or not info["changed"] or new_status != "taken":
         return
-    rules = get_schedules_by_medication(medication_id)
+    rules = await asyncio.to_thread(get_schedules_by_medication, medication_id)
     today = datetime.now(user_tz).date()
     qty, units, thr = info["stock_qty"], info["units_per_dose"], info["low_stock_days"]
     after = days_of_stock_left(rules, qty, units, today)
     before = days_of_stock_left(rules, qty + units, units, today)
     # Предупреждаем один раз — на самом пересечении порога (before выше, after на/ниже).
     if after is not None and after <= thr and (before is None or before > thr):
-        user_id = get_or_create_user(telegram_id)
-        med = get_medication_by_id(medication_id, user_id)
+        user_id = await asyncio.to_thread(get_or_create_user, telegram_id)
+        med = await asyncio.to_thread(get_medication_by_id, medication_id, user_id)
         name = escape_md(med["name"]) if med else "Лекарство"
         await reply_fn(
             f"⚠️ *{name}* скоро закончится: осталось примерно на {after} дн. ({qty:g} шт.).\n"

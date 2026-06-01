@@ -110,3 +110,57 @@ def test_s2_own_dependent_allowed(api_client, db):
         "rules": [{"reminder_time": "09:00", "frequency": "daily"}],
     })
     assert r.status_code == 201
+
+
+# ── S3: повторный get_or_create_user не затирает username ─────────────────────
+
+def test_s3_username_preserved(db):
+    """Вызов без username (как из API) не должен обнулять сохранённый username."""
+    uid = db.get_or_create_user(7001, "ivan")
+    same = db.get_or_create_user(7001)  # без username — типичный API-вызов
+    assert same == uid
+    with db.get_connection() as conn:
+        row = conn.execute(
+            "SELECT username FROM users WHERE telegram_id = %s", (7001,)
+        ).fetchone()
+    assert row["username"] == "ivan"
+
+
+# ── B5: серверная валидация правил расписания ────────────────────────────────
+
+def _post_med(api_client, rule):
+    return api_client.post("/medications", json={
+        "name": "Аспирин", "dosage": "100мг", "meal_relation": "after",
+        "times_per_day": 1, "rules": [rule],
+    })
+
+
+def test_b5_bad_reminder_time(api_client, db):
+    db.get_or_create_user(TEST_TELEGRAM_ID, "testuser")
+    r = _post_med(api_client, {"reminder_time": "25:99", "frequency": "daily"})
+    assert r.status_code == 422
+
+
+def test_b5_interval_without_anchor(api_client, db):
+    db.get_or_create_user(TEST_TELEGRAM_ID, "testuser")
+    r = _post_med(api_client, {
+        "reminder_time": "09:00", "frequency": "interval", "interval_days": 2,
+    })
+    assert r.status_code == 422
+
+
+def test_b5_bad_month_day(api_client, db):
+    db.get_or_create_user(TEST_TELEGRAM_ID, "testuser")
+    r = _post_med(api_client, {
+        "reminder_time": "09:00", "frequency": "monthly", "month_day": 40,
+    })
+    assert r.status_code == 422
+
+
+def test_b5_valid_interval_accepted(api_client, db):
+    db.get_or_create_user(TEST_TELEGRAM_ID, "testuser")
+    r = _post_med(api_client, {
+        "reminder_time": "09:00", "frequency": "interval",
+        "interval_days": 2, "anchor_date": "2026-06-01",
+    })
+    assert r.status_code == 201

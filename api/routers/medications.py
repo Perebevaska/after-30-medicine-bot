@@ -1,10 +1,12 @@
 import asyncio
+from datetime import date
 from typing import Literal, Optional
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator, model_validator
 import database as db
 from api.auth import require_telegram_user
 from constants import MAX_MEDICATIONS_PER_USER
+from utils import parse_time
 
 router = APIRouter(prefix="/medications", tags=["medications"])
 
@@ -20,6 +22,64 @@ class RuleIn(BaseModel):
     month_day: Optional[int] = None
     anchor_date: Optional[str] = None
     dosage: Optional[str] = None
+
+    # B5: серверная валидация полей правила (бот валидирует свои пути сам;
+    # тут защищаем API/Mini App от некорректных правил, которые ломают аналитику).
+    @field_validator("reminder_time")
+    @classmethod
+    def _v_time(cls, v):
+        try:
+            return parse_time(v)
+        except (ValueError, AttributeError, TypeError):
+            raise ValueError("reminder_time должен быть в формате ЧЧ:ММ")
+
+    @field_validator("month_day")
+    @classmethod
+    def _v_month_day(cls, v):
+        if v is not None and not (1 <= v <= 31):
+            raise ValueError("month_day должен быть в диапазоне 1..31")
+        return v
+
+    @field_validator("interval_days")
+    @classmethod
+    def _v_interval(cls, v):
+        if v is not None and v <= 0:
+            raise ValueError("interval_days должен быть > 0")
+        return v
+
+    @field_validator("weekdays")
+    @classmethod
+    def _v_weekdays(cls, v):
+        if v is None:
+            return v
+        try:
+            days = [int(x) for x in v.split(",") if x.strip()]
+        except ValueError:
+            raise ValueError("weekdays: числа 1..7 через запятую")
+        if not days or any(not (1 <= d <= 7) for d in days):
+            raise ValueError("weekdays: числа 1..7 через запятую")
+        return v
+
+    @field_validator("anchor_date")
+    @classmethod
+    def _v_anchor(cls, v):
+        if v is None:
+            return v
+        try:
+            date.fromisoformat(v)
+        except ValueError:
+            raise ValueError("anchor_date: формат YYYY-MM-DD")
+        return v
+
+    @model_validator(mode="after")
+    def _v_freq_fields(self):
+        if self.frequency == "interval" and (not self.interval_days or not self.anchor_date):
+            raise ValueError("frequency=interval требует interval_days > 0 и anchor_date")
+        if self.frequency == "weekdays" and not self.weekdays:
+            raise ValueError("frequency=weekdays требует поле weekdays")
+        if self.frequency == "monthly" and not self.month_day:
+            raise ValueError("frequency=monthly требует month_day")
+        return self
 
 
 class MedicationIn(BaseModel):

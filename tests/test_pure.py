@@ -122,6 +122,16 @@ def test_fires_interval_missing_anchor():
     assert _rule_fires_today(_rule(frequency="interval", interval_days=2), MONDAY) is False
 
 
+def test_fires_interval_missing_interval_days():
+    # B4: interval_days NULL/0 не должен ронять (TypeError/ZeroDivisionError)
+    assert _rule_fires_today(
+        _rule(frequency="interval", interval_days=None, anchor_date="2026-06-01"), MONDAY
+    ) is False
+    assert _rule_fires_today(
+        _rule(frequency="interval", interval_days=0, anchor_date="2026-06-01"), MONDAY
+    ) is False
+
+
 def test_fires_unknown_frequency():
     assert _rule_fires_today(_rule(frequency="whatever"), MONDAY) is False
 

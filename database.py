@@ -2,7 +2,7 @@ import os
 import sys
 import logging
 from contextlib import contextmanager
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import psycopg
 from psycopg.rows import dict_row
@@ -185,7 +185,8 @@ def get_or_create_user(telegram_id: int, username: str = None) -> int:
         row = conn.execute(
             """INSERT INTO users (telegram_id, username)
                VALUES (%s, %s)
-               ON CONFLICT (telegram_id) DO UPDATE SET username = EXCLUDED.username
+               ON CONFLICT (telegram_id)
+               DO UPDATE SET username = COALESCE(EXCLUDED.username, users.username)
                RETURNING id""",
             (telegram_id, username)
         ).fetchone()
@@ -499,7 +500,7 @@ def get_history_detailed(user_id: int, since_utc: str) -> list:
 
 def get_history_by_days(user_id: int, days: int = 7) -> list:
     """Возвращает статистику по дням для каждого лекарства."""
-    since = (datetime.utcnow() - timedelta(days=days)).strftime('%Y-%m-%d %H:%M:%S')
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).strftime('%Y-%m-%d %H:%M:%S')
     with get_connection() as conn:
         return conn.execute(
             """SELECT m.name, m.dosage,
@@ -519,7 +520,7 @@ def get_history_by_days(user_id: int, days: int = 7) -> list:
 
 def get_history(user_id: int, days: int = 7) -> list:
     """Возвращает статистику приёмов за последние N дней."""
-    since = (datetime.utcnow() - timedelta(days=days)).strftime('%Y-%m-%d %H:%M:%S')
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).strftime('%Y-%m-%d %H:%M:%S')
     with get_connection() as conn:
         return conn.execute(
             """SELECT m.name,
@@ -763,7 +764,7 @@ def delete_user_data(telegram_id: int) -> list:
 
 def get_admin_stats() -> dict:
     """Возвращает статистику для админ-панели."""
-    today = datetime.utcnow().strftime('%Y-%m-%d')
+    today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
     with get_connection() as conn:
         total_users = conn.execute("SELECT COUNT(*) AS n FROM users").fetchone()["n"]
         total_meds = conn.execute(
@@ -798,7 +799,7 @@ def log_intake(medication_id: int, scheduled_time: str, status: str,
 
     Возвращает прежний статус записи за сегодня (или None, если записи не было).
     """
-    now_utc = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+    now_utc = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
     with get_connection() as conn:
         existing = conn.execute(
             """SELECT id, status FROM intake_log

@@ -24,10 +24,13 @@ def _rule_fires_today(row, today_local: date) -> bool:
         return today_local.day == row["month_day"]
     if freq == "interval":
         anchor_str = row["anchor_date"]
-        if not anchor_str:
+        interval = row["interval_days"]
+        if not anchor_str or not interval:
+            # без anchor_date или с interval_days NULL/0 правило некорректно —
+            # не срабатывает (защита от TypeError/ZeroDivisionError)
             return False
         anchor = date.fromisoformat(anchor_str)
-        return (today_local - anchor).days % row["interval_days"] == 0
+        return (today_local - anchor).days % interval == 0
     return False
 
 
