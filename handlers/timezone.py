@@ -7,9 +7,13 @@ from geopy.geocoders import Nominatim
 _tf = TimezoneFinder()
 _geolocator = Nominatim(user_agent="med_bot")
 from geopy.exc import GeocoderTimedOut, GeocoderServiceError
-from database import get_or_create_user, get_user_timezone, set_user_timezone, get_schedules_for_user, get_today_intake_statuses
+from database import (get_or_create_user, get_user_timezone, set_user_timezone,
+                      get_schedules_for_user, get_today_intake_statuses, log_intake)
 from constants import SETUP_TZ, SETUP_CITY, ABOUT_TEXT
 from utils import handle_db_errors, get_tz_for_user, escape_md, local_day_bounds_utc
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def _geo_keyboard(with_back: bool = False) -> ReplyKeyboardMarkup:
@@ -55,12 +59,88 @@ async def show_main_menu(update, first_name, hint: str = ""):
     await update.message.reply_text(_main_menu_text(first_name, hint), reply_markup=_main_menu_keyboard())
 
 
+def _owner_streak_hint(telegram_id: int, user_id: int) -> str:
+    """Строка серии владельца для главного меню (F2): '🔥 N дней подряд' или ''.
+
+    Считает только серию владельца (dependent_id=None); подопечные — на экране
+    статистики. Любая ошибка → пустая строка (меню важнее мотивации)."""
+    try:
+        from database import get_streak_rows, get_intake_statuses_window
+        from streak import streak_window, streaks_by_subject
+        from handlers.stats import _streak_phrase
+        rows = get_streak_rows(user_id)
+        if not rows:
+            return ""
+        user_tz = get_tz_for_user(telegram_id)
+        today, start_utc, end_utc = streak_window(user_tz)
+        intakes = get_intake_statuses_window(user_id, start_utc, end_utc)
+        subjects = streaks_by_subject(rows, intakes, user_tz, today)
+        owner = next((s for s in subjects if s["dependent_id"] is None), None)
+        if owner and owner["streak"] > 0:
+            return _streak_phrase(owner["streak"])
+    except Exception:
+        pass
+    return ""
+
+
+def _today_keyboard(has_pending: bool) -> InlineKeyboardMarkup:
+    """Клавиатура экрана «Лекарства на сегодня»: кнопка «Принять всё» если есть непринятые."""
+    rows = []
+    if has_pending:
+        rows.append([InlineKeyboardButton("✅ Принять всё", callback_data="menu:take_all")])
+    rows.append([InlineKeyboardButton("◀️ В меню", callback_data="menu:main")])
+    return InlineKeyboardMarkup(rows)
+
+
+async def _render_today_screen(query, user):
+    """Рендерит экран «Лекарства на сегодня» (edit-in-place)."""
+    from scheduler import _rule_fires_today, _MEAL_LABELS
+    rows = get_schedules_for_user(user.id)
+    user_tz = get_tz_for_user(user.id)
+    now_local = datetime.now(user_tz)
+    today = now_local.date()
+    meds: dict = {}
+    for row in rows:
+        if not _rule_fires_today(row, today):
+            continue
+        mid = row["medication_id"]
+        if mid not in meds:
+            meds[mid] = {"name": row["name"], "meal_relation": row["meal_relation"],
+                         "dep_name": row["dependent_name"], "times": []}
+        dosage = row["rule_dosage"] or row["med_dosage"]
+        meds[mid]["times"].append((row["reminder_time"], mid, dosage))
+    if not meds:
+        await query.edit_message_text(
+            "💊 Сегодня нет запланированных лекарств.",
+            reply_markup=back_menu_kb()
+        )
+        return
+    start_utc, end_utc = local_day_bounds_utc(user_tz, now_local)
+    statuses = get_today_intake_statuses(user.id, start_utc, end_utc)
+    lines = ["📋 *Лекарства на сегодня:*\n"]
+    pending_list = []
+    for med in meds.values():
+        meal = _MEAL_LABELS.get(med["meal_relation"], "")
+        dep_label = f" _({escape_md(med['dep_name'])})_" if med["dep_name"] else ""
+        lines.append(f"💊 *{escape_md(med['name'])}*{dep_label} — {meal}")
+        for reminder_time, mid, dosage in sorted(med["times"]):
+            st = statuses.get((mid, reminder_time))
+            icon = "✅" if st == "taken" else ("❌" if st == "skipped" else "⏳")
+            lines.append(f"   {icon} {reminder_time} — {escape_md(dosage)}")
+            if st not in ("taken", "skipped"):
+                pending_list.append((mid, reminder_time))
+    await query.edit_message_text(
+        "\n".join(lines), parse_mode="Markdown",
+        reply_markup=_today_keyboard(bool(pending_list))
+    )
+
+
 @handle_db_errors
 async def menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик /menu — единая точка входа: открывает главное меню для навигации."""
     user = update.effective_user
-    get_or_create_user(user.id, user.username)
-    await show_main_menu(update, user.first_name)
+    user_id = get_or_create_user(user.id, user.username)
+    await show_main_menu(update, user.first_name, hint=_owner_streak_hint(user.id, user_id))
 
 
 @handle_db_errors
@@ -73,47 +153,39 @@ async def handle_menu_callback(update, context):
     user = update.effective_user
 
     if action == "main":
+        user_id = get_or_create_user(user.id, user.username)
         await query.edit_message_text(
-            _main_menu_text(user.first_name),
+            _main_menu_text(user.first_name, _owner_streak_hint(user.id, user_id)),
             reply_markup=_main_menu_keyboard()
         )
 
     elif action == "today":
-        from scheduler import _rule_fires_today, _MEAL_LABELS
+        await _render_today_screen(query, user)
+
+    elif action == "take_all":
+        # F6: принять все pending-приёмы за сегодня; skipped не перезаписываем
+        from scheduler import _rule_fires_today, _pending, _update_stock_on_intake
         rows = get_schedules_for_user(user.id)
         user_tz = get_tz_for_user(user.id)
         now_local = datetime.now(user_tz)
         today = now_local.date()
-        meds: dict = {}
+        start_utc, end_utc = local_day_bounds_utc(user_tz, now_local)
+        statuses = get_today_intake_statuses(user.id, start_utc, end_utc)
         for row in rows:
             if not _rule_fires_today(row, today):
                 continue
-            mid = row["medication_id"]
-            if mid not in meds:
-                meds[mid] = {"name": row["name"], "meal_relation": row["meal_relation"],
-                             "dep_name": row["dependent_name"], "times": []}
-            dosage = row["rule_dosage"] or row["med_dosage"]
-            meds[mid]["times"].append((row["reminder_time"], mid, dosage))
-        if not meds:
-            await query.edit_message_text(
-                "💊 Сегодня нет запланированных лекарств.",
-                reply_markup=back_menu_kb()
-            )
-            return
-        start_utc, end_utc = local_day_bounds_utc(user_tz, now_local)
-        statuses = get_today_intake_statuses(user.id, start_utc, end_utc)
-        lines = ["📋 *Лекарства на сегодня:*\n"]
-        for med in meds.values():
-            meal = _MEAL_LABELS.get(med["meal_relation"], "")
-            dep_label = f" _({escape_md(med['dep_name'])})_" if med["dep_name"] else ""
-            lines.append(f"💊 *{escape_md(med['name'])}*{dep_label} — {meal}")
-            for reminder_time, mid, dosage in sorted(med["times"]):
-                st = statuses.get((mid, reminder_time))
-                icon = "✅" if st == "taken" else ("❌" if st == "skipped" else "⏳")
-                lines.append(f"   {icon} {reminder_time} — {escape_md(dosage)}")
-        await query.edit_message_text(
-            "\n".join(lines), parse_mode="Markdown", reply_markup=back_menu_kb()
-        )
+            mid, t = row["medication_id"], row["reminder_time"]
+            if statuses.get((mid, t)) in ("taken", "skipped"):
+                continue
+            try:
+                old = log_intake(mid, t, "taken", start_utc, end_utc)
+                _pending.pop((user.id, mid, t), None)
+                await _update_stock_on_intake(
+                    query.message.reply_text, mid, "taken", old, user.id, user_tz
+                )
+            except Exception as e:
+                logger.error("take_all: ошибка для лекарства %s: %s", mid, e)
+        await _render_today_screen(query, user)
 
     elif action == "meds":
         from handlers.meds import show_meds_list

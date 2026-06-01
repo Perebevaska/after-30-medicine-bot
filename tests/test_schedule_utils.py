@@ -7,6 +7,7 @@ from datetime import date
 from schedule_utils import (
     _rule_fires_today, due_intakes_on, iter_due_by_day,
     count_due_by_medication, count_due_total, days_of_stock_left,
+    due_by_med_day,
 )
 
 MON = date(2026, 6, 1)   # понедельник, isoweekday()==1
@@ -81,6 +82,47 @@ def test_count_total_empty_when_nothing_fires():
     rows = [_rule(1, "09:00", "monthly", month_day=20)]
     # 1–7 июня — 20-го нет
     assert count_due_total(rows, MON, date(2026, 6, 7)) == 0
+
+
+# ── created_dates кламп (знаменатель adherence F3) ───────────────────────────
+
+def test_count_by_medication_clamps_to_created_date():
+    rows = [_rule(1, "09:00"), _rule(2, "09:00")]
+    # med1 создан 1 июня (весь период), med2 — 5 июня (учитываются 5,6,7 = 3 дня)
+    created = {1: MON, 2: date(2026, 6, 5)}
+    counts = count_due_by_medication(rows, MON, date(2026, 6, 7), created)
+    assert counts == {1: 7, 2: 3}
+
+
+def test_count_by_medication_unknown_created_counted_fully():
+    rows = [_rule(1, "09:00"), _rule(2, "09:00")]
+    # med2 нет в created_dates → учитывается за весь период
+    counts = count_due_by_medication(rows, MON, date(2026, 6, 7), {1: date(2026, 6, 6)})
+    assert counts == {1: 2, 2: 7}
+
+
+def test_count_by_medication_created_after_period_excluded():
+    rows = [_rule(1, "09:00")]
+    counts = count_due_by_medication(rows, MON, date(2026, 6, 7), {1: date(2026, 6, 30)})
+    assert counts == {}
+
+
+# ── due_by_med_day (календарь отчёта врача F1) ───────────────────────────────
+
+def test_due_by_med_day_keys_and_counts():
+    rows = [_rule(1, "09:00"), _rule(1, "21:00"),          # med1 — 2 приёма/день
+            _rule(2, "10:00", "weekdays", weekdays="1")]   # med2 — только пн
+    out = due_by_med_day(rows, MON, date(2026, 6, 2))
+    assert out[(1, MON)] == 2
+    assert out[(1, date(2026, 6, 2))] == 2
+    assert out[(2, MON)] == 1
+    assert (2, date(2026, 6, 2)) not in out               # вторник — med2 не положен
+
+
+def test_due_by_med_day_respects_created():
+    rows = [_rule(1, "09:00")]
+    out = due_by_med_day(rows, MON, date(2026, 6, 3), {1: date(2026, 6, 3)})
+    assert out == {(1, date(2026, 6, 3)): 1}              # дни до created не попадают
 
 
 # ── совместимость реэкспорта ────────────────────────────────────────────────

@@ -87,6 +87,7 @@ def init_db():
                 stock_qty REAL DEFAULT NULL,
                 units_per_dose REAL DEFAULT 1,
                 low_stock_days INTEGER DEFAULT 5,
+                paused INTEGER DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (user_id) REFERENCES users(id),
                 FOREIGN KEY (dependent_id) REFERENCES dependents(id)
@@ -165,6 +166,9 @@ def migrate():
             conn.execute("ALTER TABLE medications ADD COLUMN units_per_dose REAL DEFAULT 1")
         if "low_stock_days" not in med_cols:
             conn.execute("ALTER TABLE medications ADD COLUMN low_stock_days INTEGER DEFAULT 5")
+        # F4 — пауза лекарства (временное отключение без удаления)
+        if "paused" not in med_cols:
+            conn.execute("ALTER TABLE medications ADD COLUMN paused INTEGER DEFAULT 0")
 
         # Дропаем устаревшую таблицу schedules (данные давно в schedule_rules)
         conn.execute("DROP TABLE IF EXISTS schedules")
@@ -442,7 +446,7 @@ def get_active_schedule_rows() -> list:
                JOIN medications m ON m.id = sr.medication_id
                JOIN users u ON u.id = m.user_id
                LEFT JOIN dependents d ON d.id = m.dependent_id
-               WHERE m.active = 1
+               WHERE m.active = 1 AND m.paused = 0
                ORDER BY u.telegram_id, m.id, sr.reminder_time"""
         ).fetchall()
 
@@ -528,6 +532,15 @@ def get_history(user_id: int, days: int = 7) -> list:
         ).fetchall()
 
 
+def set_medication_paused(medication_id: int, user_id: int, paused: bool):
+    """Ставит лекарство на паузу / снимает с паузы (F4). На паузе не шлёт напоминания и не входит в adherence."""
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE medications SET paused = ? WHERE id = ? AND user_id = ?",
+            (1 if paused else 0, medication_id, user_id)
+        )
+
+
 def get_medication_by_id(medication_id: int, user_id: int):
     """Возвращает лекарство по id."""
     with get_connection() as conn:
@@ -566,6 +579,93 @@ def get_rules_grouped_for_user(user_id: int) -> dict:
     for r in rows:
         grouped.setdefault(r["medication_id"], []).append(r)
     return grouped
+
+
+# ── Соблюдение режима / adherence (F3) ──────────────────────────────────────
+
+def get_adherence_rules(user_id: int) -> list:
+    """Правила активных лекарств пользователя + created_at/имя/подопечный (F3).
+
+    Используется для знаменателя adherence: по этим правилам считаются «положенные»
+    приёмы за период (schedule_utils.count_due_by_medication), с клампом по created_at.
+    """
+    with get_connection() as conn:
+        return conn.execute(
+            """SELECT m.id AS medication_id, m.name, m.dosage AS med_dosage,
+                      m.created_at, d.name AS dependent_name,
+                      sr.reminder_time, sr.frequency, sr.interval_days,
+                      sr.weekdays, sr.month_day, sr.anchor_date
+               FROM medications m
+               JOIN schedule_rules sr ON sr.medication_id = m.id
+               LEFT JOIN dependents d ON d.id = m.dependent_id
+               WHERE m.user_id = ? AND m.active = 1 AND m.paused = 0
+               ORDER BY m.id""",
+            (user_id,)
+        ).fetchall()
+
+
+def get_taken_intakes(user_id: int, start_utc: str, end_utc: str) -> list:
+    """(medication_id, taken_at) для status='taken' в окне — для календаря отчёта врача (F1).
+
+    taken_at в UTC; потребитель конвертирует в локальную дату пользователя и бакетит по дням.
+    """
+    with get_connection() as conn:
+        return conn.execute(
+            """SELECT i.medication_id AS mid, i.taken_at
+               FROM intake_log i
+               JOIN medications m ON m.id = i.medication_id
+               WHERE m.user_id = ? AND i.status = 'taken'
+                 AND i.taken_at >= ? AND i.taken_at < ?""",
+            (user_id, start_utc, end_utc)
+        ).fetchall()
+
+
+def get_taken_counts(user_id: int, start_utc: str, end_utc: str) -> dict:
+    """{medication_id: число приёмов status='taken' за [start_utc, end_utc)} — числитель adherence (F3)."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            """SELECT i.medication_id AS mid, COUNT(*) AS cnt
+               FROM intake_log i
+               JOIN medications m ON m.id = i.medication_id
+               WHERE m.user_id = ? AND i.status = 'taken'
+                 AND i.taken_at >= ? AND i.taken_at < ?
+               GROUP BY i.medication_id""",
+            (user_id, start_utc, end_utc)
+        ).fetchall()
+    return {r["mid"]: r["cnt"] for r in rows}
+
+
+def get_streak_rows(user_id: int) -> list:
+    """Правила активных непаузных лекарств + dependent_id/имя/created_at — для серий (F2).
+
+    Группируются по подопечному (dependent_id) в streak.streaks_by_subject:
+    серия считается отдельно для владельца и каждого подопечного.
+    """
+    with get_connection() as conn:
+        return conn.execute(
+            """SELECT m.id AS medication_id, m.dependent_id, m.created_at,
+                      d.name AS dependent_name,
+                      sr.reminder_time, sr.frequency, sr.interval_days,
+                      sr.weekdays, sr.month_day, sr.anchor_date
+               FROM medications m
+               JOIN schedule_rules sr ON sr.medication_id = m.id
+               LEFT JOIN dependents d ON d.id = m.dependent_id
+               WHERE m.user_id = ? AND m.active = 1 AND m.paused = 0
+               ORDER BY m.id""",
+            (user_id,)
+        ).fetchall()
+
+
+def get_intake_statuses_window(user_id: int, start_utc: str, end_utc: str) -> list:
+    """Записи intake_log (mid, scheduled_time, status, taken_at) пользователя за окно — для серий (F2)."""
+    with get_connection() as conn:
+        return conn.execute(
+            """SELECT i.medication_id, i.scheduled_time, i.status, i.taken_at
+               FROM intake_log i
+               JOIN medications m ON m.id = i.medication_id
+               WHERE m.user_id = ? AND i.taken_at >= ? AND i.taken_at < ?""",
+            (user_id, start_utc, end_utc)
+        ).fetchall()
 
 
 def update_medication(medication_id: int, user_id: int, name: str, dosage: str,
@@ -644,7 +744,7 @@ def get_schedules_for_user(telegram_id: int) -> list:
                JOIN medications m ON m.user_id = u.id AND m.active = 1
                JOIN schedule_rules sr ON sr.medication_id = m.id
                LEFT JOIN dependents d ON d.id = m.dependent_id
-               WHERE u.telegram_id = ?
+               WHERE u.telegram_id = ? AND m.paused = 0
                ORDER BY m.id, sr.reminder_time""",
             (telegram_id,)
         ).fetchall()
