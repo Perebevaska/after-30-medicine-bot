@@ -3,18 +3,27 @@ from datetime import datetime, timedelta, date
 import pytz
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CallbackQueryHandler
-from database import get_or_create_user, get_today_stats, get_history_detailed, get_schedules_for_user
+from database import (get_or_create_user, get_today_stats, get_history_detailed,
+                      get_schedules_for_user, get_adherence_rules, get_taken_counts)
 from constants import MONTHS_GEN, MONTHS_SHORT
 from utils import handle_db_errors, get_tz_for_user, escape_html
 from scheduler import _rule_fires_today
+from schedule_utils import count_due_by_medication
 
 _WEEKDAY_NAMES = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
+_ADHERENCE_DAYS = 30
+
+
+def _pct_color(pct: int) -> str:
+    """Цветовой индикатор соблюдения: 🟢 ≥80% / 🟡 ≥50% / 🔴 иначе."""
+    return "🟢" if pct >= 80 else ("🟡" if pct >= 50 else "🔴")
 
 
 def _stats_period_keyboard() -> InlineKeyboardMarkup:
     """Клавиатура выбора периода статистики с возвратом в меню."""
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("📈 За 7 дней", callback_data="stats:week")],
+        [InlineKeyboardButton("📊 Соблюдение за 30 дней", callback_data="stats:adherence")],
         [InlineKeyboardButton("📆 План на 7 дней", callback_data="stats:plan")],
         [InlineKeyboardButton("◀️ В меню", callback_data="menu:main")],
     ])
@@ -165,6 +174,79 @@ async def show_stats_week(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 @handle_db_errors
+async def show_adherence(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показывает процент соблюдения режима за 30 дней (F3): принято / положено по расписанию."""
+    query = update.callback_query
+    await query.answer()
+    user = update.effective_user
+    user_id = get_or_create_user(user.id, user.username)
+    user_tz = get_tz_for_user(user.id)
+    today = datetime.now(user_tz).date()
+    start_day = today - timedelta(days=_ADHERENCE_DAYS - 1)
+
+    rules = get_adherence_rules(user_id)
+    if not rules:
+        await query.edit_message_text(
+            "💊 Нет активных лекарств для расчёта соблюдения.", reply_markup=_nav_keyboard()
+        )
+        return
+
+    start_local = user_tz.localize(datetime(start_day.year, start_day.month, start_day.day))
+    end_local = user_tz.localize(datetime(today.year, today.month, today.day)) + timedelta(days=1)
+    start_utc = start_local.astimezone(pytz.utc).strftime("%Y-%m-%d %H:%M:%S")
+    end_utc = end_local.astimezone(pytz.utc).strftime("%Y-%m-%d %H:%M:%S")
+    taken = get_taken_counts(user_id, start_utc, end_utc)
+
+    # метаданные и дата начала действия каждого лекарства (в TZ пользователя)
+    meta: dict = {}
+    created_dates: dict = {}
+    for r in rules:
+        mid = r["medication_id"]
+        if mid in meta:
+            continue
+        try:
+            cd = (datetime.strptime(r["created_at"], "%Y-%m-%d %H:%M:%S")
+                  .replace(tzinfo=pytz.utc).astimezone(user_tz).date())
+        except (ValueError, TypeError):
+            cd = start_day
+        created_dates[mid] = cd
+        dep = f" ({escape_html(r['dependent_name'])})" if r["dependent_name"] else ""
+        meta[mid] = {"name": escape_html(r["name"]), "dep": dep}
+
+    planned = count_due_by_medication(rules, start_day, today, created_dates)
+
+    items = []
+    total_taken = 0
+    total_planned = 0
+    for mid, due in planned.items():
+        if due <= 0:
+            continue
+        tk = taken.get(mid, 0)
+        pct = min(100, round(tk / due * 100))
+        total_taken += min(tk, due)
+        total_planned += due
+        items.append((pct, tk, due, mid))
+
+    if not total_planned:
+        await query.edit_message_text(
+            "💊 За последние 30 дней не было запланированных приёмов.", reply_markup=_nav_keyboard()
+        )
+        return
+
+    items.sort(key=lambda x: (x[0], x[3]))  # худшие сверху
+    blocks = ["📊 <b>Соблюдение за 30 дней</b>\n"]
+    for pct, tk, due, mid in items:
+        m = meta[mid]
+        blocks.append(f"{_pct_color(pct)} <b>{m['name']}</b>{m['dep']} — {pct}% ({tk}/{due})")
+
+    overall = round(total_taken / total_planned * 100)
+    blocks.append("\n──────────────────")
+    blocks.append(f"<b>Итог: {total_taken}/{total_planned} ({overall}%) {_pct_color(overall)}</b>")
+
+    await query.edit_message_text("\n".join(blocks), parse_mode="HTML", reply_markup=_nav_keyboard())
+
+
+@handle_db_errors
 async def show_week_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Показывает план лекарств на ближайшие 7 дней с учётом frequency, с кнопкой PDF."""
     query = update.callback_query
@@ -221,5 +303,6 @@ def get_handlers():
     """Возвращает список handlers для страниц статистики."""
     return [
         CallbackQueryHandler(show_stats_week, pattern="^stats:week$"),
+        CallbackQueryHandler(show_adherence, pattern="^stats:adherence$"),
         CallbackQueryHandler(show_week_plan, pattern="^stats:plan$"),
     ]

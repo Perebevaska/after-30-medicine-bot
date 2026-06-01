@@ -83,6 +83,29 @@ def test_count_total_empty_when_nothing_fires():
     assert count_due_total(rows, MON, date(2026, 6, 7)) == 0
 
 
+# ── created_dates кламп (знаменатель adherence F3) ───────────────────────────
+
+def test_count_by_medication_clamps_to_created_date():
+    rows = [_rule(1, "09:00"), _rule(2, "09:00")]
+    # med1 создан 1 июня (весь период), med2 — 5 июня (учитываются 5,6,7 = 3 дня)
+    created = {1: MON, 2: date(2026, 6, 5)}
+    counts = count_due_by_medication(rows, MON, date(2026, 6, 7), created)
+    assert counts == {1: 7, 2: 3}
+
+
+def test_count_by_medication_unknown_created_counted_fully():
+    rows = [_rule(1, "09:00"), _rule(2, "09:00")]
+    # med2 нет в created_dates → учитывается за весь период
+    counts = count_due_by_medication(rows, MON, date(2026, 6, 7), {1: date(2026, 6, 6)})
+    assert counts == {1: 2, 2: 7}
+
+
+def test_count_by_medication_created_after_period_excluded():
+    rows = [_rule(1, "09:00")]
+    counts = count_due_by_medication(rows, MON, date(2026, 6, 7), {1: date(2026, 6, 30)})
+    assert counts == {}
+
+
 # ── совместимость реэкспорта ────────────────────────────────────────────────
 
 def test_rule_fires_today_still_importable_from_scheduler():

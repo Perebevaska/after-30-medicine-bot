@@ -48,11 +48,21 @@ def iter_due_by_day(rows, start_day: date, end_day: date):
         day += timedelta(days=1)
 
 
-def count_due_by_medication(rows, start_day: date, end_day: date) -> dict:
-    """{medication_id: число положенных приёмов за период [start_day, end_day]}."""
+def count_due_by_medication(rows, start_day: date, end_day: date,
+                            created_dates: dict = None) -> dict:
+    """{medication_id: число положенных приёмов за период [start_day, end_day]}.
+
+    created_dates (опц.) — {medication_id: date начала действия}: дни раньше этой
+    даты не учитываются (знаменатель adherence не штрафует за время до создания
+    лекарства). Лекарства без записи в created_dates учитываются за весь период.
+    """
     counts: dict = {}
-    for _day, intakes in iter_due_by_day(rows, start_day, end_day):
+    for day, intakes in iter_due_by_day(rows, start_day, end_day):
         for mid, _time in intakes:
+            if created_dates is not None:
+                cd = created_dates.get(mid)
+                if cd is not None and day < cd:
+                    continue
             counts[mid] = counts.get(mid, 0) + 1
     return counts
 

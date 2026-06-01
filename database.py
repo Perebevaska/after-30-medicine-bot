@@ -568,6 +568,44 @@ def get_rules_grouped_for_user(user_id: int) -> dict:
     return grouped
 
 
+# ── Соблюдение режима / adherence (F3) ──────────────────────────────────────
+
+def get_adherence_rules(user_id: int) -> list:
+    """Правила активных лекарств пользователя + created_at/имя/подопечный (F3).
+
+    Используется для знаменателя adherence: по этим правилам считаются «положенные»
+    приёмы за период (schedule_utils.count_due_by_medication), с клампом по created_at.
+    """
+    with get_connection() as conn:
+        return conn.execute(
+            """SELECT m.id AS medication_id, m.name, m.dosage AS med_dosage,
+                      m.created_at, d.name AS dependent_name,
+                      sr.reminder_time, sr.frequency, sr.interval_days,
+                      sr.weekdays, sr.month_day, sr.anchor_date
+               FROM medications m
+               JOIN schedule_rules sr ON sr.medication_id = m.id
+               LEFT JOIN dependents d ON d.id = m.dependent_id
+               WHERE m.user_id = ? AND m.active = 1
+               ORDER BY m.id""",
+            (user_id,)
+        ).fetchall()
+
+
+def get_taken_counts(user_id: int, start_utc: str, end_utc: str) -> dict:
+    """{medication_id: число приёмов status='taken' за [start_utc, end_utc)} — числитель adherence (F3)."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            """SELECT i.medication_id AS mid, COUNT(*) AS cnt
+               FROM intake_log i
+               JOIN medications m ON m.id = i.medication_id
+               WHERE m.user_id = ? AND i.status = 'taken'
+                 AND i.taken_at >= ? AND i.taken_at < ?
+               GROUP BY i.medication_id""",
+            (user_id, start_utc, end_utc)
+        ).fetchall()
+    return {r["mid"]: r["cnt"] for r in rows}
+
+
 def update_medication(medication_id: int, user_id: int, name: str, dosage: str,
                       meal_relation: str, times_per_day: int, new_rules: list):
     """Обновляет лекарство и его расписание. new_rules — список dict с полями rule."""
