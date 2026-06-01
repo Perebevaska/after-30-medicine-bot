@@ -8,14 +8,6 @@ def run(coro):
     return asyncio.run(coro)
 
 
-@pytest.fixture
-def db(tmp_path, monkeypatch):
-    import database as d
-    monkeypatch.setattr(d, "DB_PATH", str(tmp_path / "test.db"))
-    d.init_db()
-    d.migrate()
-    return d
-
 
 def _med(d, tid=4001):
     uid = d.get_or_create_user(tid, "u")

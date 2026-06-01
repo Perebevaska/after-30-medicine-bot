@@ -2,14 +2,6 @@
 import pytest
 
 
-@pytest.fixture
-def db(tmp_path, monkeypatch):
-    import database as d
-    monkeypatch.setattr(d, "DB_PATH", str(tmp_path / "test.db"))
-    d.init_db()
-    d.migrate()
-    return d
-
 
 WIDE = ("2000-01-01 00:00:00", "2100-01-01 00:00:00")  # диапазон, покрывающий CURRENT_TIMESTAMP
 

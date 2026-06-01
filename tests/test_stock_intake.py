@@ -46,16 +46,12 @@ class FakeUpdate:
 
 
 @pytest.fixture
-def env(tmp_path, monkeypatch):
-    import database as d
-    monkeypatch.setattr(d, "DB_PATH", str(tmp_path / "test.db"))
-    d.init_db()
-    d.migrate()
+def env(db):
     import scheduler
-    uid = d.get_or_create_user(7001, "u")
-    mid = d.add_medication(uid, "Аспирин", "100мг", "after", 1)
-    d.add_schedule_rule(mid, "09:00", "daily")
-    return d, scheduler, mid
+    uid = db.get_or_create_user(7001, "u")
+    mid = db.add_medication(uid, "Аспирин", "100мг", "after", 1)
+    db.add_schedule_rule(mid, "09:00", "daily")
+    return db, scheduler, mid
 
 
 def _take(scheduler, mid):
