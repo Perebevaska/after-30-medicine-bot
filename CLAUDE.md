@@ -178,7 +178,7 @@ ADMIN_ID=telegram_id_админа
 - Напоминания в local time пользователя (хранится в `users.timezone`)
 - Режим напоминаний: `once` или `repeat` (каждые 5 минут до подтверждения, до 2 часов)
 - Лимит лекарств: `MAX_MEDICATIONS_PER_USER = 10` (задан в `constants.py`)
-- **Единая точка входа `/menu`** (`menu_command` в `timezone.py`): открывает главное меню. В списке команд бота (`post_init`) только `menu` + `cancel`; `/start` оставлен для онбординга (TZ), команды `/meds`/`/stats`/`/settings`/`/about` работают, но скрыты из меню
+- **Единая точка входа `/menu`** (`menu_command` в `timezone.py`): открывает главное меню. В списке команд бота (`post_init`) только `menu`. `/cancel` остаётся рабочим как fallback диалогов (выход из текстового ввода), но скрыт из меню; `/start` оставлен для онбординга (TZ); `/meds`/`/stats`/`/settings`/`/about` работают, но скрыты
 - **Навигация edit-in-place**: пункты меню (`menu:today/meds/stats/settings/about`) редактируют текущее сообщение; `menu:main` возвращает главное меню. Все под-экраны имеют «◀️ В меню» (`back_menu_kb()` в `timezone.py`, `_stats_period_keyboard`/`_report_keyboard`/`_nav_keyboard` в `stats.py`, кнопка в `_settings_keyboard`, в списке лекарств). Слой навигации — глобальный handler `^menu:`, вне диалогов add/edit (не задевается Q1b)
 - Главное меню — inline-кнопки: 📋 Лекарства на сегодня, 💊 Мои лекарства, 📊 Статистика, ⚙️ Настройки, ℹ️ О проекте
 - **Мои лекарства** — многосообщенный список; «◀️ В меню» на завершающем сообщении (`show_meds_list`)

@@ -31,10 +31,13 @@ logger = logging.getLogger(__name__)
 
 
 async def post_init(app):
-    """Регистрирует команды бота в меню Telegram после запуска."""
+    """Регистрирует команды бота в меню Telegram после запуска.
+
+    В списке только /menu — единая точка входа. /cancel остаётся рабочим
+    как fallback диалогов (выход из текстового ввода), но скрыт из меню.
+    """
     await app.bot.set_my_commands([
-        BotCommand("menu",   "🏠 Меню"),
-        BotCommand("cancel", "❌ Отменить действие"),
+        BotCommand("menu", "🏠 Меню"),
     ])
 
 
