@@ -4,7 +4,6 @@
 """
 import asyncio
 import os
-import sqlite3
 import time
 
 from dotenv import load_dotenv
@@ -13,19 +12,19 @@ from telegram.error import TelegramError
 
 load_dotenv()
 
+from database import get_connection, DatabaseError
+
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
-DB_PATH = "med_bot.db"
 
 
 def get_all_user_ids() -> list[int]:
-    """Возвращает список всех telegram_id из БД; при ошибке — пустой список."""
+    """Возвращает список всех telegram_id из PostgreSQL; при ошибке — пустой список."""
     try:
-        conn = sqlite3.connect(DB_PATH)
-        rows = conn.execute("SELECT telegram_id FROM users").fetchall()
-        conn.close()
-        return [r[0] for r in rows]
-    except sqlite3.Error as e:
+        with get_connection() as conn:
+            rows = conn.execute("SELECT telegram_id FROM users").fetchall()
+        return [r["telegram_id"] for r in rows]
+    except DatabaseError as e:
         print(f"Ошибка БД: {e}")
         return []
 

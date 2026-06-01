@@ -53,6 +53,12 @@ async def list_medications(telegram_id: int = Depends(require_telegram_user)):
 @router.post("", status_code=201)
 async def create_medication(body: MedicationIn, telegram_id: int = Depends(require_telegram_user)):
     user_id = await asyncio.to_thread(db.get_or_create_user, telegram_id)
+    # S2: dependent_id приходит от клиента — проверяем владельца, иначе лекарство
+    # можно привязать к чужому подопечному.
+    if body.dependent_id is not None:
+        deps = await asyncio.to_thread(db.get_dependents, telegram_id)
+        if body.dependent_id not in {d["id"] for d in deps}:
+            raise HTTPException(404, "Подопечный не найден")
     count = await asyncio.to_thread(db.count_active_medications, user_id, body.dependent_id)
     if count >= MAX_MEDICATIONS_PER_USER:
         raise HTTPException(400, f"Лимит {MAX_MEDICATIONS_PER_USER} лекарств достигнут")

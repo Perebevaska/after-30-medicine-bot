@@ -196,7 +196,17 @@ async def handle_intake_callback(update, context):
         return
 
     try:
-        user_tz = get_tz_for_user(update.effective_user.id)
+        telegram_id = update.effective_user.id
+        # S1: callback_data контролируется клиентом — проверяем, что лекарство
+        # принадлежит нажавшему, иначе можно писать в чужой intake_log / запас.
+        user_id = get_or_create_user(telegram_id)
+        if not get_medication_by_id(medication_id, user_id):
+            logger.warning(
+                "Отклонён callback на чужое/несуществующее лекарство: med=%s от tg=%s",
+                medication_id, telegram_id
+            )
+            return
+        user_tz = get_tz_for_user(telegram_id)
         start_utc, end_utc = local_day_bounds_utc(user_tz)
         old_status = log_intake(medication_id, scheduled_time, status, start_utc, end_utc)
     except Exception as e:
@@ -204,7 +214,7 @@ async def handle_intake_callback(update, context):
         await query.edit_message_text("⚠️ Не удалось записать приём. Попробуй ещё раз.")
         return
 
-    key = (update.effective_user.id, medication_id, scheduled_time)
+    key = (telegram_id, medication_id, scheduled_time)
     _pending.pop(key, None)
 
     if status == "taken":
@@ -215,7 +225,7 @@ async def handle_intake_callback(update, context):
     # F5: автосписание запаса + предупреждение при пересечении порога
     try:
         await _update_stock_on_intake(
-            query.message.reply_text, medication_id, status, old_status, update.effective_user.id, user_tz
+            query.message.reply_text, medication_id, status, old_status, telegram_id, user_tz
         )
     except Exception as e:
         logger.error("Ошибка обновления запаса: %s", e)
