@@ -25,9 +25,13 @@ function DrumColumn({ items, value, onChange }: {
   useEffect(() => {
     if (fromScroll.current) { fromScroll.current = false; return }
     const idx = items.indexOf(value)
-    if (ref.current && idx >= 0) {
-      ref.current.scrollTop = (idx + DRUM_PAD) * DRUM_ITEM_H
-    }
+    if (idx < 0) return
+    const el = ref.current
+    if (!el) return
+    const top = (idx + DRUM_PAD) * DRUM_ITEM_H
+    // defer one tick so scroll-snap has settled before we move
+    const id = setTimeout(() => { el.scrollTop = top }, 0)
+    return () => clearTimeout(id)
   }, [value, items])
 
   const handleScroll = () => {
