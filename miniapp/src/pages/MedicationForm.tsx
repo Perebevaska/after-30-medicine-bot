@@ -21,15 +21,17 @@ function DrumColumn({ items, value, onChange }: {
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const fromScroll = useRef(false)
+  // local selected index drives the highlight — updated immediately on scroll
+  const [selIdx, setSelIdx] = useState(() => Math.max(0, items.indexOf(value)))
 
   useEffect(() => {
     if (fromScroll.current) { fromScroll.current = false; return }
     const idx = items.indexOf(value)
     if (idx < 0) return
+    setSelIdx(idx)
     const el = ref.current
     if (!el) return
     const top = (idx + DRUM_PAD) * DRUM_ITEM_H
-    // defer one tick so scroll-snap has settled before we move
     const id = setTimeout(() => { el.scrollTop = top }, 0)
     return () => clearTimeout(id)
   }, [value, items])
@@ -40,6 +42,7 @@ function DrumColumn({ items, value, onChange }: {
       items.length - 1,
       Math.round(ref.current.scrollTop / DRUM_ITEM_H - DRUM_PAD)
     ))
+    setSelIdx(idx)
     if (items[idx] !== value) {
       fromScroll.current = true
       onChange(items[idx])
@@ -56,10 +59,10 @@ function DrumColumn({ items, value, onChange }: {
         {Array.from({ length: DRUM_PAD }, (_, i) => (
           <div key={`pre${i}`} className="drum-col-item" />
         ))}
-        {items.map((item) => (
+        {items.map((item, i) => (
           <div
             key={item}
-            className={`drum-col-item${item === value ? ' drum-col-item--sel' : ''}`}
+            className={`drum-col-item${i === selIdx ? ' drum-col-item--sel' : ''}`}
           >
             {item}
           </div>
