@@ -5,6 +5,7 @@ export interface TodayItem {
   meal_relation: string
   reminder_time: string
   status: 'pending' | 'taken' | 'skipped'
+  is_due: boolean
   dependent_name: string | null
 }
 

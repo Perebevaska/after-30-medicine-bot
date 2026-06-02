@@ -135,7 +135,7 @@ def test_rate_limit(api_client, monkeypatch):
 
     r = api_client.get("/health")
     assert r.status_code == 429
-    assert r.json()["detail"] == "rate limit exceeded"
+    assert r.json()["detail"] == m._RATE_MSG
 
 
 # ── Unified error format ──────────────────────────────────────────────────────

@@ -7,6 +7,7 @@ import asyncio
 import logging
 import os
 
+from arq.connections import RedisSettings
 from telegram import Bot, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.error import RetryAfter, TelegramError
 
@@ -43,6 +44,8 @@ async def send_reminder(ctx, *, chat_id: int, text: str, buttons: list | None = 
 class WorkerSettings:
     functions = [send_reminder]
     max_jobs = 25  # ≤25 одновременных → безопасно при лимите Telegram 30 msg/s
+    # AX8: единый REDIS_URL вместо дефолтного localhost.
+    redis_settings = RedisSettings.from_dsn(os.getenv("REDIS_URL", "redis://localhost:6379"))
 
     @staticmethod
     async def on_startup(ctx):

@@ -4,7 +4,7 @@ from pydantic import BaseModel
 import database as db
 from api.auth import require_telegram_user, require_db_user, TelegramUser
 from utils import get_tz_for_user, local_day_bounds_utc
-from schedule_utils import due_intakes_on
+from schedule_utils import _rule_fires_today
 from datetime import datetime
 
 router = APIRouter(prefix="/today", tags=["today"])
@@ -26,14 +26,21 @@ async def get_today(telegram_id: int = Depends(require_telegram_user)):
     )
     rows = await asyncio.to_thread(db.get_schedules_for_user, telegram_id)
     today = now_local.date()
+    now_min = now_local.hour * 60 + now_local.minute
     items = []
     for row in rows:
-        from schedule_utils import _rule_fires_today
         if not _rule_fires_today(row, today):
             continue
         mid = row["medication_id"]
         t = row["reminder_time"]
         status = statuses.get((mid, t), "pending")
+        # AX5: is_due считаем по TZ пользователя на сервере, не по времени
+        # браузера (телефон может быть в другом поясе → секция «Сейчас» врала).
+        try:
+            rh, rm = t.split(":")
+            is_due = now_min >= int(rh) * 60 + int(rm)
+        except (ValueError, AttributeError):
+            is_due = False
         items.append({
             "medication_id": mid,
             "name": row["name"],
@@ -41,6 +48,7 @@ async def get_today(telegram_id: int = Depends(require_telegram_user)):
             "meal_relation": row["meal_relation"],
             "reminder_time": t,
             "status": status,
+            "is_due": is_due,
             "dependent_name": row.get("dependent_name"),
         })
     return sorted(items, key=lambda x: x["reminder_time"], reverse=True)

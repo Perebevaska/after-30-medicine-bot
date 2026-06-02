@@ -1,10 +1,12 @@
 import asyncio
+import json
 import logging
+import os
 from datetime import datetime, timedelta
 import pytz
 from arq import create_pool
 from arq.connections import RedisSettings
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from redis import Redis as _RedisSync
 from database import (get_active_schedule_rows, log_intake, apply_intake_stock,
                       get_schedules_by_medication, get_or_create_user, get_medication_by_id)
 from utils import escape_html, get_tz_for_user, local_day_bounds_utc
@@ -19,7 +21,8 @@ _arq_pool = None
 
 async def init_arq_pool():
     global _arq_pool
-    _arq_pool = await create_pool(RedisSettings())
+    # AX8: единый REDIS_URL вместо дефолтного localhost.
+    _arq_pool = await create_pool(RedisSettings.from_dsn(REDIS_URL))
     logger.info("ARQ pool инициализирован")
 
 _MEAL_LABELS = {
@@ -29,10 +32,56 @@ _MEAL_LABELS = {
     "any": "независимо",
 }
 
+# AX4: окно догона для once-слотов (минут после времени напоминания)
+CATCHUP_MIN = 5
+
 # (telegram_id, medication_id, reminder_time) -> datetime (UTC) последней отправки
 _pending: dict = {}
 # (telegram_id, date_iso) — пользователи, которым план дня уже отправлен сегодня
 _daily_plan_sent: set = set()
+
+# AX6: персист состояния планировщика в Redis — переживает рестарт бота
+# (иначе после рестарта в окне догона CATCHUP_MIN once-слот отправился бы повторно).
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
+_STATE_KEY = "scheduler:state"
+_state_loaded = False
+_redis_conn = None
+
+
+def _redis_sync():
+    global _redis_conn
+    if _redis_conn is None:
+        _redis_conn = _RedisSync.from_url(REDIS_URL)
+    return _redis_conn
+
+
+def _load_state():
+    """Загружает _pending / _daily_plan_sent из Redis (один раз на старте)."""
+    global _state_loaded
+    _state_loaded = True
+    try:
+        raw = _redis_sync().get(_STATE_KEY)
+        if raw:
+            data = json.loads(raw)
+            for tid, med, t, iso in data.get("pending", []):
+                _pending[(tid, med, t)] = datetime.fromisoformat(iso)
+            for tid, d in data.get("daily_plan_sent", []):
+                _daily_plan_sent.add((tid, d))
+            logger.info("scheduler: состояние восстановлено из Redis (pending=%d)", len(_pending))
+    except Exception as e:
+        logger.warning("scheduler: не удалось загрузить состояние из Redis: %s", e)
+
+
+def _save_state():
+    """Сохраняет состояние планировщика в Redis (TTL 2ч, как окно _pending)."""
+    try:
+        data = {
+            "pending": [[k[0], k[1], k[2], ts.isoformat()] for k, ts in _pending.items()],
+            "daily_plan_sent": [[k[0], k[1]] for k in _daily_plan_sent],
+        }
+        _redis_sync().set(_STATE_KEY, json.dumps(data), ex=7200)
+    except Exception as e:
+        logger.warning("scheduler: не удалось сохранить состояние в Redis: %s", e)
 
 
 def clear_pending_for_medication(medication_id: int):
@@ -51,6 +100,9 @@ def _prune_pending(now_utc: datetime):
 async def send_reminders(app):
     """Проверяет расписание и отправляет напоминания с учётом TZ каждого пользователя."""
     now_utc = datetime.now(pytz.utc)
+    # AX6: восстановить состояние из Redis при первом проходе после старта.
+    if not _state_loaded:
+        await asyncio.to_thread(_load_state)
     _prune_pending(now_utc)
     # B3: синхронный psycopg-запрос не должен блокировать event loop каждую минуту.
     schedules = await asyncio.to_thread(get_active_schedule_rows)
@@ -64,16 +116,28 @@ async def send_reminders(app):
             user_tz = pytz.utc
 
         now_local = datetime.now(user_tz)
-        now_str = now_local.strftime("%H:%M")
         key = (row["telegram_id"], row["medication_id"], row["reminder_time"])
 
         if not _rule_fires_today(row, now_local.date()):
             continue
 
+        # AX4: окно догона вместо точного «== ЧЧ:ММ». Если проход планировщика
+        # задержался/пропустил минуту (GC, медленный запрос, рестарт), once-слот
+        # всё равно сработает в пределах CATCHUP_MIN минут после своего времени.
+        # `since` — сколько минут прошло сегодня с момента слота (только вперёд).
+        try:
+            rh, rm = row["reminder_time"].split(":")
+            reminder_min = int(rh) * 60 + int(rm)
+        except (ValueError, AttributeError):
+            continue
+        now_min = now_local.hour * 60 + now_local.minute
+        since = now_min - reminder_min
+        already = key in _pending  # слот уже отправлялся в этом цикле
+
         should_send = False
-        if row["reminder_time"] == now_str:
-            should_send = True
-        elif row["reminder_mode"] == "repeat" and key in _pending:
+        if not already and 0 <= since <= CATCHUP_MIN:
+            should_send = True  # первая отправка: точная минута ИЛИ догон после пропуска
+        elif row["reminder_mode"] == "repeat" and already:
             elapsed = (now_utc - _pending[key]).total_seconds()
             if 300 <= elapsed < 7200:  # повтор каждые 5 мин, не дольше 2 часов
                 should_send = True
@@ -111,6 +175,8 @@ async def send_reminders(app):
         logger.info("scheduler: sent=%d errors=%d active_rules=%d", sent, errors, len(schedules))
 
     await _send_daily_plans(app, schedules)
+    # AX6: сохранить обновлённое состояние (отправленные слоты/планы) в Redis.
+    await asyncio.to_thread(_save_state)
 
 
 def _prune_daily_plan_sent():

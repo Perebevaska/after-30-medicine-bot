@@ -12,15 +12,10 @@ import './App.css'
 
 type NavPage = 'dashboard' | 'medications' | 'stats' | 'settings'
 
-function isDue(reminderTime: string): boolean {
-  const now = new Date()
-  const [h, m] = reminderTime.split(':').map(Number)
-  return now.getHours() * 60 + now.getMinutes() >= h * 60 + m
-}
-
 function TodayIcon() {
   const { data } = useToday()
-  const pending = data?.filter((i) => i.status === 'pending' && isDue(i.reminder_time)).length ?? 0
+  // AX5: is_due — серверный флаг (TZ аккаунта)
+  const pending = data?.filter((i) => i.status === 'pending' && i.is_due).length ?? 0
   return (
     <span className="nav-icon-wrap">
       <CalendarHeart size={22} strokeWidth={1.75} />

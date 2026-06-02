@@ -137,6 +137,11 @@ def init_db():
         "CREATE INDEX IF NOT EXISTS idx_schedule_rules_medication ON schedule_rules(medication_id)",
         "CREATE INDEX IF NOT EXISTS idx_intake_log_medication ON intake_log(medication_id, scheduled_time)",
         "CREATE INDEX IF NOT EXISTS idx_intake_log_taken_at ON intake_log(taken_at)",
+        # AX1: одна запись на (лекарство, слот, день) — защита от дублей при
+        # параллельных отметках. День = UTC-дата taken_at (одновременные вставки
+        # совпадают по моменту → по дню), local-day всегда укладывается в один слот.
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_intake_log_slot_day "
+        "ON intake_log (medication_id, scheduled_time, (LEFT(taken_at, 10)))",
     ]
     with get_connection() as conn:
         for stmt in stmts:
@@ -177,6 +182,20 @@ def migrate():
             )
 
         conn.execute("DROP TABLE IF EXISTS schedules")
+
+        # AX1: чистим существующие дубли (med, scheduled_time, UTC-день) перед
+        # созданием UNIQUE-индекса — оставляем самую свежую запись (max id).
+        conn.execute(
+            """DELETE FROM intake_log a USING intake_log b
+               WHERE a.id < b.id
+                 AND a.medication_id = b.medication_id
+                 AND a.scheduled_time = b.scheduled_time
+                 AND LEFT(a.taken_at, 10) = LEFT(b.taken_at, 10)"""
+        )
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_intake_log_slot_day "
+            "ON intake_log (medication_id, scheduled_time, (LEFT(taken_at, 10)))"
+        )
 
 
 def get_or_create_user(telegram_id: int, username: str = None) -> int:
@@ -819,9 +838,13 @@ def log_intake(medication_id: int, scheduled_time: str, status: str,
                 (status, now_utc, existing["id"])
             )
             return existing["status"]
+        # AX1: ON CONFLICT — при гонке двух параллельных INSERT один вставит,
+        # второй обновит существующую строку вместо создания дубля.
         conn.execute(
             """INSERT INTO intake_log (medication_id, scheduled_time, status, taken_at)
-               VALUES (%s, %s, %s, %s)""",
+               VALUES (%s, %s, %s, %s)
+               ON CONFLICT (medication_id, scheduled_time, (LEFT(taken_at, 10)))
+               DO UPDATE SET status = EXCLUDED.status, taken_at = EXCLUDED.taken_at""",
             (medication_id, scheduled_time, status, now_utc)
         )
         return None
@@ -887,8 +910,11 @@ def apply_intake_stock(medication_id: int, new_status: str, old_status):
     None — если трекинг выключен (stock_qty IS NULL) или лекарство не найдено.
     """
     with get_connection() as conn:
+        # AX2: FOR UPDATE сериализует параллельные списания одного лекарства
+        # (кнопка «Выпил всё» шлёт N параллельных запросов) — без блокировки
+        # строки два read-modify-write теряли бы часть изменений (lost update).
         row = conn.execute(
-            "SELECT stock_qty, units_per_dose, low_stock_days FROM medications WHERE id = %s",
+            "SELECT stock_qty, units_per_dose, low_stock_days FROM medications WHERE id = %s FOR UPDATE",
             (medication_id,)
         ).fetchone()
         if row is None or row["stock_qty"] is None:
