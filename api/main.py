@@ -6,6 +6,7 @@
 ⚠️ APScheduler запускается только в bot.py — здесь не стартуем,
    иначе будут дубли напоминаний.
 """
+import asyncio
 import logging
 import os
 import time
@@ -15,13 +16,14 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from fastapi import FastAPI, Request
+import redis as _redis_lib
+from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 import database as _db
-from database import init_pool, close_pool
+from database import init_pool, close_pool, get_connection
 
 logger = logging.getLogger("api")
 
@@ -121,5 +123,29 @@ app.include_router(export.router)
 
 
 @app.get("/health")
-async def health():
-    return {"status": "ok"}
+async def health(response: Response):
+    checks: dict[str, str] = {}
+
+    def _db_check():
+        with get_connection() as conn:
+            conn.execute("SELECT 1")
+
+    def _redis_check():
+        _redis_lib.Redis().ping()
+
+    try:
+        await asyncio.to_thread(_db_check)
+        checks["db"] = "ok"
+    except Exception as e:
+        checks["db"] = f"error: {e}"
+
+    try:
+        await asyncio.to_thread(_redis_check)
+        checks["redis"] = "ok"
+    except Exception as e:
+        checks["redis"] = f"error: {e}"
+
+    ok = all(v == "ok" for v in checks.values())
+    if not ok:
+        response.status_code = 503
+    return {"status": "ok" if ok else "degraded", **checks}
