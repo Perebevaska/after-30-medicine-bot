@@ -302,6 +302,28 @@
   padding: 4px 8px;
 }
 
+.take-all-row {
+  background: var(--bg);
+  padding: 10px 16px 8px;
+  display: flex;
+  justify-content: center;
+}
+
+.btn-take-all {
+  padding: 10px 28px;
+  background: #4caf50;
+  color: #fff;
+  border: none;
+  border-radius: 20px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s, transform 0.1s;
+}
+
+.btn-take-all:active { transform: scale(0.97); }
+.btn-take-all:disabled { opacity: 0.5; cursor: default; }
+
 .mlist-list {
   display: flex;
   flex-direction: column;

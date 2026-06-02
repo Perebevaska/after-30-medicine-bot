@@ -1,5 +1,7 @@
-import { useState } from 'react'
+import { useState, Fragment } from 'react'
 import { useToday, useLogIntake } from '../api/hooks'
+import { useQueryClient } from '@tanstack/react-query'
+import { api } from '../api/client'
 import type { TodayItem } from '../api/types'
 import { randomWish } from '../wishes'
 
@@ -92,6 +94,46 @@ function MedCard({ item }: { item: TodayItem }) {
 
 export default function Dashboard() {
   const { data, isLoading, error } = useToday()
+  const qc = useQueryClient()
+  const [takingAll, setTakingAll] = useState(false)
+
+  const duePending = (data ?? []).filter(
+    (i) => i.status === 'pending' && isDue(i.reminder_time)
+  )
+
+  const handleTakeAll = async () => {
+    if (!duePending.length) return
+    setTakingAll(true)
+    // Оптимистично ставим всем статус taken
+    qc.setQueryData<TodayItem[]>(['today'], (old) =>
+      old?.map((item) =>
+        item.status === 'pending' && isDue(item.reminder_time)
+          ? { ...item, status: 'taken' as const }
+          : item
+      )
+    )
+    try {
+      await Promise.all(
+        duePending.map((item) =>
+          api.post('/today/intake', {
+            medication_id: item.medication_id,
+            scheduled_time: item.reminder_time,
+            status: 'taken',
+          })
+        )
+      )
+    } finally {
+      await qc.invalidateQueries({ queryKey: ['today'] })
+      await qc.invalidateQueries({ queryKey: ['streak'] })
+      await qc.invalidateQueries({ queryKey: ['adherence'] })
+      setTakingAll(false)
+    }
+  }
+
+  // Найти индекс первого due-pending для вставки кнопки
+  const firstDueIdx = (data ?? []).findIndex(
+    (i) => i.status === 'pending' && isDue(i.reminder_time)
+  )
 
   return (
     <div className="page">
@@ -115,11 +157,21 @@ export default function Dashboard() {
 
       {data && data.length > 0 && (
         <div className="mlist-list">
-          {data.map((item) => (
-            <MedCard
-              key={`${item.medication_id}-${item.reminder_time}`}
-              item={item}
-            />
+          {data.map((item, i) => (
+            <Fragment key={`${item.medication_id}-${item.reminder_time}`}>
+              {i === firstDueIdx && duePending.length > 1 && (
+                <div className="take-all-row">
+                  <button
+                    className="btn-take-all"
+                    onClick={handleTakeAll}
+                    disabled={takingAll}
+                  >
+                    💊 Выпил всё
+                  </button>
+                </div>
+              )}
+              <MedCard item={item} />
+            </Fragment>
           ))}
         </div>
       )}
