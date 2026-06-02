@@ -1,37 +1,3 @@
-/* ── Splash screen ───────────────────────────────────────────────────────── */
-
-.splash {
-  position: fixed;
-  inset: 0;
-  background: var(--bg);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 999;
-  opacity: 1;
-  transition: opacity 0.5s ease;
-}
-
-.splash--out {
-  opacity: 0;
-  pointer-events: none;
-}
-
-.splash-wish {
-  font-size: 26px;
-  font-weight: 700;
-  color: var(--text);
-  text-align: center;
-  padding: 0 36px;
-  line-height: 1.5;
-  animation: splash-in 0.5s ease;
-}
-
-@keyframes splash-in {
-  from { opacity: 0; transform: scale(0.92); }
-  to   { opacity: 1; transform: scale(1); }
-}
-
 /* ── Tab panels ──────────────────────────────────────────────────────────── */
 
 .tabs-outer {
@@ -83,6 +49,40 @@
 .stat-label {
   font-size: 12px;
   color: var(--hint);
+}
+
+/* Wish card */
+.wish-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 12px 0;
+  padding: 12px 14px;
+  background: var(--secondary-bg);
+  border-radius: 12px;
+}
+
+.wish-text {
+  flex: 1;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text);
+  line-height: 1.4;
+}
+
+.wish-refresh {
+  background: none;
+  border: none;
+  font-size: 20px;
+  cursor: pointer;
+  padding: 2px;
+  flex-shrink: 0;
+  line-height: 1;
+  transition: transform 0.4s ease;
+}
+
+.wish-refresh--spin {
+  transform: rotate(360deg);
 }
 
 /* Section title */

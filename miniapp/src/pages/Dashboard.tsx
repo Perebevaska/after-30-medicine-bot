@@ -1,5 +1,7 @@
+import { useState } from 'react'
 import { useToday, useAdherence, useStreak, useLogIntake } from '../api/hooks'
 import type { TodayItem } from '../api/types'
+import { randomWish } from '../wishes'
 
 const MEAL: Record<string, string> = {
   before: 'До еды',
@@ -7,6 +9,30 @@ const MEAL: Record<string, string> = {
   with: 'Во время еды',
   any: 'Не важно',
   no_meal: 'Не зависит',
+}
+
+function WishCard() {
+  const [wish, setWish] = useState(randomWish)
+  const [spinning, setSpinning] = useState(false)
+
+  const next = () => {
+    setSpinning(true)
+    setWish((w) => randomWish(w))
+    setTimeout(() => setSpinning(false), 400)
+  }
+
+  return (
+    <div className="wish-card">
+      <span className="wish-text">{wish}</span>
+      <button
+        className={`wish-refresh${spinning ? ' wish-refresh--spin' : ''}`}
+        onClick={next}
+        aria-label="Другое пожелание"
+      >
+        🔄
+      </button>
+    </div>
+  )
 }
 
 function StatsBar() {
@@ -80,6 +106,8 @@ export default function Dashboard() {
   return (
     <div className="page">
       <StatsBar />
+
+      <WishCard />
 
       <h2 className="section-title">Сегодня</h2>
 
