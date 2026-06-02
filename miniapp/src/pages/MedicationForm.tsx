@@ -189,7 +189,8 @@ type Errors = Record<string, string>
 function validate(form: FormState): Errors {
   const errs: Errors = {}
   if (!form.name.trim()) errs.name = 'Введите название'
-  if (!form.dosage.trim()) errs.dosage = 'Введите дозировку'
+  const hasAnyDosage = form.dosage.trim() || form.rules.some((r) => r.custom_dosage.trim())
+  if (!hasAnyDosage) errs.dosage = 'Введите дозировку или свою дозировку для каждого приёма'
   form.rules.forEach((r, i) => {
     if (!/^\d{2}:\d{2}$/.test(r.reminder_time)) {
       errs[`rule_${i}_time`] = 'Формат ЧЧ:ММ'
