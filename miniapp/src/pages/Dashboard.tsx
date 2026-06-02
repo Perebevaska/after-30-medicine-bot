@@ -27,7 +27,8 @@ interface HeartParticle {
 // ── Health bar persistence ─────────────────────────────────────────────────
 const HP_KEY = 'wish_hp'
 const HP_TS_KEY = 'wish_hp_ts'
-const DEPLETE_PER_MS = 100 / (8 * 3600 * 1000) // 100% за 8 часов
+// Шкала 0–200: 0–100 = рамка, 100–200 = текст; полный разряд за 11 с
+const DEPLETE_PER_MS = 200 / (11 * 1000)
 
 function loadHp(): number {
   try {
@@ -54,9 +55,9 @@ function WishCard() {
   const [particles, setParticles] = useState<HeartParticle[]>([])
   const btnRef = useRef<HTMLButtonElement>(null)
 
-  // Обновляем hp раз в минуту (плавный drain)
+  // Обновляем hp каждые 200 мс — нужно для быстрого drain (11 с)
   useEffect(() => {
-    const id = setInterval(() => setHp(loadHp), 60_000)
+    const id = setInterval(() => setHp(loadHp), 200)
     return () => clearInterval(id)
   }, [])
 
@@ -90,24 +91,28 @@ function WishCard() {
     spawnHearts()
     setHp(() => {
       const current = loadHp()
-      const bonus = 10 + Math.random() * 15 // 10–25%
-      const next = Math.min(100, current + bonus)
+      const bonus = 5 + Math.random() * 10 // 5–15
+      const next = Math.min(200, current + bonus)
       saveHp(next)
       return next
     })
   }
 
-  const clipRight = (100 - hp).toFixed(2)
+  // Фаза 1 (0–100): рамка. Фаза 2 (100–200): текст
+  const borderPct = Math.min(hp, 100)
+  const textPct   = Math.max(0, hp - 100)
 
   return (
     <>
       <div className="wish-card">
+        <span className="wish-border-top"    style={{ width: `${borderPct}%` }} />
+        <span className="wish-border-bottom" style={{ width: `${borderPct}%` }} />
         <div className="wish-text-wrap">
           <span className="wish-text">{wish}</span>
           <span
             className="wish-text wish-text-hp"
             aria-hidden="true"
-            style={{ clipPath: `inset(0 ${clipRight}% 0 0)` }}
+            style={{ clipPath: `inset(0 ${(100 - textPct).toFixed(1)}% 0 0)` }}
           >
             {wish}
           </span>

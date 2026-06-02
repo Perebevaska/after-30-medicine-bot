@@ -12,10 +12,16 @@ import './App.css'
 
 type NavPage = 'dashboard' | 'medications' | 'stock' | 'stats' | 'settings'
 
+function isDue(reminderTime: string): boolean {
+  const now = new Date()
+  const [h, m] = reminderTime.split(':').map(Number)
+  return now.getHours() * 60 + now.getMinutes() >= h * 60 + m
+}
+
 function TodayIcon() {
   const day = new Date().getDate()
   const { data } = useToday()
-  const pending = data?.filter((i) => i.status === 'pending').length ?? 0
+  const pending = data?.filter((i) => i.status === 'pending' && isDue(i.reminder_time)).length ?? 0
   return (
     <span className="cal-icon">
       <span className="cal-header" />

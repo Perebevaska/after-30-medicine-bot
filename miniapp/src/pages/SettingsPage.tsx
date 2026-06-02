@@ -1,8 +1,47 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import {
   useSettings, useSetReminderMode, useSetDailyPlan, useSetCaregiver,
   useDependents, useCreateDependent, useDeleteDependent,
+  useSetTimezone, useSetTimezoneByLocation,
 } from '../api/hooks'
+
+const TIMEZONES: { value: string; label: string }[] = [
+  { value: 'Europe/Kaliningrad', label: 'Калининград UTC+2' },
+  { value: 'Europe/Moscow', label: 'Москва, Петербург UTC+3' },
+  { value: 'Europe/Samara', label: 'Самара, Ижевск UTC+4' },
+  { value: 'Asia/Yekaterinburg', label: 'Екатеринбург UTC+5' },
+  { value: 'Asia/Omsk', label: 'Омск UTC+6' },
+  { value: 'Asia/Krasnoyarsk', label: 'Красноярск UTC+7' },
+  { value: 'Asia/Irkutsk', label: 'Иркутск UTC+8' },
+  { value: 'Asia/Yakutsk', label: 'Якутск UTC+9' },
+  { value: 'Asia/Vladivostok', label: 'Владивосток UTC+10' },
+  { value: 'Asia/Magadan', label: 'Магадан UTC+11' },
+  { value: 'Asia/Kamchatka', label: 'Камчатка UTC+12' },
+  { value: 'Europe/Minsk', label: 'Минск UTC+3' },
+  { value: 'Europe/Kyiv', label: 'Киев UTC+2/3' },
+  { value: 'Asia/Almaty', label: 'Алматы UTC+5' },
+  { value: 'Asia/Tashkent', label: 'Ташкент UTC+5' },
+  { value: 'Asia/Bishkek', label: 'Бишкек UTC+6' },
+  { value: 'Asia/Tbilisi', label: 'Тбилиси UTC+4' },
+  { value: 'Asia/Yerevan', label: 'Ереван UTC+4' },
+  { value: 'Asia/Baku', label: 'Баку UTC+4' },
+  { value: 'Europe/London', label: 'Лондон UTC+0/1' },
+  { value: 'Europe/Paris', label: 'Париж, Берлин UTC+1/2' },
+  { value: 'Europe/Helsinki', label: 'Хельсинки UTC+2/3' },
+  { value: 'Europe/Istanbul', label: 'Стамбул UTC+3' },
+  { value: 'Asia/Dubai', label: 'Дубай UTC+4' },
+  { value: 'Asia/Karachi', label: 'Пакистан UTC+5' },
+  { value: 'Asia/Kolkata', label: 'Индия UTC+5:30' },
+  { value: 'Asia/Bangkok', label: 'Бангкок UTC+7' },
+  { value: 'Asia/Singapore', label: 'Сингапур UTC+8' },
+  { value: 'Asia/Shanghai', label: 'Китай UTC+8' },
+  { value: 'Asia/Tokyo', label: 'Токио UTC+9' },
+  { value: 'America/New_York', label: 'Нью-Йорк UTC-5/-4' },
+  { value: 'America/Chicago', label: 'Чикаго UTC-6/-5' },
+  { value: 'America/Los_Angeles', label: 'Лос-Анджелес UTC-8/-7' },
+  { value: 'America/Sao_Paulo', label: 'Сан-Паулу UTC-3' },
+  { value: 'Australia/Sydney', label: 'Сидней UTC+10/11' },
+]
 
 export default function SettingsPage() {
   const { data, isLoading } = useSettings()
@@ -14,8 +53,46 @@ export default function SettingsPage() {
   const createDep = useCreateDependent()
   const deleteDep = useDeleteDependent()
 
+  const setTz = useSetTimezone()
+  const setTzByLocation = useSetTimezoneByLocation()
+
   const [dailyPlanTime, setDailyPlanTime] = useState('08:00')
   const [newDepName, setNewDepName] = useState('')
+  const [tzEditing, setTzEditing] = useState(false)
+  const [tzSearch, setTzSearch] = useState('')
+  const [geoError, setGeoError] = useState('')
+
+  const filteredZones = useMemo(() => {
+    const q = tzSearch.toLowerCase()
+    if (!q) return TIMEZONES
+    return TIMEZONES.filter(
+      (z) => z.label.toLowerCase().includes(q) || z.value.toLowerCase().includes(q)
+    )
+  }, [tzSearch])
+
+  const handleSelectTz = (tz: string) => {
+    setTz.mutate(tz, { onSuccess: () => { setTzEditing(false); setTzSearch('') } })
+  }
+
+  const handleGeolocate = () => {
+    setGeoError('')
+    if (!navigator.geolocation) {
+      setGeoError('Геолокация не поддерживается браузером')
+      return
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setTzByLocation.mutate(
+          { lat: pos.coords.latitude, lng: pos.coords.longitude },
+          {
+            onSuccess: () => { setTzEditing(false); setTzSearch('') },
+            onError: () => setGeoError('Не удалось определить часовой пояс'),
+          }
+        )
+      },
+      () => setGeoError('Нет доступа к геолокации')
+    )
+  }
 
   useEffect(() => {
     if (!data) return
@@ -40,33 +117,26 @@ export default function SettingsPage() {
 
       <h2 className="section-title">Напоминания</h2>
       <p className="section-hint">
-        <b>Однократно</b> — бот отправит уведомление один раз в назначенное время.<br />
-        <b>Повтор</b> — если не отметить приём, бот будет напоминать каждые 5 минут до 2 часов.
+        Если включён повтор — бот будет напоминать каждые 5 минут до 2 часов, пока не отметишь приём.
       </p>
       <div className="settings-block">
         <div className="settings-row">
-          <span className="settings-label">Режим</span>
-          <div className="toggle-group">
-            <button
-              className={`toggle-btn${data.reminder_mode === 'once' ? ' toggle-btn--active' : ''}`}
-              onClick={() => setMode.mutate('once')}
-            >
-              Однократно
-            </button>
-            <button
-              className={`toggle-btn${data.reminder_mode === 'repeat' ? ' toggle-btn--active' : ''}`}
-              onClick={() => setMode.mutate('repeat')}
-            >
-              Повтор
-            </button>
-          </div>
+          <span className="settings-label">Повтор напоминаний</span>
+          <label className="toggle-switch">
+            <input
+              type="checkbox"
+              checked={data.reminder_mode === 'repeat'}
+              onChange={(e) => setMode.mutate(e.target.checked ? 'repeat' : 'once')}
+            />
+            <span className="toggle-track" />
+          </label>
         </div>
       </div>
 
       <h2 className="section-title">Ежедневный план</h2>
       <p className="section-hint">
         Каждое утро бот пришлёт список всех запланированных на день приёмов.
-        Удобно, чтобы сразу видеть весь день.
+        Удобно, чтобы сразу увидеть лекарства на весь день.
       </p>
       <div className="settings-block">
         <div className="settings-row">
@@ -157,8 +227,58 @@ export default function SettingsPage() {
         </>
       )}
 
-      <div className="settings-footer">
-        <span className="hint">Часовой пояс: {data.timezone}</span>
+      <h2 className="section-title">Часовой пояс</h2>
+      <p className="section-hint">
+        Используется для точного расчёта времени напоминаний о приёме лекарств.
+        Укажи свой город или выбери по геолокации.
+      </p>
+      <div className="settings-block">
+        <div className="settings-row">
+          <span className="settings-label">Текущий</span>
+          <span className="tz-current">{data.timezone}</span>
+          {!tzEditing && (
+            <button className="tz-change-btn" onClick={() => setTzEditing(true)}>
+              Изменить
+            </button>
+          )}
+        </div>
+        {tzEditing && (
+          <div className="tz-picker">
+            <button
+              className="tz-geo-btn"
+              onClick={handleGeolocate}
+              disabled={setTzByLocation.isPending}
+            >
+              {setTzByLocation.isPending ? 'Определяю…' : '📍 По геолокации'}
+            </button>
+            {geoError && <p className="tz-error">{geoError}</p>}
+            <input
+              className="tz-search-input"
+              placeholder="Москва, Moscow, UTC+3…"
+              value={tzSearch}
+              onChange={(e) => setTzSearch(e.target.value)}
+              autoFocus
+            />
+            <div className="tz-list">
+              {filteredZones.map((z) => (
+                <div
+                  key={z.value}
+                  className={`tz-list-item${z.value === data.timezone ? ' tz-list-item--active' : ''}`}
+                  onClick={() => handleSelectTz(z.value)}
+                >
+                  <span className="tz-item-label">{z.label}</span>
+                  <span className="tz-item-value">{z.value}</span>
+                </div>
+              ))}
+              {filteredZones.length === 0 && (
+                <p className="tz-empty">Ничего не найдено</p>
+              )}
+            </div>
+            <button className="tz-cancel-btn" onClick={() => { setTzEditing(false); setTzSearch(''); setGeoError('') }}>
+              Отмена
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )

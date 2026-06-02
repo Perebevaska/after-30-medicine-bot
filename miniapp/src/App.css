@@ -25,6 +25,8 @@
 
 /* Wish card */
 .wish-card {
+  position: relative;
+  overflow: hidden;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -33,6 +35,18 @@
   background: var(--secondary-bg);
   border-radius: 12px;
 }
+
+.wish-border-top,
+.wish-border-bottom {
+  position: absolute;
+  left: 0;
+  height: 4px;
+  background: linear-gradient(to right, #c62828, #ef5350);
+  transition: width 0.18s linear;
+  pointer-events: none;
+}
+.wish-border-top    { top: 0; }
+.wish-border-bottom { bottom: 0; }
 
 .wish-text-wrap {
   flex: 1;
@@ -52,7 +66,7 @@
   inset: 0;
   color: #e53030;
   pointer-events: none;
-  transition: clip-path 0.55s ease-out;
+  transition: clip-path 0.18s linear;
 }
 
 .wish-refresh {
@@ -249,10 +263,22 @@
   cursor: pointer;
   color: var(--hint);
   padding: 6px 0 8px;
+  position: relative;
 }
 
 .nav-item--active {
   color: var(--button-bg);
+}
+
+.nav-item--active::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 15%;
+  right: 15%;
+  height: 2px;
+  background: var(--button-bg);
+  border-radius: 0 0 2px 2px;
 }
 
 .nav-icon { font-size: 20px; }
@@ -314,6 +340,10 @@
 .nav-label {
   font-size: 10px;
   font-weight: 500;
+}
+
+.nav-item--active .nav-label {
+  font-weight: 700;
 }
 
 /* ── Medication list ─────────────────────────────────────────────────────── */
@@ -1290,6 +1320,131 @@
 .settings-footer {
   padding: 12px 16px 20px;
   text-align: center;
+}
+
+/* ── Timezone picker ─────────────────────────────────────────────────────── */
+
+.tz-current {
+  flex: 1;
+  font-size: 13px;
+  color: var(--hint);
+  text-align: right;
+  margin-right: 8px;
+  word-break: break-all;
+}
+
+.tz-change-btn {
+  background: none;
+  border: none;
+  color: var(--link-color, var(--button-bg));
+  font-size: 14px;
+  padding: 0;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.tz-picker {
+  padding: 8px 12px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tz-geo-btn {
+  width: 100%;
+  padding: 10px;
+  background: var(--button-bg);
+  color: var(--button-text);
+  border: none;
+  border-radius: 10px;
+  font-size: 15px;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.tz-geo-btn:disabled {
+  opacity: 0.6;
+}
+
+.tz-error {
+  margin: 0;
+  font-size: 13px;
+  color: #e53030;
+}
+
+.tz-search-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 9px 12px;
+  border: 1px solid var(--separator);
+  border-radius: 10px;
+  background: var(--secondary-bg);
+  color: var(--text);
+  font-size: 15px;
+  outline: none;
+}
+
+.tz-list {
+  max-height: 220px;
+  overflow-y: auto;
+  border-radius: 10px;
+  border: 1px solid var(--separator);
+}
+
+.tz-list-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--separator);
+  gap: 8px;
+}
+
+.tz-list-item:last-child {
+  border-bottom: none;
+}
+
+.tz-list-item:active {
+  background: var(--secondary-bg);
+}
+
+.tz-list-item--active {
+  background: var(--secondary-bg);
+}
+
+.tz-list-item--active .tz-item-label::after {
+  content: ' ✓';
+  color: var(--button-bg);
+}
+
+.tz-item-label {
+  font-size: 14px;
+  color: var(--text);
+}
+
+.tz-item-value {
+  font-size: 12px;
+  color: var(--hint);
+  white-space: nowrap;
+}
+
+.tz-empty {
+  margin: 0;
+  padding: 12px;
+  text-align: center;
+  font-size: 14px;
+  color: var(--hint);
+}
+
+.tz-cancel-btn {
+  background: none;
+  border: none;
+  color: var(--hint);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 4px 0 8px;
+  align-self: center;
 }
 
 /* ── Section hint ────────────────────────────────────────────────────────── */

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useAdherence, useStreak, useSendExport, useWeekStats, useMedications } from '../api/hooks'
+import { useAdherence, useStreak, useSendExport, useWeekStats, useMedications, useSettings } from '../api/hooks'
 import type { AdherenceMed, WeekStatRow, Medication } from '../api/types'
 
 function pctColor(pct: number): string {
@@ -206,11 +206,16 @@ export default function StatsPage() {
   const { data: adherence, isLoading: adherenceLoading } = useAdherence()
   const { data: weekRows = [] } = useWeekStats()
   const { data: medications = [] } = useMedications()
+  const { data: settings } = useSettings()
 
+  const caregiverEnabled = !!settings?.caregiver_enabled
   const ownerStreak = streakData?.find((s) => s.dependent_id === null)?.streak ?? 0
-  const depStreaks = streakData?.filter((s) => s.dependent_id !== null) ?? []
+  const depStreaks = caregiverEnabled
+    ? (streakData?.filter((s) => s.dependent_id !== null) ?? [])
+    : []
   const totalPct = adherence?.total_pct
-  const meds = adherence?.medications ?? []
+  const allMeds = adherence?.medications ?? []
+  const meds = caregiverEnabled ? allMeds : allMeds.filter((m) => !m.dependent_name)
 
   return (
     <div className="page">

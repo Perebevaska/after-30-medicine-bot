@@ -2,14 +2,22 @@ import asyncio
 import pytz
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from timezonefinder import TimezoneFinder
 import database as db
 from api.auth import require_telegram_user
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
+_tf = TimezoneFinder()
+
 
 class TimezoneIn(BaseModel):
     timezone: str
+
+
+class LocationIn(BaseModel):
+    lat: float
+    lng: float
 
 
 class ReminderModeIn(BaseModel):
@@ -44,6 +52,14 @@ async def set_timezone(body: TimezoneIn, telegram_id: int = Depends(require_tele
     except pytz.exceptions.UnknownTimeZoneError:
         raise HTTPException(400, "Неизвестный часовой пояс")
     await asyncio.to_thread(db.set_user_timezone, telegram_id, body.timezone)
+
+
+@router.put("/timezone/by-location", status_code=204)
+async def set_timezone_by_location(body: LocationIn, telegram_id: int = Depends(require_telegram_user)):
+    tz = await asyncio.to_thread(_tf.timezone_at, lat=body.lat, lng=body.lng)
+    if not tz:
+        raise HTTPException(400, "Не удалось определить часовой пояс по координатам")
+    await asyncio.to_thread(db.set_user_timezone, telegram_id, tz)
 
 
 @router.put("/reminder-mode", status_code=204)

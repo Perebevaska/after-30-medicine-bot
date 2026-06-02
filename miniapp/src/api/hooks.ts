@@ -164,6 +164,22 @@ export function useSettings() {
   })
 }
 
+export function useSetTimezone() {
+  const qc = useQueryClient()
+  return useMutation<void, Error, string>({
+    mutationFn: (timezone) => api.put<void>('/settings/timezone', { timezone }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['settings'] }),
+  })
+}
+
+export function useSetTimezoneByLocation() {
+  const qc = useQueryClient()
+  return useMutation<void, Error, { lat: number; lng: number }>({
+    mutationFn: (body) => api.put<void>('/settings/timezone/by-location', body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['settings'] }),
+  })
+}
+
 export function useSetReminderMode() {
   const qc = useQueryClient()
   return useMutation<void, Error, 'once' | 'repeat'>({
