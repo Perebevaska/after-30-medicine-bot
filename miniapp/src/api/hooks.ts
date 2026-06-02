@@ -18,6 +18,22 @@ export function useAdherence() {
   })
 }
 
+export function useHearts() {
+  return useQuery<{ hearts: number }>({
+    queryKey: ['hearts'],
+    queryFn: () => api.get<{ hearts: number }>('/stats/hearts'),
+    enabled: !!getInitDataRaw(),
+  })
+}
+
+export function useSetStrictMode() {
+  const qc = useQueryClient()
+  return useMutation<void, Error, { enabled: boolean; hours?: number }>({
+    mutationFn: (body) => api.put<void>('/settings/strict-mode', body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['settings'] }),
+  })
+}
+
 export function useStreak() {
   return useQuery<StreakItem[]>({
     queryKey: ['streak'],
@@ -272,6 +288,7 @@ export function useLogIntake() {
       qc.invalidateQueries({ queryKey: ['today'] })
       qc.invalidateQueries({ queryKey: ['streak'] })
       qc.invalidateQueries({ queryKey: ['adherence'] })
+      qc.invalidateQueries({ queryKey: ['hearts'] })
     },
   })
 }

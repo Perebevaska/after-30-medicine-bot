@@ -8,6 +8,7 @@ from arq import create_pool
 from arq.connections import RedisSettings
 from redis import Redis as _RedisSync
 from database import (get_active_schedule_rows, log_intake, apply_intake_stock,
+                      apply_intake_hearts, get_today_intake_statuses,
                       get_schedules_by_medication, get_or_create_user, get_medication_by_id)
 from utils import escape_html, get_tz_for_user, local_day_bounds_utc
 # _rule_fires_today живёт в schedule_utils (чистая логика, без telegram/db);
@@ -175,6 +176,8 @@ async def send_reminders(app):
         logger.info("scheduler: sent=%d errors=%d active_rules=%d", sent, errors, len(schedules))
 
     await _send_daily_plans(app, schedules)
+    # G2: строгий режим — авто-пропуск просроченных приёмов со штрафом сердечком.
+    await _apply_strict_autoskip(schedules)
     # AX6: сохранить обновлённое состояние (отправленные слоты/планы) в Redis.
     await asyncio.to_thread(_save_state)
 
@@ -256,6 +259,66 @@ async def _send_daily_plans(app, schedules):
             logger.error("Ошибка постановки плана дня в очередь: %s", e)
 
 
+async def _apply_strict_autoskip(schedules):
+    """G2: в строгом режиме помечает просроченные приёмы как пропущенные (−1 ❤️).
+
+    Просрочка = прошло strict_mode_hours часов после reminder_time, а отметки за
+    сегодня (taken/skipped) нет. Идемпотентно: запись skipped → следующий проход
+    видит её и не повторяет.
+    """
+    strict_rows = [r for r in schedules if r.get("strict_mode")]
+    if not strict_rows:
+        return
+
+    by_user: dict = {}
+    for r in strict_rows:
+        by_user.setdefault(r["telegram_id"], []).append(r)
+
+    for tid, rows in by_user.items():
+        first = rows[0]
+        try:
+            tz = pytz.timezone(first["timezone"] or "UTC")
+        except Exception:
+            tz = pytz.utc
+        now_local = datetime.now(tz)
+        today = now_local.date()
+        now_min = now_local.hour * 60 + now_local.minute
+        hours = first["strict_mode_hours"] or 2
+        threshold = hours * 60
+        start_utc, end_utc = local_day_bounds_utc(tz, now_local)
+        statuses = await asyncio.to_thread(get_today_intake_statuses, tid, start_utc, end_utc)
+
+        for r in rows:
+            if not _rule_fires_today(r, today):
+                continue
+            try:
+                rh, rm = r["reminder_time"].split(":")
+                reminder_min = int(rh) * 60 + int(rm)
+            except (ValueError, AttributeError):
+                continue
+            if now_min < reminder_min + threshold:
+                continue  # ещё не просрочено
+            key = (r["medication_id"], r["reminder_time"])
+            if key in statuses:
+                continue  # уже отмечено
+
+            await asyncio.to_thread(
+                log_intake, r["medication_id"], r["reminder_time"], "skipped", start_utc, end_utc
+            )
+            await asyncio.to_thread(apply_intake_hearts, r["user_id"], "skipped", None)
+            statuses[key] = "skipped"
+            dep = f" ({escape_html(r['dependent_name'])})" if r["dependent_name"] else ""
+            try:
+                await _arq_pool.enqueue_job(
+                    'send_reminder',
+                    chat_id=tid,
+                    text=(f"⏰ <b>{escape_html(r['name'])}</b>{dep} автоматически отмечен "
+                          f"пропущенным (строгий режим, прошло {hours} ч). −1 ❤️"),
+                )
+            except Exception as e:
+                logger.error("strict autoskip enqueue error: %s", e)
+
+
 async def handle_intake_callback(update, context):
     """Обрабатывает нажатие кнопок ✅ Принял / ❌ Пропустить в напоминании.
 
@@ -291,6 +354,8 @@ async def handle_intake_callback(update, context):
         old_status = await asyncio.to_thread(
             log_intake, medication_id, scheduled_time, status, start_utc, end_utc
         )
+        # G1: сердечки за приём/пропуск (идемпотентно через old_status).
+        await asyncio.to_thread(apply_intake_hearts, user_id, status, old_status)
     except Exception as e:
         logger.error("Ошибка записи приёма: %s", e)
         await query.edit_message_text("⚠️ Не удалось записать приём. Попробуй ещё раз.")

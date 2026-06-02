@@ -51,6 +51,11 @@ class CaregiverIn(BaseModel):
     enabled: bool
 
 
+class StrictModeIn(BaseModel):
+    enabled: bool
+    hours: Optional[int] = Field(default=None, ge=1, le=24)
+
+
 @router.get("")
 async def get_settings(telegram_id: int = Depends(require_telegram_user)):
     row = await asyncio.to_thread(db.get_user_settings_row, telegram_id)
@@ -99,6 +104,11 @@ async def set_daily_plan(body: DailyPlanIn, telegram_id: int = Depends(require_t
 @router.put("/caregiver", status_code=204)
 async def set_caregiver(body: CaregiverIn, telegram_id: int = Depends(require_telegram_user)):
     await asyncio.to_thread(db.set_caregiver_mode, telegram_id, body.enabled)
+
+
+@router.put("/strict-mode", status_code=204)
+async def set_strict_mode(body: StrictModeIn, telegram_id: int = Depends(require_telegram_user)):
+    await asyncio.to_thread(db.set_strict_mode, telegram_id, body.enabled, body.hours)
 
 
 @router.delete("/account", status_code=204)

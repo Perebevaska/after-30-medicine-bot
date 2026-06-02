@@ -1,7 +1,7 @@
 import { useState, useRef, forwardRef, useImperativeHandle } from 'react'
 import { createPortal } from 'react-dom'
 import { Check, X } from 'lucide-react'
-import { useToday, useLogIntake } from '../api/hooks'
+import { useToday, useLogIntake, useHearts } from '../api/hooks'
 import { useQueryClient } from '@tanstack/react-query'
 import { api, apiErrorMessage } from '../api/client'
 import type { TodayItem } from '../api/types'
@@ -34,6 +34,9 @@ const WishCard = forwardRef<WishCardHandle>(function WishCard(_, ref) {
   const [particles, setParticles] = useState<HeartParticle[]>([])
   const [shaking, setShaking] = useState(false)
   const heartRef = useRef<HTMLSpanElement>(null)
+  // G1: счётчик сердечек рядом с ❤️
+  const { data: heartsData } = useHearts()
+  const hearts = heartsData?.hearts ?? 0
 
   const spawnHearts = () => {
     const rect = heartRef.current?.getBoundingClientRect()
@@ -100,7 +103,10 @@ const WishCard = forwardRef<WishCardHandle>(function WishCard(_, ref) {
         <div className="wish-text-wrap">
           <span className="wish-text">{wish}</span>
         </div>
-        <span ref={heartRef} className={`wish-heart${shaking ? ' wish-heart--shake' : ''}`} aria-hidden="true">❤️</span>
+        <span className="wish-heart-wrap">
+          <span ref={heartRef} className={`wish-heart${shaking ? ' wish-heart--shake' : ''}`} aria-hidden="true">❤️</span>
+          <span className="wish-heart-count">{hearts}</span>
+        </span>
       </div>
       {createPortal(
         <div className="hearts-overlay" aria-hidden="true">
@@ -233,6 +239,7 @@ export default function Dashboard() {
       await qc.invalidateQueries({ queryKey: ['today'] })
       await qc.invalidateQueries({ queryKey: ['streak'] })
       await qc.invalidateQueries({ queryKey: ['adherence'] })
+      await qc.invalidateQueries({ queryKey: ['hearts'] })
       setTakingAll(false)
     }
   }

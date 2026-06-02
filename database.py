@@ -78,6 +78,9 @@ def init_db():
             daily_plan_enabled INTEGER DEFAULT 1,
             daily_plan_time TEXT DEFAULT '08:00',
             caregiver_enabled INTEGER DEFAULT 0,
+            hearts INTEGER DEFAULT 0,
+            strict_mode INTEGER DEFAULT 0,
+            strict_mode_hours INTEGER DEFAULT 2,
             created_at TEXT DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')
         )
         """,
@@ -161,6 +164,9 @@ def migrate():
             ("daily_plan_enabled", "INTEGER DEFAULT 1"),
             ("daily_plan_time",    "TEXT DEFAULT '08:00'"),
             ("caregiver_enabled",  "INTEGER DEFAULT 0"),
+            ("hearts",             "INTEGER DEFAULT 0"),
+            ("strict_mode",        "INTEGER DEFAULT 0"),
+            ("strict_mode_hours",  "INTEGER DEFAULT 2"),
         ]:
             conn.execute(
                 f"ALTER TABLE IF EXISTS users ADD COLUMN IF NOT EXISTS {col} {definition}"
@@ -458,8 +464,9 @@ def get_active_schedule_rows() -> list:
     """
     with get_connection() as conn:
         return conn.execute(
-            """SELECT u.telegram_id, u.timezone, u.reminder_mode,
+            """SELECT u.telegram_id, u.id AS user_id, u.timezone, u.reminder_mode,
                       u.daily_plan_enabled, u.daily_plan_time,
+                      u.strict_mode, u.strict_mode_hours,
                       m.id AS medication_id, m.name, m.dosage AS med_dosage, m.meal_relation,
                       sr.reminder_time, sr.frequency, sr.interval_days,
                       sr.weekdays, sr.month_day, sr.anchor_date, sr.dosage AS rule_dosage,
@@ -705,10 +712,56 @@ def get_user_settings_row(telegram_id: int):
         return conn.execute(
             """SELECT timezone, reminder_mode,
                       time_morning, time_lunch, time_evening, time_night,
-                      daily_plan_enabled, daily_plan_time, caregiver_enabled
+                      daily_plan_enabled, daily_plan_time, caregiver_enabled,
+                      hearts, strict_mode, strict_mode_hours
                FROM users WHERE telegram_id = %s""",
             (telegram_id,)
         ).fetchone()
+
+
+# ── Сердечки (G1) и строгий режим (G2) ──────────────────────────────────────
+
+def apply_intake_hearts(user_id: int, new_status: str, old_status) -> int:
+    """Корректирует счётчик сердечек при смене статуса приёма. Возвращает новое значение.
+
+    +1 за taken, −1 за skipped, 0 за pending/нет. delta = вклад(new) − вклад(old) —
+    идемпотентно к повторам и переотметкам. Нижняя граница 0 (GREATEST).
+    """
+    contrib = {"taken": 1, "skipped": -1}
+    delta = contrib.get(new_status, 0) - contrib.get(old_status, 0)
+    with get_connection() as conn:
+        if delta == 0:
+            row = conn.execute("SELECT hearts FROM users WHERE id = %s", (user_id,)).fetchone()
+            return row["hearts"] if row else 0
+        row = conn.execute(
+            "UPDATE users SET hearts = GREATEST(0, hearts + %s) WHERE id = %s RETURNING hearts",
+            (delta, user_id)
+        ).fetchone()
+        return row["hearts"] if row else 0
+
+
+def get_hearts(telegram_id: int) -> int:
+    """Возвращает количество сердечек пользователя."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT hearts FROM users WHERE telegram_id = %s", (telegram_id,)
+        ).fetchone()
+        return row["hearts"] if row else 0
+
+
+def set_strict_mode(telegram_id: int, enabled: bool, hours: int = None):
+    """Включает/выключает строгий режим; опционально обновляет порог в часах."""
+    with get_connection() as conn:
+        if hours is None:
+            conn.execute(
+                "UPDATE users SET strict_mode = %s WHERE telegram_id = %s",
+                (1 if enabled else 0, telegram_id)
+            )
+        else:
+            conn.execute(
+                "UPDATE users SET strict_mode = %s, strict_mode_hours = %s WHERE telegram_id = %s",
+                (1 if enabled else 0, hours, telegram_id)
+            )
 
 
 def get_daily_plan_settings(telegram_id: int) -> dict:

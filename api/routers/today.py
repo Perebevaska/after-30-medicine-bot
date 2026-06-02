@@ -68,3 +68,7 @@ async def log_intake(body: IntakeIn, user: TelegramUser = Depends(require_db_use
     await asyncio.to_thread(
         db.apply_intake_stock, body.medication_id, body.status, old_status
     )
+    # G1: сердечки — +1 taken / −1 skipped (идемпотентно через old_status).
+    await asyncio.to_thread(
+        db.apply_intake_hearts, user.user_id, body.status, old_status
+    )

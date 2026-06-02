@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import {
   useSettings, useSetReminderMode, useSetDailyPlan, useSetCaregiver,
   useDependents, useCreateDependent, useDeleteDependent,
-  useSetTimezone, useSetTimezoneByLocation, useDeleteAccount,
+  useSetTimezone, useSetTimezoneByLocation, useDeleteAccount, useSetStrictMode,
 } from '../api/hooks'
 
 const TIMEZONES: { value: string; label: string }[] = [
@@ -48,6 +48,7 @@ export default function SettingsPage() {
   const setMode = useSetReminderMode()
   const setDailyPlan = useSetDailyPlan()
   const setCaregiver = useSetCaregiver()
+  const setStrict = useSetStrictMode()
 
   const { data: deps } = useDependents()
   const createDep = useCreateDependent()
@@ -58,6 +59,7 @@ export default function SettingsPage() {
 
   const deleteAccount = useDeleteAccount()
   const [dailyPlanTime, setDailyPlanTime] = useState('08:00')
+  const [strictHours, setStrictHours] = useState(2)
   const [newDepName, setNewDepName] = useState('')
   const [tzEditing, setTzEditing] = useState(false)
   const [tzSearch, setTzSearch] = useState('')
@@ -100,6 +102,7 @@ export default function SettingsPage() {
   useEffect(() => {
     if (!data) return
     setDailyPlanTime(data.daily_plan_time ?? '08:00')
+    setStrictHours(data.strict_mode_hours ?? 2)
   }, [data])
 
   if (isLoading) return <div className="page"><p className="hint">Загрузка…</p></div>
@@ -161,6 +164,39 @@ export default function SettingsPage() {
               value={dailyPlanTime}
               onChange={(e) => setDailyPlanTime(e.target.value)}
               onBlur={handleDailyPlanTimeBlur}
+            />
+          </div>
+        )}
+      </div>
+
+      <h2 className="section-title">Строгий режим</h2>
+      <p className="section-hint">
+        Если не отметить приём за заданное число часов после времени — он
+        автоматически считается пропущенным и снимается ❤️.
+      </p>
+      <div className="settings-block">
+        <div className="settings-row">
+          <span className="settings-label">Включён</span>
+          <label className="toggle-switch">
+            <input
+              type="checkbox"
+              checked={!!data.strict_mode}
+              onChange={(e) => setStrict.mutate({ enabled: e.target.checked, hours: strictHours })}
+            />
+            <span className="toggle-track" />
+          </label>
+        </div>
+        {!!data.strict_mode && (
+          <div className="settings-row">
+            <span className="settings-label">Через сколько часов</span>
+            <input
+              type="number"
+              className="settings-time-input"
+              min={1}
+              max={24}
+              value={strictHours}
+              onChange={(e) => setStrictHours(Math.min(24, Math.max(1, +e.target.value)))}
+              onBlur={() => setStrict.mutate({ enabled: true, hours: strictHours })}
             />
           </div>
         )}

@@ -116,4 +116,7 @@ export interface UserSettings {
   daily_plan_enabled: number
   daily_plan_time: string | null
   caregiver_enabled: number
+  hearts: number
+  strict_mode: number
+  strict_mode_hours: number
 }

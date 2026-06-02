@@ -67,6 +67,13 @@ async def stats_adherence(user: TelegramUser = Depends(require_db_user)):
     return {"medications": list(merged.values()), "total_pct": total_pct}
 
 
+@router.get("/hearts")
+async def stats_hearts(user: TelegramUser = Depends(require_db_user)):
+    """G1: счётчик сердечек пользователя."""
+    hearts = await asyncio.to_thread(db.get_hearts, user.telegram_id)
+    return {"hearts": hearts}
+
+
 @router.get("/streak")
 async def stats_streak(user: TelegramUser = Depends(require_db_user)):
     end = datetime.now(timezone.utc)

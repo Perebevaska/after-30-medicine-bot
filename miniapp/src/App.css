@@ -91,6 +91,22 @@
   pointer-events: none;
 }
 
+/* G1: счётчик сердечек рядом с ❤️ */
+.wish-heart-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+}
+
+.wish-heart-count {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--hint, #888);
+  min-width: 12px;
+  user-select: none;
+}
+
 @keyframes heartShake {
   0%, 100% { transform: scale(1) rotate(0deg); }
   15%  { transform: scale(0.85) rotate(-14deg); }
