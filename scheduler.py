@@ -55,6 +55,8 @@ async def send_reminders(app):
     # B3: синхронный psycopg-запрос не должен блокировать event loop каждую минуту.
     schedules = await asyncio.to_thread(get_active_schedule_rows)
 
+    sent = errors = 0
+
     for row in schedules:
         try:
             user_tz = pytz.timezone(row["timezone"] or "UTC")
@@ -100,9 +102,13 @@ async def send_reminders(app):
                 buttons=buttons,
             )
             _pending[key] = now_utc
-            logger.info("Напоминание поставлено в очередь: %s → %s", row["name"], row["telegram_id"])
+            sent += 1
         except Exception as e:
             logger.error("Ошибка постановки в очередь: %s", e)
+            errors += 1
+
+    if sent or errors:
+        logger.info("scheduler: sent=%d errors=%d active_rules=%d", sent, errors, len(schedules))
 
     await _send_daily_plans(app, schedules)
 
