@@ -300,6 +300,7 @@
 }
 
 .mlist-card--paused { opacity: 0.6; }
+.mlist-card--due { border-left: 3px solid #4caf50; }
 
 .mlist-info { flex: 1; min-width: 0; }
 

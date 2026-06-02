@@ -35,6 +35,12 @@ function WishCard() {
   )
 }
 
+function isDue(reminderTime: string): boolean {
+  const now = new Date()
+  const [h, m] = reminderTime.split(':').map(Number)
+  return now.getHours() * 60 + now.getMinutes() >= h * 60 + m
+}
+
 function MedCard({ item }: { item: TodayItem }) {
   const { mutate, isPending } = useLogIntake()
 
@@ -46,8 +52,10 @@ function MedCard({ item }: { item: TodayItem }) {
     })
   }
 
+  const due = item.status === 'pending' && isDue(item.reminder_time)
+
   return (
-    <div className={`mlist-card${item.status !== 'pending' ? ' mlist-card--paused' : ''}`}>
+    <div className={`mlist-card${item.status !== 'pending' ? ' mlist-card--paused' : ''}${due ? ' mlist-card--due' : ''}`}>
       <div className="mlist-info">
         <div className="mlist-name">
           {item.name}
