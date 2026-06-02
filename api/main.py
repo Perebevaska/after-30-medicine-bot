@@ -25,7 +25,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 import database as _db
-from database import init_pool, close_pool, get_connection
+from database import init_pool, close_pool, get_connection, migrate
 
 logger = logging.getLogger("api")
 
@@ -110,6 +110,13 @@ class _RateLimitMiddleware(BaseHTTPMiddleware):
 async def lifespan(app: FastAPI):
     owned = _db._pool is None   # не закрывать пул, если он создан снаружи (тесты)
     init_pool()
+    # API не должен зависеть от того, что bot.py уже выполнил миграцию: гонять
+    # её здесь тоже (идемпотентно — ADD COLUMN IF NOT EXISTS / индексы). Иначе
+    # при рассинхроне рестартов API стучится в несуществующие колонки (500).
+    try:
+        await asyncio.to_thread(migrate)
+    except Exception as e:
+        logger.warning("migrate в API lifespan не выполнен: %s", e)
     yield
     if owned:
         close_pool()
