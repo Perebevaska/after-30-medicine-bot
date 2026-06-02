@@ -23,6 +23,7 @@ interface HeartParticle {
   dy: number
   size: number
   dur: number
+  emoji?: string
 }
 
 // ── Health bar persistence ─────────────────────────────────────────────────
@@ -36,13 +37,14 @@ interface HeartParticle {
 
 let _pid = 0
 
-export type WishCardHandle = { celebrate: () => void }
+export type WishCardHandle = { celebrate: () => void; skipped: () => void }
 
 const WishCard = forwardRef<WishCardHandle>(function WishCard(_, ref) {
   const [wish, setWish] = useState(randomWish)
   // hp и setHp отключены (заливка/рамка), оставлены для будущего
   // const [hp, setHp] = useState(loadHp)
   const [particles, setParticles] = useState<HeartParticle[]>([])
+  const [shaking, setShaking] = useState(false)
   const heartRef = useRef<HTMLSpanElement>(null)
 
   // Обновляем hp каждые 200 мс — нужно для быстрого drain (11 с)
@@ -81,7 +83,34 @@ const WishCard = forwardRef<WishCardHandle>(function WishCard(_, ref) {
     spawnHearts()
   }
 
-  useImperativeHandle(ref, () => ({ celebrate }))
+  const spawnBrokenHearts = () => {
+    const rect = heartRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const cx = rect.left + rect.width / 2
+    const cy = rect.top + rect.height / 2
+    const batch: HeartParticle[] = Array.from({ length: 3 }, () => ({
+      id: ++_pid,
+      x: cx,
+      y: cy,
+      dx: (Math.random() - 0.5) * 50,
+      dy: 65 + Math.random() * 55,
+      size: 14 + Math.random() * 6,
+      dur: 480 + Math.random() * 180,
+      emoji: '💔',
+    }))
+    setParticles((p) => [...p, ...batch])
+    const maxDur = Math.max(...batch.map((p) => p.dur)) + 60
+    const ids = new Set(batch.map((p) => p.id))
+    setTimeout(() => setParticles((p) => p.filter((pt) => !ids.has(pt.id))), maxDur)
+  }
+
+  const skipped = () => {
+    setShaking(true)
+    setTimeout(() => setShaking(false), 580)
+    spawnBrokenHearts()
+  }
+
+  useImperativeHandle(ref, () => ({ celebrate, skipped }))
 
   // next (смена пожелания + hp через кнопку) — отключено; оставлено для будущего
   // const next = () => {
@@ -110,7 +139,7 @@ const WishCard = forwardRef<WishCardHandle>(function WishCard(_, ref) {
           </span>
           */}
         </div>
-        <span ref={heartRef} className="wish-heart" aria-hidden="true">❤️</span>
+        <span ref={heartRef} className={`wish-heart${shaking ? ' wish-heart--shake' : ''}`} aria-hidden="true">❤️</span>
       </div>
       {createPortal(
         <div className="hearts-overlay" aria-hidden="true">
@@ -127,7 +156,7 @@ const WishCard = forwardRef<WishCardHandle>(function WishCard(_, ref) {
                 '--dur': `${p.dur}ms`,
               } as React.CSSProperties}
             >
-              ❤️
+              {p.emoji ?? '❤️'}
             </span>
           ))}
         </div>,
@@ -151,16 +180,19 @@ function MedCard({
   exiting,
   entering,
   onTaken,
+  onSkipped,
 }: {
   item: TodayItem
   exiting?: boolean
   entering?: boolean
   onTaken?: () => void
+  onSkipped?: () => void
 }) {
   const { mutate, isPending } = useLogIntake()
 
   const log = (status: 'taken' | 'skipped' | 'pending') => {
     if (status === 'taken') onTaken?.()
+    if (status === 'skipped') onSkipped?.()
     mutate({
       medication_id: item.medication_id,
       scheduled_time: item.reminder_time,
@@ -333,6 +365,7 @@ export default function Dashboard() {
               item={item}
               exiting={exitingMap.has(itemKey(item))}
               onTaken={() => wishRef.current?.celebrate()}
+              onSkipped={() => wishRef.current?.skipped()}
             />
           ))}
 
@@ -354,6 +387,7 @@ export default function Dashboard() {
               item={item}
               entering={enteringIds.has(itemKey(item))}
               onTaken={() => wishRef.current?.celebrate()}
+              onSkipped={() => wishRef.current?.skipped()}
             />
           ))}
         </div>

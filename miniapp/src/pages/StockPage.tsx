@@ -22,7 +22,7 @@ function daysLabel(n: number): string {
   return `${n} дней`
 }
 
-function StockExpanded({ med }: { med: Medication }) {
+export function StockExpanded({ med }: { med: Medication }) {
   const { data, isLoading } = useStock(med.id)
   const mutSet = useSetStock()
   const mutAdd = useAddStock()
@@ -31,16 +31,17 @@ function StockExpanded({ med }: { med: Medication }) {
   const mutDisable = useDisableStock()
 
   const [addAmt, setAddAmt] = useState('')
-  const [newQty, setNewQty] = useState('')
+  const [stockQty, setStockQty] = useState('')
   const [unitsVal, setUnitsVal] = useState('')
   const [threshVal, setThreshVal] = useState('')
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const initialized = useRef(false)
 
   useEffect(() => {
     if (!data || initialized.current) return
     initialized.current = true
     if (data.stock_qty !== null && data.stock_qty !== undefined) {
-      setNewQty(String(data.stock_qty))
+      setStockQty(String(data.stock_qty))
     }
     setUnitsVal(String(data.units_per_dose ?? 1))
     setThreshVal(String(data.low_stock_days ?? 7))
@@ -51,111 +52,128 @@ function StockExpanded({ med }: { med: Medication }) {
   const hasStock = data?.stock_qty !== null && data?.stock_qty !== undefined
   const daysLeft = data?.days_left
   const threshold = data?.low_stock_days ?? 7
+  const isSaving = mutSet.isPending || mutUnits.isPending || mutThreshold.isPending
+
+  const handleSave = () => {
+    const qty = parseFloat(stockQty)
+    if (!isNaN(qty) && qty >= 0) mutSet.mutate({ medId: med.id, qty })
+    const u = parseFloat(unitsVal)
+    if (!isNaN(u) && u > 0) mutUnits.mutate({ medId: med.id, units: u })
+    const t = parseInt(threshVal, 10)
+    if (!isNaN(t) && t > 0) mutThreshold.mutate({ medId: med.id, days: t })
+  }
+
+  const handleToggle = () => {
+    if (hasStock) {
+      mutDisable.mutate(med.id)
+      setSettingsOpen(false)
+    } else {
+      initialized.current = false
+      mutSet.mutate({ medId: med.id, qty: 0 })
+    }
+  }
 
   return (
     <div className="stock-expanded">
-      {hasStock && daysLeft !== null && daysLeft !== undefined && (
-        <div className={`stock-days-badge ${daysClass(daysLeft, threshold)}`}>
-          ~{daysLabel(daysLeft)} осталось
-        </div>
-      )}
-
-      <div className="stock-row">
-        <span className="stock-row-label">Установить запас</span>
-        <input
-          className="field-input field-input--short"
-          type="number"
-          inputMode="decimal"
-          min="0"
-          value={newQty}
-          onChange={(e) => setNewQty(e.target.value)}
-          placeholder="0"
+      {/* Тоггл — всегда виден */}
+      <div className="stock-toggle-row">
+        <span className="stock-toggle-label">Учёт запаса</span>
+        <button
+          className={`stock-toggle ${hasStock ? 'stock-toggle--on' : 'stock-toggle--off'}`}
+          disabled={mutDisable.isPending || mutSet.isPending}
+          onClick={handleToggle}
         />
-        <button
-          className="stock-btn"
-          disabled={mutSet.isPending || newQty === ''}
-          onClick={() => {
-            const qty = parseFloat(newQty)
-            if (!isNaN(qty) && qty >= 0) mutSet.mutate({ medId: med.id, qty })
-          }}
-        >
-          ✓
-        </button>
       </div>
 
+      {/* Основное содержимое — только когда включён */}
       {hasStock && (
-        <div className="stock-row">
-          <span className="stock-row-label">Пополнить</span>
-          <input
-            className="field-input field-input--short"
-            type="number"
-            inputMode="decimal"
-            min="0"
-            value={addAmt}
-            onChange={(e) => setAddAmt(e.target.value)}
-            placeholder="0"
-          />
+        <>
+          {daysLeft !== null && daysLeft !== undefined && (
+            <div className={`stock-days-badge ${daysClass(daysLeft, threshold)}`}>
+              ~{daysLabel(daysLeft)} осталось
+            </div>
+          )}
+
+          <div className="stock-row">
+            <span className="stock-row-label">Докупил(а)</span>
+            <input
+              className="field-input field-input--short"
+              type="number"
+              inputMode="decimal"
+              min="0"
+              value={addAmt}
+              onChange={(e) => setAddAmt(e.target.value)}
+              placeholder="0"
+            />
+            <button
+              className="stock-btn"
+              disabled={mutAdd.isPending || addAmt === ''}
+              onClick={() => {
+                const amount = parseFloat(addAmt)
+                if (!isNaN(amount) && amount > 0) {
+                  mutAdd.mutate({ medId: med.id, amount }, { onSuccess: () => setAddAmt('') })
+                }
+              }}
+            >
+              +
+            </button>
+          </div>
+
+          {/* Скрытые настройки */}
           <button
-            className="stock-btn"
-            disabled={mutAdd.isPending || addAmt === ''}
-            onClick={() => {
-              const amount = parseFloat(addAmt)
-              if (!isNaN(amount) && amount > 0) {
-                mutAdd.mutate({ medId: med.id, amount }, { onSuccess: () => setAddAmt('') })
-              }
-            }}
+            className="stock-settings-toggle"
+            onClick={() => setSettingsOpen((v) => !v)}
           >
-            +
+            <span>Настройки</span>
+            <span className={`stock-settings-chevron${settingsOpen ? ' stock-settings-chevron--open' : ''}`}>›</span>
           </button>
-        </div>
-      )}
 
-      <div className="stock-settings">
-        <div className="stock-row">
-          <span className="stock-row-label">Ед. за приём</span>
-          <input
-            className="field-input field-input--short"
-            type="number"
-            inputMode="decimal"
-            min="0.1"
-            step="0.5"
-            value={unitsVal}
-            onChange={(e) => setUnitsVal(e.target.value)}
-          />
-        </div>
-        <div className="stock-row">
-          <span className="stock-row-label">Порог (дней)</span>
-          <input
-            className="field-input field-input--short"
-            type="number"
-            inputMode="numeric"
-            min="1"
-            value={threshVal}
-            onChange={(e) => setThreshVal(e.target.value)}
-          />
-        </div>
-        <button
-          className="btn-primary"
-          disabled={mutUnits.isPending || mutThreshold.isPending}
-          onClick={() => {
-            const u = parseFloat(unitsVal)
-            const t = parseInt(threshVal, 10)
-            if (!isNaN(u) && u > 0) mutUnits.mutate({ medId: med.id, units: u })
-            if (!isNaN(t) && t > 0) mutThreshold.mutate({ medId: med.id, days: t })
-          }}
-        >
-          Сохранить настройки
-        </button>
-      </div>
-
-      {hasStock && (
-        <button
-          className="stock-disable-btn"
-          disabled={mutDisable.isPending}
-          onClick={() => mutDisable.mutate(med.id)}
-        >
-          Отключить отслеживание
-        </button>
+          {settingsOpen && (
+            <div className="stock-settings">
+              <div className="stock-row">
+                <span className="stock-row-label">Запас (ед.)</span>
+                <input
+                  className="field-input field-input--short"
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  value={stockQty}
+                  onChange={(e) => setStockQty(e.target.value)}
+                  placeholder="—"
+                />
+              </div>
+              <div className="stock-row">
+                <span className="stock-row-label">Ед. за приём</span>
+                <input
+                  className="field-input field-input--short"
+                  type="number"
+                  inputMode="decimal"
+                  min="0.1"
+                  step="0.5"
+                  value={unitsVal}
+                  onChange={(e) => setUnitsVal(e.target.value)}
+                />
+              </div>
+              <div className="stock-row">
+                <span className="stock-row-label">
+                  Предупредить за
+                  <span className="stock-row-sublabel"> (дней до конца)</span>
+                </span>
+                <input
+                  className="field-input field-input--short"
+                  type="number"
+                  inputMode="numeric"
+                  min="1"
+                  value={threshVal}
+                  onChange={(e) => setThreshVal(e.target.value)}
+                />
+              </div>
+              <button className="btn-primary" disabled={isSaving} onClick={handleSave}>
+                Сохранить
+              </button>
+            </div>
+          )}
+        </>
       )}
     </div>
   )

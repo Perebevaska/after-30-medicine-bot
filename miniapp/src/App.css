@@ -91,6 +91,19 @@
   pointer-events: none;
 }
 
+@keyframes heartShake {
+  0%, 100% { transform: scale(1) rotate(0deg); }
+  15%  { transform: scale(0.85) rotate(-14deg); }
+  35%  { transform: scale(0.8)  rotate(14deg); }
+  55%  { transform: scale(0.85) rotate(-8deg); }
+  75%  { transform: scale(0.9)  rotate(6deg); }
+  90%  { transform: scale(0.95) rotate(-2deg); }
+}
+
+.wish-heart--shake {
+  animation: heartShake 0.58s ease-out;
+}
+
 /* Hearts particle effect */
 .hearts-overlay {
   position: fixed;
@@ -482,6 +495,116 @@
   flex-shrink: 0;
   line-height: 1;
   margin-left: 4px;
+  transition: transform 0.2s ease;
+}
+
+.mlist-card-chevron--open {
+  transform: rotate(90deg);
+}
+
+/* ── Inline card menu ────────────────────────────────────────────────────── */
+
+.mlist-card--col {
+  flex-direction: column;
+  align-items: stretch;
+  padding: 0;
+}
+
+.mlist-card-main {
+  display: flex;
+  align-items: center;
+  padding: 12px 16px;
+  gap: 12px;
+  min-height: 72px;
+}
+
+.mlist-card--open .mlist-card-main {
+  border-bottom: 1px solid rgba(0,0,0,0.07);
+}
+
+.mlist-card-body {
+  background: var(--secondary-bg);
+}
+
+.mlist-action-row {
+  display: flex;
+  padding: 10px 16px;
+  gap: 8px;
+}
+
+.mlist-action-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 44px;
+  border-radius: 10px;
+  border: none;
+  background: var(--bg);
+  color: var(--text);
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.mlist-action-btn:active { opacity: 0.6; }
+.mlist-action-btn:disabled { opacity: 0.35; cursor: default; }
+.mlist-action-btn--danger { color: #cc3333; }
+
+.mlist-confirm-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+}
+
+.mlist-confirm-text {
+  flex: 1;
+  font-size: 14px;
+  color: var(--text);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mlist-confirm-yes {
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: none;
+  background: #cc3333;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.mlist-confirm-yes:disabled { opacity: 0.5; cursor: default; }
+
+.mlist-confirm-no {
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: none;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.mlist-stock-section {
+  padding-bottom: 4px;
+}
+
+.mlist-back-link {
+  display: block;
+  width: 100%;
+  padding: 10px 16px;
+  background: none;
+  border: none;
+  border-top: 1px solid rgba(0,0,0,0.06);
+  text-align: left;
+  font-size: 14px;
+  color: var(--link);
+  cursor: pointer;
 }
 
 /* ── Action sheet ────────────────────────────────────────────────────────── */
@@ -508,6 +631,11 @@
 @keyframes sheet-in {
   from { transform: translateY(100%); }
   to   { transform: translateY(0); }
+}
+
+.sheet--scrollable {
+  max-height: 82vh;
+  overflow-y: auto;
 }
 
 .sheet-title {
@@ -1013,6 +1141,11 @@
   min-width: 0;
 }
 
+.stock-row-sublabel {
+  font-size: 11px;
+  opacity: 0.75;
+}
+
 .stock-btn {
   width: 40px;
   height: 44px;
@@ -1045,21 +1178,99 @@
   border-radius: 10px;
 }
 
-.stock-disable-btn {
-  background: none;
-  border: none;
-  color: #cc3333;
-  font-size: 14px;
-  cursor: pointer;
-  padding: 2px 0;
-  text-align: left;
-  text-decoration: underline;
+.stock-settings-title {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--hint);
+  margin: 0 0 2px;
 }
 
-.stock-disable-btn:disabled {
-  opacity: 0.4;
-  cursor: default;
+.stock-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
+
+.stock-toggle-label {
+  font-size: 14px;
+  color: var(--text);
+  font-weight: 500;
+}
+
+.stock-settings-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 2px 0;
+  font-size: 13px;
+  color: var(--hint);
+  cursor: pointer;
+}
+
+.stock-settings-chevron {
+  font-size: 16px;
+  transition: transform 0.2s;
+  display: inline-block;
+}
+
+.stock-settings-chevron--open {
+  transform: rotate(90deg);
+}
+
+.stock-toggle {
+  width: 51px;
+  height: 28px;
+  border-radius: 14px;
+  border: none;
+  cursor: pointer;
+  position: relative;
+  flex-shrink: 0;
+  transition: background 0.2s;
+  padding: 0;
+}
+
+.stock-toggle--on  { background: var(--button-bg); }
+.stock-toggle--off { background: rgba(120,120,128,0.32); }
+
+.stock-toggle::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.25);
+  transition: left 0.2s;
+}
+
+.stock-toggle--on::after  { left: 25px; }
+.stock-toggle--off::after { left: 2px; }
+
+.stock-toggle:disabled { opacity: 0.5; cursor: default; }
+
+/* ── Secondary button ───────────────────────────────────────────────────── */
+
+.btn-secondary {
+  width: 100%;
+  height: 44px;
+  border-radius: 12px;
+  border: 1px solid rgba(0,0,0,0.12);
+  background: var(--bg);
+  color: var(--hint);
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.btn-secondary:disabled { opacity: 0.4; cursor: default; }
+.btn-secondary:active { opacity: 0.7; }
 
 /* ── Submit error ────────────────────────────────────────────────────────── */
 
@@ -1618,4 +1829,71 @@
   color: var(--hint);
   text-align: center;
   padding: 8px 0;
+}
+
+/* ── Account deletion ────────────────────────────────────────────────────── */
+
+.account-delete-section {
+  margin: 24px 16px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.account-delete-note {
+  font-size: 13px;
+  color: var(--hint);
+  line-height: 1.5;
+}
+
+.btn-delete-account {
+  align-self: flex-start;
+  background: none;
+  border: none;
+  color: rgba(204, 51, 51, 0.65);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.btn-delete-account:hover { color: #cc3333; }
+
+.account-delete-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.account-delete-warn {
+  font-size: 13px;
+  color: #cc3333;
+}
+
+.btn-delete-account--confirm {
+  align-self: flex-start;
+  padding: 8px 16px;
+  border-radius: 8px;
+  background: #cc3333;
+  color: #fff;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.btn-delete-account--confirm:disabled { opacity: 0.5; cursor: default; }
+
+.btn-cancel-delete {
+  background: none;
+  border: none;
+  font-size: 14px;
+  color: var(--link);
+  cursor: pointer;
+  padding: 0;
+  align-self: flex-start;
+}
+
+.account-deleted-msg {
+  font-size: 15px;
+  color: var(--hint);
 }

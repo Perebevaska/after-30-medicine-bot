@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import {
   useSettings, useSetReminderMode, useSetDailyPlan, useSetCaregiver,
   useDependents, useCreateDependent, useDeleteDependent,
-  useSetTimezone, useSetTimezoneByLocation,
+  useSetTimezone, useSetTimezoneByLocation, useDeleteAccount,
 } from '../api/hooks'
 
 const TIMEZONES: { value: string; label: string }[] = [
@@ -56,11 +56,14 @@ export default function SettingsPage() {
   const setTz = useSetTimezone()
   const setTzByLocation = useSetTimezoneByLocation()
 
+  const deleteAccount = useDeleteAccount()
   const [dailyPlanTime, setDailyPlanTime] = useState('08:00')
   const [newDepName, setNewDepName] = useState('')
   const [tzEditing, setTzEditing] = useState(false)
   const [tzSearch, setTzSearch] = useState('')
   const [geoError, setGeoError] = useState('')
+  const [confirmDeleteAccount, setConfirmDeleteAccount] = useState(false)
+  const [deleted, setDeleted] = useState(false)
 
   const filteredZones = useMemo(() => {
     const q = tzSearch.toLowerCase()
@@ -135,8 +138,7 @@ export default function SettingsPage() {
 
       <h2 className="section-title">Ежедневный план</h2>
       <p className="section-hint">
-        Каждое утро бот пришлёт список всех запланированных на день приёмов.
-        Удобно, чтобы сразу увидеть лекарства на весь день.
+        Каждое утро бот будет присылать список всех запланированных на сегодня приёмов.
       </p>
       <div className="settings-block">
         <div className="settings-row">
@@ -275,6 +277,46 @@ export default function SettingsPage() {
               )}
             </div>
             <button className="tz-cancel-btn" onClick={() => { setTzEditing(false); setTzSearch(''); setGeoError('') }}>
+              Отмена
+            </button>
+          </div>
+        )}
+      </div>
+
+      <div className="account-delete-section">
+        <p className="account-delete-note">
+          Бот хранит только анонимный Telegram ID и список лекарств — без имени, фото и контактов.
+          Если хочешь сделать перерыв, лучше поставить лекарства на паузу — данные сохранятся.
+        </p>
+        {deleted ? (
+          <p className="account-deleted-msg">Данные удалены. До свидания 👋</p>
+        ) : !confirmDeleteAccount ? (
+          <button
+            className="btn-delete-account"
+            onClick={() => setConfirmDeleteAccount(true)}
+          >
+            Удалить все мои данные
+          </button>
+        ) : (
+          <div className="account-delete-confirm">
+            <p className="account-delete-warn">
+              История приёмов, расписание и все лекарства исчезнут навсегда.
+            </p>
+            <button
+              className="btn-delete-account btn-delete-account--confirm"
+              disabled={deleteAccount.isPending}
+              onClick={() =>
+                deleteAccount.mutate(undefined, {
+                  onSuccess: () => setDeleted(true),
+                })
+              }
+            >
+              Да, удалить навсегда
+            </button>
+            <button
+              className="btn-cancel-delete"
+              onClick={() => setConfirmDeleteAccount(false)}
+            >
               Отмена
             </button>
           </div>

@@ -82,3 +82,8 @@ async def set_daily_plan(body: DailyPlanIn, telegram_id: int = Depends(require_t
 @router.put("/caregiver", status_code=204)
 async def set_caregiver(body: CaregiverIn, telegram_id: int = Depends(require_telegram_user)):
     await asyncio.to_thread(db.set_caregiver_mode, telegram_id, body.enabled)
+
+
+@router.delete("/account", status_code=204)
+async def delete_account(telegram_id: int = Depends(require_telegram_user)):
+    await asyncio.to_thread(db.delete_user_data, telegram_id)

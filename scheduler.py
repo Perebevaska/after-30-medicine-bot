@@ -2,6 +2,8 @@ import asyncio
 import logging
 from datetime import datetime, timedelta
 import pytz
+from arq import create_pool
+from arq.connections import RedisSettings
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from database import (get_active_schedule_rows, log_intake, apply_intake_stock,
                       get_schedules_by_medication, get_or_create_user, get_medication_by_id)
@@ -11,6 +13,14 @@ from utils import escape_html, get_tz_for_user, local_day_bounds_utc
 from schedule_utils import _rule_fires_today, days_of_stock_left
 
 logger = logging.getLogger(__name__)
+
+_arq_pool = None
+
+
+async def init_arq_pool():
+    global _arq_pool
+    _arq_pool = await create_pool(RedisSettings())
+    logger.info("ARQ pool инициализирован")
 
 _MEAL_LABELS = {
     "before": "до еды",
@@ -71,34 +81,28 @@ async def send_reminders(app):
         if not should_send:
             continue
 
-        keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton(
-                "✅ Принял",
-                callback_data=f"taken:{row['medication_id']}:{row['reminder_time']}"
-            ),
-            InlineKeyboardButton(
-                "❌ Пропустить",
-                callback_data=f"skipped:{row['medication_id']}:{row['reminder_time']}"
-            ),
-        ]])
-
         dosage = row["rule_dosage"] or row["med_dosage"]
         dep_suffix = f" <i>({escape_html(row['dependent_name'])})</i>" if row["dependent_name"] else ""
+        buttons = [[
+            {"text": "✅ Принял",    "callback_data": f"taken:{row['medication_id']}:{row['reminder_time']}"},
+            {"text": "❌ Пропустить", "callback_data": f"skipped:{row['medication_id']}:{row['reminder_time']}"},
+        ]]
+        text = (
+            f"💊 Время принять лекарство!\n\n"
+            f"<b>{escape_html(row['name'])}</b>{dep_suffix} — {escape_html(dosage)}\n"
+            f"🍽 Принимать {_MEAL_LABELS.get(row['meal_relation'], row['meal_relation'])}"
+        )
         try:
-            await app.bot.send_message(
+            await _arq_pool.enqueue_job(
+                'send_reminder',
                 chat_id=row["telegram_id"],
-                text=(
-                    f"💊 Время принять лекарство!\n\n"
-                    f"<b>{escape_html(row['name'])}</b>{dep_suffix} — {escape_html(dosage)}\n"
-                    f"🍽 Принимать {_MEAL_LABELS.get(row['meal_relation'], row['meal_relation'])}"
-                ),
-                parse_mode="HTML",
-                reply_markup=keyboard
+                text=text,
+                buttons=buttons,
             )
             _pending[key] = now_utc
-            logger.info("Напоминание отправлено: %s → %s", row["name"], row["telegram_id"])
+            logger.info("Напоминание поставлено в очередь: %s → %s", row["name"], row["telegram_id"])
         except Exception as e:
-            logger.error("Ошибка отправки напоминания: %s", e)
+            logger.error("Ошибка постановки в очередь: %s", e)
 
     await _send_daily_plans(app, schedules)
 
@@ -168,15 +172,15 @@ async def _send_daily_plans(app, schedules):
         lines.append("Продуктивного дня! 🚀")
 
         try:
-            await app.bot.send_message(
+            await _arq_pool.enqueue_job(
+                'send_reminder',
                 chat_id=tid,
                 text="\n".join(lines),
-                parse_mode="HTML"
             )
             _daily_plan_sent.add(plan_key)
-            logger.info("План дня отправлен: %s", tid)
+            logger.info("План дня поставлен в очередь: %s", tid)
         except Exception as e:
-            logger.error("Ошибка отправки плана дня: %s", e)
+            logger.error("Ошибка постановки плана дня в очередь: %s", e)
 
 
 async def handle_intake_callback(update, context):

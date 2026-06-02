@@ -1,17 +1,16 @@
 import { themeParams, viewport } from '@telegram-apps/sdk-react'
 import { useEffect, useRef, useState } from 'react'
-import { CalendarHeart, Pill, BriefcaseMedical, ChartNoAxesColumnIncreasing, Settings } from 'lucide-react'
+import { CalendarHeart, Pill, ChartNoAxesColumnIncreasing, Settings } from 'lucide-react'
 import { inTelegram } from './main'
 import { useToday } from './api/hooks'
 import Dashboard from './pages/Dashboard'
 import MedicationList from './pages/MedicationList'
 import MedicationForm from './pages/MedicationForm'
-import StockPage from './pages/StockPage'
 import StatsPage from './pages/StatsPage'
 import SettingsPage from './pages/SettingsPage'
 import './App.css'
 
-type NavPage = 'dashboard' | 'medications' | 'stock' | 'stats' | 'settings'
+type NavPage = 'dashboard' | 'medications' | 'stats' | 'settings'
 
 function isDue(reminderTime: string): boolean {
   const now = new Date()
@@ -51,14 +50,6 @@ function BottomNav({ active, onChange }: { active: NavPage; onChange: (p: NavPag
       </button>
       <button
         type="button"
-        className={`nav-item${active === 'stock' ? ' nav-item--active' : ''}`}
-        onClick={() => onChange('stock')}
-      >
-        <BriefcaseMedical size={22} strokeWidth={1.75} />
-        <span className="nav-label">Запас</span>
-      </button>
-      <button
-        type="button"
         className={`nav-item${active === 'stats' ? ' nav-item--active' : ''}`}
         onClick={() => onChange('stats')}
       >
@@ -77,12 +68,15 @@ function BottomNav({ active, onChange }: { active: NavPage; onChange: (p: NavPag
   )
 }
 
-const NAV_PAGES: NavPage[] = ['dashboard', 'medications', 'stock', 'stats', 'settings']
+const NAV_PAGES: NavPage[] = ['dashboard', 'medications', 'stats', 'settings']
 const SWIPE_MIN_X = 65
 const SWIPE_RATIO = 1.5
 
+type ResetKeys = Record<NavPage, number>
+
 export default function App() {
   const [navPage, setNavPage] = useState<NavPage>('dashboard')
+  const [resetKeys, setResetKeys] = useState<ResetKeys>({ dashboard: 0, medications: 0, stats: 0, settings: 0 })
   const [editMedId, setEditMedId] = useState<number | undefined>()
   const [showForm, setShowForm] = useState(false)
   const touchStart = useRef<{ x: number; y: number } | null>(null)
@@ -147,17 +141,25 @@ export default function App() {
             className="tab-panel"
             style={{ transform: `translateX(${(i - activeIdx) * 100}%)` }}
           >
-            {page === 'dashboard' && <Dashboard />}
+            {page === 'dashboard' && <Dashboard key={resetKeys.dashboard} />}
             {page === 'medications' && (
-              <MedicationList onAdd={() => openForm()} onEdit={(id) => openForm(id)} />
+              <MedicationList key={resetKeys.medications} onAdd={() => openForm()} onEdit={(id) => openForm(id)} />
             )}
-            {page === 'stock' && <StockPage />}
-            {page === 'stats' && <StatsPage />}
-            {page === 'settings' && <SettingsPage />}
+            {page === 'stats' && <StatsPage key={resetKeys.stats} />}
+            {page === 'settings' && <SettingsPage key={resetKeys.settings} />}
           </div>
         ))}
       </div>
-      <BottomNav active={navPage} onChange={setNavPage} />
+      <BottomNav
+        active={navPage}
+        onChange={(p) => {
+          if (p === navPage) {
+            setResetKeys((k) => ({ ...k, [p]: k[p] + 1 }))
+          } else {
+            setNavPage(p)
+          }
+        }}
+      />
     </div>
   )
 }

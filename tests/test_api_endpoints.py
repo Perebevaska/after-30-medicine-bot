@@ -164,6 +164,37 @@ def test_stock_lifecycle(api_client, db):
     assert api_client.get(f"/medications/{mid}/stock").json()["stock_qty"] is None
 
 
+def test_stock_units_and_threshold(api_client, db):
+    """MA6: PUT /stock/units и /stock/threshold — вызываются из handleSave() в StockExpanded."""
+    _seed_user(db)
+    mid = _create_med(api_client)
+
+    r = api_client.put(f"/medications/{mid}/stock/units", json={"units": 2.5})
+    assert r.status_code == 204
+
+    r = api_client.put(f"/medications/{mid}/stock/threshold", json={"days": 14})
+    assert r.status_code == 204
+
+    info = api_client.get(f"/medications/{mid}/stock").json()
+    assert info["units_per_dose"] == 2.5
+    assert info["low_stock_days"] == 14
+
+
+def test_stock_save_all_fields(api_client, db):
+    """MA6: handleSave() вызывает set/units/threshold параллельно — все три изменения сохраняются."""
+    _seed_user(db)
+    mid = _create_med(api_client)
+
+    api_client.put(f"/medications/{mid}/stock", json={"qty": 60})
+    api_client.put(f"/medications/{mid}/stock/units", json={"units": 3})
+    api_client.put(f"/medications/{mid}/stock/threshold", json={"days": 10})
+
+    info = api_client.get(f"/medications/{mid}/stock").json()
+    assert info["stock_qty"] == 60
+    assert info["units_per_dose"] == 3
+    assert info["low_stock_days"] == 10
+
+
 def test_stock_not_found(api_client, db):
     _seed_user(db)
     assert api_client.get("/medications/999999/stock").status_code == 404

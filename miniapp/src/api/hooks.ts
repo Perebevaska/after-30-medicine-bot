@@ -241,6 +241,12 @@ export function useSendExport() {
   })
 }
 
+export function useDeleteAccount() {
+  return useMutation<void, Error, void>({
+    mutationFn: () => api.delete<void>('/settings/account'),
+  })
+}
+
 export function useLogIntake() {
   const qc = useQueryClient()
   return useMutation<void, Error, IntakeIn>({

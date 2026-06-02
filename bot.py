@@ -12,7 +12,7 @@ from telegram.ext import (
     ConversationHandler, MessageHandler, filters
 )
 from database import init_pool, init_db, migrate, close_pool
-from scheduler import send_reminders, handle_intake_callback
+from scheduler import send_reminders, handle_intake_callback, init_arq_pool
 from handlers import meds
 from handlers import timezone as tz_handler
 from handlers import stats, settings, admin, export, caregiver, stock
@@ -31,14 +31,7 @@ logger = logging.getLogger(__name__)
 
 
 async def post_init(app):
-    """Регистрирует команды бота в меню Telegram после запуска.
-
-    В списке только /menu — единая точка входа. /cancel остаётся рабочим
-    как fallback диалогов (выход из текстового ввода), но скрыт из меню.
-
-    Обёрнуто в try/except: транзиентный тайм-аут сети при старте не должен
-    ронять бота — команды переустановятся при следующем перезапуске.
-    """
+    await init_arq_pool()
     try:
         await app.bot.set_my_commands([
             BotCommand("menu", "🏠 Меню"),
