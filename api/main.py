@@ -53,7 +53,7 @@ class _RateLimitMiddleware(BaseHTTPMiddleware):
         hits = [t for t in _counters[ip] if now - t < 60.0]
         if len(hits) >= _RATE_LIMIT:
             _counters[ip] = hits
-            return JSONResponse({"detail": "rate limit exceeded"}, status_code=429)
+            return JSONResponse({"detail": "Притормози чуть-чуть — слишком много запросов сразу 🙂"}, status_code=429)
         hits.append(now)
         _counters[ip] = hits
         # S4: периодически чистим пустые/протухшие ключи, чтобы dict не рос
