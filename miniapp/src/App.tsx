@@ -1,6 +1,12 @@
-import { useSignal, initDataRaw, themeParams, viewport } from '@telegram-apps/sdk-react'
+import {
+  useSignal,
+  initDataRaw,
+  themeParams,
+  viewport,
+} from '@telegram-apps/sdk-react'
 import { useEffect } from 'react'
 import { setInitData } from './api/client'
+import { inTelegram } from './main'
 import './App.css'
 
 function Dashboard() {
@@ -20,6 +26,8 @@ export default function App() {
   }, [rawData])
 
   useEffect(() => {
+    if (!inTelegram) return
+
     void themeParams.mount().then(() => themeParams.bindCssVars())
     void viewport.mount().then(() => {
       viewport.expand()

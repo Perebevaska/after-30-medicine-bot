@@ -1,8 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { init } from '@telegram-apps/sdk-react'
+import { init, isTMA } from '@telegram-apps/sdk-react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { ErrorBoundary } from './components/ErrorBoundary'
 import './index.css'
 import App from './App.tsx'
 
@@ -12,18 +11,16 @@ const queryClient = new QueryClient({
   },
 })
 
-try {
+export const inTelegram = isTMA()
+
+if (inTelegram) {
   init()
-} catch {
-  // not in Telegram — ErrorBoundary покажет сообщение
 }
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <ErrorBoundary>
-      <QueryClientProvider client={queryClient}>
-        <App />
-      </QueryClientProvider>
-    </ErrorBoundary>
+    <QueryClientProvider client={queryClient}>
+      <App />
+    </QueryClientProvider>
   </StrictMode>,
 )
