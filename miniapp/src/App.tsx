@@ -13,12 +13,13 @@ import './App.css'
 type NavPage = 'dashboard' | 'medications' | 'stock' | 'stats' | 'settings'
 
 function TodayIcon() {
-  const day = new Date().getDate().toString().padStart(2, '0')
+  const day = new Date().getDate()
   const { data } = useToday()
   const pending = data?.filter((i) => i.status === 'pending').length ?? 0
   return (
-    <span className="nav-icon nav-icon--date-wrap">
-      <span className="nav-icon--date">{day}</span>
+    <span className="cal-icon">
+      <span className="cal-header" />
+      <span className="cal-day">{day}</span>
       {pending > 0 && <span className="nav-badge">{pending > 9 ? '9+' : pending}</span>}
     </span>
   )
