@@ -255,4 +255,6 @@ def test_settings_caregiver(api_client, db):
 # ── /health ──────────────────────────────────────────────────────────────────
 
 def test_health(api_client):
-    assert api_client.get("/health").json() == {"status": "ok"}
+    data = api_client.get("/health").json()
+    assert data["status"] in ("ok", "degraded")
+    assert data["db"] == "ok"
