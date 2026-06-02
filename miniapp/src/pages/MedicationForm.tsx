@@ -476,6 +476,30 @@ export default function MedicationForm({ editId, onBack }: Props) {
       </div>
 
       <div className="form-body">
+        {/* Dependent — first when caregiver has dependents */}
+        {deps && deps.length > 0 && (
+          <div className="form-section">
+            <label className="field-label">Для кого</label>
+            <select
+              className="field-select"
+              value={form.dependent_id ?? ''}
+              onChange={(e) =>
+                setForm((f) => ({
+                  ...f,
+                  dependent_id: e.target.value ? +e.target.value : null,
+                }))
+              }
+            >
+              <option value="">Для себя</option>
+              {deps.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
         {/* Name */}
         <div className="form-section">
           <div className="form-field">
@@ -543,30 +567,6 @@ export default function MedicationForm({ editId, onBack }: Props) {
             <RuleSection rule={rule} index={i} errors={errors} onChange={patchRule} />
           </div>
         ))}
-
-        {/* Dependent */}
-        {deps && deps.length > 0 && (
-          <div className="form-section">
-            <label className="field-label">Для кого</label>
-            <select
-              className="field-select"
-              value={form.dependent_id ?? ''}
-              onChange={(e) =>
-                setForm((f) => ({
-                  ...f,
-                  dependent_id: e.target.value ? +e.target.value : null,
-                }))
-              }
-            >
-              <option value="">Для себя</option>
-              {deps.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.name}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
 
         {submitError && <p className="submit-error">{submitError}</p>}
 
