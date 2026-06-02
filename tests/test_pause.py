@@ -85,8 +85,9 @@ def _cbs(markup):
 
 
 def test_handler_pause_then_resume(db, monkeypatch):
+    import handlers.meds_edit as meds_edit
+    monkeypatch.setattr(meds_edit, "get_tz_for_user", lambda _id: __import__("pytz").utc)
     import handlers.meds as meds
-    monkeypatch.setattr(meds, "get_tz_for_user", lambda _id: __import__("pytz").utc)
     uid, mid = _med(db, 4005)
 
     q = FakeQuery(f"med_pause:{mid}")
