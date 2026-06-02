@@ -147,6 +147,25 @@
 .btn-take:disabled,
 .btn-skip:disabled { opacity: 0.4; cursor: default; }
 
+.btn-undo {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: none;
+  background: var(--secondary-bg);
+  font-size: 20px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.5;
+  transition: transform 0.1s, opacity 0.2s;
+}
+
+.btn-undo:hover { opacity: 0.8; }
+.btn-undo:active { transform: scale(0.9); opacity: 1; }
+.btn-undo:disabled { opacity: 0.25; cursor: default; }
+
 .med-status-badge {
   font-size: 22px;
   margin-left: 12px;

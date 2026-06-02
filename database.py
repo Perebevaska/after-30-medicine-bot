@@ -797,6 +797,7 @@ def log_intake(medication_id: int, scheduled_time: str, status: str,
                start_utc: str, end_utc: str):
     """Записывает факт приёма или пропуска лекарства. Обновляет запись если уже есть за сегодня.
 
+    status="pending" отменяет отметку: удаляет запись (нет записи = pending).
     Возвращает прежний статус записи за сегодня (или None, если записи не было).
     """
     now_utc = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
@@ -807,6 +808,11 @@ def log_intake(medication_id: int, scheduled_time: str, status: str,
                AND taken_at >= %s AND taken_at < %s""",
             (medication_id, scheduled_time, start_utc, end_utc)
         ).fetchone()
+        if status == "pending":
+            if existing:
+                conn.execute("DELETE FROM intake_log WHERE id = %s", (existing["id"],))
+                return existing["status"]
+            return None
         if existing:
             conn.execute(
                 "UPDATE intake_log SET status = %s, taken_at = %s WHERE id = %s",

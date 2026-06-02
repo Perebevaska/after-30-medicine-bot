@@ -13,7 +13,7 @@ router = APIRouter(prefix="/today", tags=["today"])
 class IntakeIn(BaseModel):
     medication_id: int
     scheduled_time: str
-    status: str   # "taken" | "skipped"
+    status: str   # "taken" | "skipped" | "pending" (undo)
 
 
 @router.get("")
@@ -43,7 +43,7 @@ async def get_today(telegram_id: int = Depends(require_telegram_user)):
             "status": status,
             "dependent_name": row.get("dependent_name"),
         })
-    return sorted(items, key=lambda x: x["reminder_time"])
+    return sorted(items, key=lambda x: x["reminder_time"], reverse=True)
 
 
 @router.post("/intake", status_code=204)

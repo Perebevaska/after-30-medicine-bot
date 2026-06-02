@@ -11,7 +11,7 @@ export interface TodayItem {
 export interface IntakeIn {
   medication_id: number
   scheduled_time: string
-  status: 'taken' | 'skipped'
+  status: 'taken' | 'skipped' | 'pending'
 }
 
 export interface AdherenceMed {

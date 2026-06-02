@@ -44,7 +44,7 @@ function isDue(reminderTime: string): boolean {
 function MedCard({ item }: { item: TodayItem }) {
   const { mutate, isPending } = useLogIntake()
 
-  const log = (status: 'taken' | 'skipped') => {
+  const log = (status: 'taken' | 'skipped' | 'pending') => {
     mutate({
       medication_id: item.medication_id,
       scheduled_time: item.reminder_time,
@@ -75,8 +75,15 @@ function MedCard({ item }: { item: TodayItem }) {
           <button className="btn-skip" onClick={() => log('skipped')} disabled={isPending}>❌</button>
         </div>
       ) : (
-        <div className="med-status-badge">
-          {item.status === 'taken' ? '✅' : '❌'}
+        <div className="med-actions">
+          <button
+            className="btn-undo"
+            onClick={() => log('pending')}
+            disabled={isPending}
+            title="Отменить отметку"
+          >
+            {item.status === 'taken' ? '✅' : '❌'}
+          </button>
         </div>
       )}
     </div>
