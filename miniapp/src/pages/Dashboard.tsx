@@ -312,6 +312,7 @@ export default function Dashboard() {
   const handleTakeAll = async () => {
     if (!trueDuePending.length) return
     setTakingAll(true)
+    wishRef.current?.celebrate()
     qc.setQueryData<TodayItem[]>(['today'], (old) =>
       old?.map((item) =>
         isDuePending(item) ? { ...item, status: 'taken' as const } : item
