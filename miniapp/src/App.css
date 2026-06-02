@@ -1,0 +1,16 @@
+.page {
+  padding: 16px;
+  min-height: 100vh;
+}
+
+h1 {
+  font-size: 22px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: var(--text);
+}
+
+.hint {
+  color: var(--hint);
+  font-size: 14px;
+}
