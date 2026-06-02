@@ -34,3 +34,54 @@ export interface StreakItem {
   name: string | null
   streak: number
 }
+
+export type MealRelation = 'before' | 'after' | 'with' | 'any'
+export type Frequency = 'daily' | 'interval' | 'weekdays' | 'monthly'
+
+export interface ScheduleRule {
+  medication_id?: number
+  reminder_time: string
+  frequency: Frequency
+  interval_days: number | null
+  weekdays: string | null
+  month_day: number | null
+  anchor_date: string | null
+  dosage: string | null
+}
+
+export interface RuleIn {
+  reminder_time: string
+  frequency: Frequency
+  interval_days?: number
+  weekdays?: string
+  month_day?: number
+  anchor_date?: string
+  dosage?: string
+}
+
+export interface Medication {
+  id: number
+  name: string
+  dosage: string
+  meal_relation: MealRelation
+  times_per_day: number
+  active: number
+  paused: number
+  dependent_id: number | null
+  dependent_name: string | null
+  rules: ScheduleRule[]
+}
+
+export interface MedicationIn {
+  name: string
+  dosage: string
+  meal_relation: MealRelation
+  times_per_day: number
+  dependent_id?: number | null
+  rules: RuleIn[]
+}
+
+export interface Dependent {
+  id: number
+  name: string
+}

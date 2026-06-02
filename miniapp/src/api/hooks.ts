@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, getInitDataRaw } from './client'
-import type { TodayItem, IntakeIn, AdherenceResponse, StreakItem } from './types'
+import type { TodayItem, IntakeIn, AdherenceResponse, StreakItem, Medication, MedicationIn, Dependent } from './types'
 
 export function useToday() {
   return useQuery<TodayItem[]>({
@@ -23,6 +23,67 @@ export function useStreak() {
     queryKey: ['streak'],
     queryFn: () => api.get<StreakItem[]>('/stats/streak'),
     enabled: !!getInitDataRaw(),
+  })
+}
+
+export function useMedications() {
+  return useQuery<Medication[]>({
+    queryKey: ['medications'],
+    queryFn: () => api.get<Medication[]>('/medications'),
+    enabled: !!getInitDataRaw(),
+  })
+}
+
+export function useDependents() {
+  return useQuery<Dependent[]>({
+    queryKey: ['dependents'],
+    queryFn: () => api.get<Dependent[]>('/dependents'),
+    enabled: !!getInitDataRaw(),
+  })
+}
+
+export function useCreateMedication() {
+  const qc = useQueryClient()
+  return useMutation<{ id: number }, Error, MedicationIn>({
+    mutationFn: (body) => api.post<{ id: number }>('/medications', body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['medications'] })
+      qc.invalidateQueries({ queryKey: ['today'] })
+    },
+  })
+}
+
+export function useUpdateMedication() {
+  const qc = useQueryClient()
+  return useMutation<void, Error, { id: number } & MedicationIn>({
+    mutationFn: ({ id, ...body }) => api.put<void>(`/medications/${id}`, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['medications'] })
+      qc.invalidateQueries({ queryKey: ['today'] })
+    },
+  })
+}
+
+export function useDeleteMedication() {
+  const qc = useQueryClient()
+  return useMutation<void, Error, number>({
+    mutationFn: (id) => api.delete<void>(`/medications/${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['medications'] })
+      qc.invalidateQueries({ queryKey: ['today'] })
+    },
+  })
+}
+
+export function usePauseMedication() {
+  const qc = useQueryClient()
+  return useMutation<void, Error, { id: number; paused: boolean }>({
+    mutationFn: ({ id, paused }) =>
+      api.post<void>(`/medications/${id}/${paused ? 'pause' : 'resume'}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['medications'] })
+      qc.invalidateQueries({ queryKey: ['today'] })
+    },
   })
 }
 
