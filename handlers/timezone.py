@@ -1,5 +1,5 @@
 from datetime import datetime
-from telegram import Update, KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.ext import ContextTypes, ConversationHandler
 from timezonefinder import TimezoneFinder
 from geopy.geocoders import Nominatim
@@ -30,9 +30,13 @@ def _geo_keyboard(with_back: bool = False) -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(rows, resize_keyboard=True, one_time_keyboard=True)
 
 
+MINIAPP_URL = "https://medbot.isgood.host"
+
+
 def _main_menu_keyboard():
     """Inline-клавиатура главного меню."""
     return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📱 Приложение", web_app=WebAppInfo(url=MINIAPP_URL))],
         [InlineKeyboardButton("📋 Лекарства на сегодня", callback_data="menu:today")],
         [InlineKeyboardButton("💊 Мои лекарства", callback_data="menu:meds")],
         [InlineKeyboardButton("📊 Статистика", callback_data="menu:stats")],

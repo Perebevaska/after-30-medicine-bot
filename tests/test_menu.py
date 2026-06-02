@@ -38,7 +38,7 @@ class FakeUpdate:
 
 
 def _callbacks(markup):
-    return [b.callback_data for row in markup.inline_keyboard for b in row]
+    return [b.callback_data for row in markup.inline_keyboard for b in row if b.callback_data is not None]
 
 
 def test_menu_main_renders_menu(monkeypatch):

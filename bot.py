@@ -6,7 +6,7 @@ import logging
 import warnings
 from telegram.error import TimedOut, NetworkError
 from telegram.warnings import PTBUserWarning
-from telegram import BotCommand
+from telegram import BotCommand, MenuButtonWebApp, WebAppInfo
 from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler,
     ConversationHandler, MessageHandler, filters
@@ -43,6 +43,10 @@ async def post_init(app):
         await app.bot.set_my_commands([
             BotCommand("menu", "🏠 Меню"),
         ])
+        from handlers.timezone import MINIAPP_URL
+        await app.bot.set_chat_menu_button(
+            menu_button=MenuButtonWebApp(text="📱 Приложение", web_app=WebAppInfo(url=MINIAPP_URL))
+        )
     except Exception as e:
         logger.warning("Не удалось установить команды бота (транзиентно): %s", e)
 
