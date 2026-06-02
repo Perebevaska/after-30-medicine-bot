@@ -269,34 +269,85 @@
   color: var(--hint);
 }
 
-.mlist-actions {
-  display: flex;
-  gap: 4px;
-  flex-shrink: 0;
+.mlist-card--tappable {
+  cursor: pointer;
 }
 
-.mlist-btn {
-  width: 36px;
-  height: 36px;
-  border-radius: 8px;
-  border: none;
+.mlist-card--tappable:active {
   background: var(--secondary-bg);
-  font-size: 16px;
-  cursor: pointer;
+}
+
+.mlist-card-chevron {
+  font-size: 20px;
+  color: var(--hint);
+  flex-shrink: 0;
+  line-height: 1;
+  margin-left: 4px;
+}
+
+/* ── Action sheet ────────────────────────────────────────────────────────── */
+
+.sheet-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+  z-index: 200;
+}
+
+.sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--bg);
+  border-radius: 16px 16px 0 0;
+  z-index: 201;
+  padding-bottom: max(env(safe-area-inset-bottom, 0px), 16px);
+  animation: sheet-in 0.22s ease-out;
+}
+
+@keyframes sheet-in {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+
+.sheet-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--hint);
+  text-align: center;
+  padding: 14px 20px 12px;
+}
+
+.sheet-divider {
+  height: 1px;
+  background: rgba(0,0,0,0.08);
+}
+
+.sheet-btn {
   display: flex;
   align-items: center;
-  justify-content: center;
-  transition: opacity 0.1s;
+  width: 100%;
+  padding: 14px 20px;
+  background: none;
+  border: none;
+  font-size: 16px;
+  color: var(--text);
+  cursor: pointer;
+  gap: 10px;
+  text-align: left;
+  transition: background 0.1s;
 }
 
-.mlist-btn:disabled { opacity: 0.4; cursor: default; }
-.mlist-btn:active { opacity: 0.7; }
+.sheet-btn:active { background: rgba(0,0,0,0.06); }
+.sheet-btn:disabled { opacity: 0.4; cursor: default; }
 
-.mlist-btn--confirm {
-  background: rgba(220, 50, 50, 0.15);
-  font-size: 13px;
-  font-weight: 700;
-  color: #cc3333;
+.sheet-btn--danger { color: #cc3333; }
+
+.sheet-btn--cancel {
+  justify-content: center;
+  color: var(--link);
+  font-weight: 600;
 }
 
 .mlist-empty {

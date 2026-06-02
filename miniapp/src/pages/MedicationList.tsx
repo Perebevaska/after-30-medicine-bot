@@ -25,23 +25,69 @@ function scheduleLabel(med: Medication): string {
   return `${times} (${freqs.join(', ')})`
 }
 
-interface CardProps {
+interface SheetProps {
   med: Medication
+  onClose: () => void
   onEdit: (id: number) => void
 }
 
-function MedCard({ med, onEdit }: CardProps) {
+function ActionSheet({ med, onClose, onEdit }: SheetProps) {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const { mutate: del, isPending: delPending } = useDeleteMedication()
   const { mutate: pause, isPending: pausePending } = usePauseMedication()
 
   const handleDelete = () => {
     if (!confirmDelete) { setConfirmDelete(true); return }
-    del(med.id, { onSuccess: () => setConfirmDelete(false) })
+    del(med.id, { onSuccess: onClose })
+  }
+
+  const handlePause = () => {
+    pause({ id: med.id, paused: !med.paused }, { onSuccess: onClose })
   }
 
   return (
-    <div className={`mlist-card${med.paused ? ' mlist-card--paused' : ''}`}>
+    <>
+      <div className="sheet-overlay" onClick={onClose} />
+      <div className="sheet">
+        {confirmDelete ? (
+          <>
+            <div className="sheet-title">Удалить «{med.name}»?</div>
+            <div className="sheet-divider" />
+            <button className="sheet-btn sheet-btn--danger" onClick={handleDelete} disabled={delPending}>
+              🗑️ Да, удалить
+            </button>
+            <div className="sheet-divider" />
+            <button className="sheet-btn sheet-btn--cancel" onClick={() => setConfirmDelete(false)}>
+              Назад
+            </button>
+          </>
+        ) : (
+          <>
+            <div className="sheet-title">{med.name}</div>
+            <div className="sheet-divider" />
+            <button className="sheet-btn" onClick={() => onEdit(med.id)}>
+              ✏️  Редактировать
+            </button>
+            <button className="sheet-btn" onClick={handlePause} disabled={pausePending}>
+              {med.paused ? '▶️  Возобновить' : '⏸️  Поставить на паузу'}
+            </button>
+            <button className="sheet-btn sheet-btn--danger" onClick={handleDelete}>
+              🗑️  Удалить
+            </button>
+            <div className="sheet-divider" />
+            <button className="sheet-btn sheet-btn--cancel" onClick={onClose}>
+              Отмена
+            </button>
+          </>
+        )}
+      </div>
+    </>
+  )
+}
+
+function MedCard({ med, onTap }: { med: Medication; onTap: () => void }) {
+  return (
+    <div className="mlist-card mlist-card--tappable" onClick={onTap}>
       <div className="mlist-info">
         <div className="mlist-name">
           {med.name}
@@ -60,33 +106,7 @@ function MedCard({ med, onEdit }: CardProps) {
           <div className="mlist-schedule">{scheduleLabel(med)}</div>
         )}
       </div>
-
-      <div className="mlist-actions">
-        <button
-          className="mlist-btn mlist-btn--edit"
-          onClick={() => onEdit(med.id)}
-          title="Редактировать"
-        >
-          ✏️
-        </button>
-        <button
-          className="mlist-btn mlist-btn--pause"
-          onClick={() => pause({ id: med.id, paused: !med.paused })}
-          disabled={pausePending}
-          title={med.paused ? 'Возобновить' : 'Пауза'}
-        >
-          {med.paused ? '▶️' : '⏸️'}
-        </button>
-        <button
-          className={`mlist-btn mlist-btn--del${confirmDelete ? ' mlist-btn--confirm' : ''}`}
-          onClick={handleDelete}
-          disabled={delPending}
-          title="Удалить"
-          onBlur={() => setConfirmDelete(false)}
-        >
-          {confirmDelete ? '✓?' : '🗑️'}
-        </button>
-      </div>
+      <span className="mlist-card-chevron">›</span>
     </div>
   )
 }
@@ -97,7 +117,10 @@ interface Props {
 }
 
 export default function MedicationList({ onAdd, onEdit }: Props) {
+  const [sheetMedId, setSheetMedId] = useState<number | null>(null)
   const { data, isLoading, error } = useMedications()
+
+  const sheetMed = data?.find((m) => m.id === sheetMedId) ?? null
 
   return (
     <div className="page">
@@ -109,7 +132,6 @@ export default function MedicationList({ onAdd, onEdit }: Props) {
       </div>
 
       {isLoading && <p className="hint">Загрузка…</p>}
-
       {error && <p className="hint error">{error.message}</p>}
 
       {data && data.length === 0 && (
@@ -124,9 +146,17 @@ export default function MedicationList({ onAdd, onEdit }: Props) {
       {data && data.length > 0 && (
         <div className="mlist-list">
           {data.map((med) => (
-            <MedCard key={med.id} med={med} onEdit={onEdit} />
+            <MedCard key={med.id} med={med} onTap={() => setSheetMedId(med.id)} />
           ))}
         </div>
+      )}
+
+      {sheetMed && (
+        <ActionSheet
+          med={sheetMed}
+          onClose={() => setSheetMedId(null)}
+          onEdit={onEdit}
+        />
       )}
     </div>
   )
