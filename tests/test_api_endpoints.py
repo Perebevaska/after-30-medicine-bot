@@ -70,7 +70,7 @@ def test_update_not_found(api_client, db):
     _seed_user(db)
     r = api_client.put("/medications/999999", json={
         "name": "X", "dosage": "1", "meal_relation": "any",
-        "times_per_day": 1, "rules": [],
+        "times_per_day": 1, "rules": [{"reminder_time": "09:00", "frequency": "daily"}],
     })
     assert r.status_code == 404
 

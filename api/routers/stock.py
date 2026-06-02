@@ -1,6 +1,7 @@
 import asyncio
+import math
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 import database as db
 from api.auth import require_db_user, TelegramUser
 from schedule_utils import days_of_stock_left
@@ -8,21 +9,35 @@ from datetime import date
 
 router = APIRouter(prefix="/medications", tags=["stock"])
 
+# SEC-3: верхняя граница на величины запаса — отсекаем абсурдные значения,
+# которые ломали бы прогноз days_of_stock_left / PDF.
+_MAX_QTY = 1_000_000
+
+
+def _finite(v: float) -> float:
+    """Отклоняет NaN/inf — иначе расчёты запаса/PDF дают мусор или падают."""
+    if not math.isfinite(v):
+        raise ValueError("значение должно быть конечным числом")
+    return v
+
 
 class StockSet(BaseModel):
-    qty: float
+    qty: float = Field(ge=0, le=_MAX_QTY)
+    _v = field_validator("qty")(_finite)
 
 
 class StockAdd(BaseModel):
-    amount: float
+    amount: float = Field(gt=0, le=_MAX_QTY)
+    _v = field_validator("amount")(_finite)
 
 
 class UnitsSet(BaseModel):
-    units: float
+    units: float = Field(gt=0, le=10_000)
+    _v = field_validator("units")(_finite)
 
 
 class ThresholdSet(BaseModel):
-    days: int
+    days: int = Field(ge=1, le=3650)
 
 
 async def _get_med_or_404(med_id: int, user_id: int):

@@ -29,6 +29,9 @@ def verify_init_data(init_data: str, bot_token: str, max_age: int = MAX_AGE) -> 
     Поднимает ValueError с описанием причины отказа.
     telegram_id извлекается только из проверенной подписи — не принимается от клиента напрямую.
     """
+    # SEC-1: пустой токен → пустой HMAC-ключ → подделываемая подпись. Отказ.
+    if not bot_token:
+        raise ValueError("bot token not configured")
     params = dict(parse_qsl(init_data, keep_blank_values=True))
     received_hash = params.pop("hash", "")
     if not received_hash:
@@ -73,6 +76,10 @@ async def require_telegram_user(
     if credentials.scheme.lower() != "tma":
         raise HTTPException(status_code=401, detail="Expected scheme 'tma'")
     bot_token = os.environ.get("BOT_TOKEN", "")
+    # SEC-1: fail-closed при пустом токене — иначе HMAC считается с пустым
+    # ключом и подпись initData становится подделываемой кем угодно.
+    if not bot_token:
+        raise HTTPException(status_code=503, detail="Сервис временно недоступен")
     try:
         return verify_init_data(credentials.credentials, bot_token)
     except ValueError as e:

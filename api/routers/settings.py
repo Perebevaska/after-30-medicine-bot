@@ -1,36 +1,50 @@
 import asyncio
+from typing import Literal, Optional
 import pytz
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from timezonefinder import TimezoneFinder
 import database as db
 from api.auth import require_telegram_user
+from constants import SLOT_ORDER
+from utils import parse_time
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
 _tf = TimezoneFinder()
 
+# SEC-4: «HH:MM» — общий валидатор времени для пресетов/плана дня.
+def _v_time(v):
+    if v is None:
+        return v
+    try:
+        return parse_time(v)
+    except (ValueError, AttributeError, TypeError):
+        raise ValueError("время должно быть в формате ЧЧ:ММ")
+
 
 class TimezoneIn(BaseModel):
-    timezone: str
+    timezone: str = Field(max_length=64)
 
 
 class LocationIn(BaseModel):
-    lat: float
-    lng: float
+    lat: float = Field(ge=-90, le=90)
+    lng: float = Field(ge=-180, le=180)
 
 
 class ReminderModeIn(BaseModel):
-    mode: str   # "once" | "repeat"
+    mode: Literal["once", "repeat"]
 
 
 class PresetIn(BaseModel):
-    time: str   # "HH:MM"
+    time: str
+    _v = field_validator("time")(_v_time)
 
 
 class DailyPlanIn(BaseModel):
     enabled: bool
-    time: str | None = None
+    time: Optional[str] = None
+    _v = field_validator("time")(_v_time)
 
 
 class CaregiverIn(BaseModel):
@@ -69,6 +83,9 @@ async def set_reminder_mode(body: ReminderModeIn, telegram_id: int = Depends(req
 
 @router.put("/presets/{slot}", status_code=204)
 async def set_preset(slot: str, body: PresetIn, telegram_id: int = Depends(require_telegram_user)):
+    # SEC-4: неизвестный слот иначе уронил бы set_user_time_preset в 500.
+    if slot not in SLOT_ORDER:
+        raise HTTPException(400, "Неизвестный слот времени")
     await asyncio.to_thread(db.set_user_time_preset, telegram_id, slot, body.time)
 
 

@@ -2,11 +2,15 @@ import asyncio
 from datetime import date
 from typing import Literal, Optional
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 import database as db
-from api.auth import require_db_user, TelegramUser
 from constants import MAX_MEDICATIONS_PER_USER
-from utils import parse_time
+from api.auth import require_db_user, TelegramUser
+from utils import parse_time, NAME_MAX_LEN, DOSAGE_MAX_LEN
+
+# SEC-2: верхняя граница числа правил на лекарство — иначе модифицированный
+# клиент мог бы вставить тысячи schedule_rules одним запросом (DoS/раздувание).
+MAX_RULES_PER_MED = 24
 
 router = APIRouter(prefix="/medications", tags=["medications"])
 
@@ -17,11 +21,11 @@ _Frequency = Literal["daily", "interval", "weekdays", "monthly"]
 class RuleIn(BaseModel):
     reminder_time: str
     frequency: _Frequency = "daily"
-    interval_days: Optional[int] = None
+    interval_days: Optional[int] = Field(default=None, ge=1, le=3650)
     weekdays: Optional[str] = None
     month_day: Optional[int] = None
     anchor_date: Optional[str] = None
-    dosage: Optional[str] = None
+    dosage: Optional[str] = Field(default=None, max_length=DOSAGE_MAX_LEN)
 
     # B5: серверная валидация полей правила (бот валидирует свои пути сам;
     # тут защищаем API/Mini App от некорректных правил, которые ломают аналитику).
@@ -83,20 +87,20 @@ class RuleIn(BaseModel):
 
 
 class MedicationIn(BaseModel):
-    name: str
-    dosage: str
+    name: str = Field(min_length=1, max_length=NAME_MAX_LEN)
+    dosage: str = Field(max_length=DOSAGE_MAX_LEN)
     meal_relation: _MealRelation
-    times_per_day: int
+    times_per_day: int = Field(ge=1, le=24)
     dependent_id: Optional[int] = None
-    rules: list[RuleIn]
+    rules: list[RuleIn] = Field(min_length=1, max_length=MAX_RULES_PER_MED)
 
 
 class MedicationUpdate(BaseModel):
-    name: str
-    dosage: str
+    name: str = Field(min_length=1, max_length=NAME_MAX_LEN)
+    dosage: str = Field(max_length=DOSAGE_MAX_LEN)
     meal_relation: _MealRelation
-    times_per_day: int
-    rules: list[RuleIn]
+    times_per_day: int = Field(ge=1, le=24)
+    rules: list[RuleIn] = Field(min_length=1, max_length=MAX_RULES_PER_MED)
 
 
 @router.get("")
