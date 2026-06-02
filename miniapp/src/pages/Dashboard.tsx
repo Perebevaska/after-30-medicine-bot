@@ -46,36 +46,24 @@ function MedCard({ item }: { item: TodayItem }) {
   }
 
   return (
-    <div className={`med-card status-${item.status}`}>
-      <div className="med-info">
-        <div className="med-time">{item.reminder_time}</div>
-        <div className="med-name">
+    <div className={`mlist-card${item.status !== 'pending' ? ' mlist-card--paused' : ''}`}>
+      <div className="mlist-info">
+        <div className="mlist-name">
           {item.name}
           {item.dependent_name && (
-            <span className="med-dep"> (для {item.dependent_name})</span>
+            <span className="mlist-dep"> · {item.dependent_name}</span>
           )}
         </div>
-        <div className="med-meta">
+        <div className="mlist-meta">
           {item.dosage} · {MEAL[item.meal_relation] ?? item.meal_relation}
         </div>
+        <div className="mlist-schedule">{item.reminder_time}</div>
       </div>
 
       {item.status === 'pending' ? (
         <div className="med-actions">
-          <button
-            className="btn-take"
-            onClick={() => log('taken')}
-            disabled={isPending}
-          >
-            ✅
-          </button>
-          <button
-            className="btn-skip"
-            onClick={() => log('skipped')}
-            disabled={isPending}
-          >
-            ❌
-          </button>
+          <button className="btn-take" onClick={() => log('taken')} disabled={isPending}>✅</button>
+          <button className="btn-skip" onClick={() => log('skipped')} disabled={isPending}>❌</button>
         </div>
       ) : (
         <div className="med-status-badge">
@@ -110,7 +98,7 @@ export default function Dashboard() {
       )}
 
       {data && data.length > 0 && (
-        <div className="med-list">
+        <div className="mlist-list">
           {data.map((item) => (
             <MedCard
               key={`${item.medication_id}-${item.reminder_time}`}
