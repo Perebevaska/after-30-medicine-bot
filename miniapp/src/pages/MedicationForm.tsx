@@ -31,7 +31,7 @@ function DrumColumn({ items, value, onChange }: {
     setSelIdx(idx)
     const el = ref.current
     if (!el) return
-    const top = (idx + DRUM_PAD) * DRUM_ITEM_H
+    const top = idx * DRUM_ITEM_H
     const id = setTimeout(() => { el.scrollTop = top }, 0)
     return () => clearTimeout(id)
   }, [value, items])
@@ -40,7 +40,7 @@ function DrumColumn({ items, value, onChange }: {
     if (!ref.current) return
     const idx = Math.max(0, Math.min(
       items.length - 1,
-      Math.round(ref.current.scrollTop / DRUM_ITEM_H - DRUM_PAD)
+      Math.round(ref.current.scrollTop / DRUM_ITEM_H)
     ))
     setSelIdx(idx)
     if (items[idx] !== value) {
