@@ -17,6 +17,11 @@ export default function App() {
     if (rawData) setInitData(rawData)
   }, [rawData])
 
+  // В Telegram ждём initDataRaw перед запросами к API
+  if (inTelegram && !rawData) {
+    return <p className="hint">Загрузка…</p>
+  }
+
   useEffect(() => {
     if (!inTelegram) return
 
