@@ -24,12 +24,41 @@ interface HeartParticle {
   dur: number
 }
 
+// ── Health bar persistence ─────────────────────────────────────────────────
+const HP_KEY = 'wish_hp'
+const HP_TS_KEY = 'wish_hp_ts'
+const DEPLETE_PER_MS = 100 / (8 * 3600 * 1000) // 100% за 8 часов
+
+function loadHp(): number {
+  try {
+    const h = parseFloat(localStorage.getItem(HP_KEY) ?? '0')
+    const ts = parseInt(localStorage.getItem(HP_TS_KEY) ?? '0', 10)
+    if (!ts) return Math.max(0, h)
+    return Math.max(0, h - (Date.now() - ts) * DEPLETE_PER_MS)
+  } catch {
+    return 0
+  }
+}
+
+function saveHp(h: number): void {
+  localStorage.setItem(HP_KEY, String(h))
+  localStorage.setItem(HP_TS_KEY, String(Date.now()))
+}
+// ──────────────────────────────────────────────────────────────────────────
+
 let _pid = 0
 
 function WishCard() {
   const [wish, setWish] = useState(randomWish)
+  const [hp, setHp] = useState(loadHp)
   const [particles, setParticles] = useState<HeartParticle[]>([])
   const btnRef = useRef<HTMLButtonElement>(null)
+
+  // Обновляем hp раз в минуту (плавный drain)
+  useEffect(() => {
+    const id = setInterval(() => setHp(loadHp), 60_000)
+    return () => clearInterval(id)
+  }, [])
 
   const spawnHearts = () => {
     const rect = btnRef.current?.getBoundingClientRect()
@@ -59,12 +88,30 @@ function WishCard() {
   const next = () => {
     setWish((w) => randomWish(w))
     spawnHearts()
+    setHp(() => {
+      const current = loadHp()
+      const bonus = 10 + Math.random() * 15 // 10–25%
+      const next = Math.min(100, current + bonus)
+      saveHp(next)
+      return next
+    })
   }
+
+  const clipRight = (100 - hp).toFixed(2)
 
   return (
     <>
       <div className="wish-card">
-        <span className="wish-text">{wish}</span>
+        <div className="wish-text-wrap">
+          <span className="wish-text">{wish}</span>
+          <span
+            className="wish-text wish-text-hp"
+            aria-hidden="true"
+            style={{ clipPath: `inset(0 ${clipRight}% 0 0)` }}
+          >
+            {wish}
+          </span>
+        </div>
         <button
           ref={btnRef}
           className="wish-refresh"

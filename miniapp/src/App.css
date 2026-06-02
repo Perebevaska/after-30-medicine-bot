@@ -34,12 +34,25 @@
   border-radius: 12px;
 }
 
-.wish-text {
+.wish-text-wrap {
   flex: 1;
+  position: relative;
+}
+
+.wish-text {
+  display: block;
   font-size: 15px;
   font-weight: 500;
   color: var(--text);
   line-height: 1.4;
+}
+
+.wish-text-hp {
+  position: absolute;
+  inset: 0;
+  color: #e53030;
+  pointer-events: none;
+  transition: clip-path 0.55s ease-out;
 }
 
 .wish-refresh {
