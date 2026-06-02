@@ -69,7 +69,17 @@ export interface Medication {
   paused: number
   dependent_id: number | null
   dependent_name: string | null
+  stock_qty: number | null
+  units_per_dose: number
+  low_stock_days: number
   rules: ScheduleRule[]
+}
+
+export interface StockInfo {
+  stock_qty: number | null
+  units_per_dose: number
+  low_stock_days: number
+  days_left: number | null
 }
 
 export interface MedicationIn {

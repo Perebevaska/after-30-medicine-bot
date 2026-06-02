@@ -4,9 +4,10 @@ import { inTelegram } from './main'
 import Dashboard from './pages/Dashboard'
 import MedicationList from './pages/MedicationList'
 import MedicationForm from './pages/MedicationForm'
+import StockPage from './pages/StockPage'
 import './App.css'
 
-type NavPage = 'dashboard' | 'medications'
+type NavPage = 'dashboard' | 'medications' | 'stock'
 
 function BottomNav({ active, onChange }: { active: NavPage; onChange: (p: NavPage) => void }) {
   return (
@@ -26,6 +27,14 @@ function BottomNav({ active, onChange }: { active: NavPage; onChange: (p: NavPag
       >
         <span className="nav-icon">💊</span>
         <span className="nav-label">Лекарства</span>
+      </button>
+      <button
+        type="button"
+        className={`nav-item${active === 'stock' ? ' nav-item--active' : ''}`}
+        onClick={() => onChange('stock')}
+      >
+        <span className="nav-icon">📦</span>
+        <span className="nav-label">Запас</span>
       </button>
     </nav>
   )
@@ -71,6 +80,7 @@ export default function App() {
       {navPage === 'medications' && (
         <MedicationList onAdd={() => openForm()} onEdit={(id) => openForm(id)} />
       )}
+      {navPage === 'stock' && <StockPage />}
       <BottomNav active={navPage} onChange={setNavPage} />
     </>
   )

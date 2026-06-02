@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, getInitDataRaw } from './client'
-import type { TodayItem, IntakeIn, AdherenceResponse, StreakItem, Medication, MedicationIn, Dependent } from './types'
+import type { TodayItem, IntakeIn, AdherenceResponse, StreakItem, Medication, MedicationIn, Dependent, StockInfo } from './types'
 
 export function useToday() {
   return useQuery<TodayItem[]>({
@@ -83,6 +83,67 @@ export function usePauseMedication() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['medications'] })
       qc.invalidateQueries({ queryKey: ['today'] })
+    },
+  })
+}
+
+export function useStock(medId: number) {
+  return useQuery<StockInfo>({
+    queryKey: ['stock', medId],
+    queryFn: () => api.get<StockInfo>(`/medications/${medId}/stock`),
+    enabled: !!getInitDataRaw(),
+  })
+}
+
+export function useSetStock() {
+  const qc = useQueryClient()
+  return useMutation<void, Error, { medId: number; qty: number }>({
+    mutationFn: ({ medId, qty }) => api.put<void>(`/medications/${medId}/stock`, { qty }),
+    onSuccess: (_, { medId }) => {
+      qc.invalidateQueries({ queryKey: ['stock', medId] })
+      qc.invalidateQueries({ queryKey: ['medications'] })
+    },
+  })
+}
+
+export function useAddStock() {
+  const qc = useQueryClient()
+  return useMutation<void, Error, { medId: number; amount: number }>({
+    mutationFn: ({ medId, amount }) => api.post<void>(`/medications/${medId}/stock/add`, { amount }),
+    onSuccess: (_, { medId }) => {
+      qc.invalidateQueries({ queryKey: ['stock', medId] })
+      qc.invalidateQueries({ queryKey: ['medications'] })
+    },
+  })
+}
+
+export function useSetStockUnits() {
+  const qc = useQueryClient()
+  return useMutation<void, Error, { medId: number; units: number }>({
+    mutationFn: ({ medId, units }) => api.put<void>(`/medications/${medId}/stock/units`, { units }),
+    onSuccess: (_, { medId }) => {
+      qc.invalidateQueries({ queryKey: ['stock', medId] })
+    },
+  })
+}
+
+export function useSetStockThreshold() {
+  const qc = useQueryClient()
+  return useMutation<void, Error, { medId: number; days: number }>({
+    mutationFn: ({ medId, days }) => api.put<void>(`/medications/${medId}/stock/threshold`, { days }),
+    onSuccess: (_, { medId }) => {
+      qc.invalidateQueries({ queryKey: ['stock', medId] })
+    },
+  })
+}
+
+export function useDisableStock() {
+  const qc = useQueryClient()
+  return useMutation<void, Error, number>({
+    mutationFn: (medId) => api.delete<void>(`/medications/${medId}/stock`),
+    onSuccess: (_, medId) => {
+      qc.invalidateQueries({ queryKey: ['stock', medId] })
+      qc.invalidateQueries({ queryKey: ['medications'] })
     },
   })
 }
