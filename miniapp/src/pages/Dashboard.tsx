@@ -1,4 +1,4 @@
-import { useState, Fragment } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useToday, useLogIntake } from '../api/hooks'
 import { useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client'
@@ -43,7 +43,18 @@ function isDue(reminderTime: string): boolean {
   return now.getHours() * 60 + now.getMinutes() >= h * 60 + m
 }
 
-function MedCard({ item }: { item: TodayItem }) {
+const itemKey = (i: TodayItem) => `${i.medication_id}-${i.reminder_time}`
+const isDuePending = (i: TodayItem) => i.status === 'pending' && isDue(i.reminder_time)
+
+function MedCard({
+  item,
+  exiting,
+  entering,
+}: {
+  item: TodayItem
+  exiting?: boolean
+  entering?: boolean
+}) {
   const { mutate, isPending } = useLogIntake()
 
   const log = (status: 'taken' | 'skipped' | 'pending') => {
@@ -54,10 +65,13 @@ function MedCard({ item }: { item: TodayItem }) {
     })
   }
 
-  const due = item.status === 'pending' && isDue(item.reminder_time)
+  const due = isDuePending(item)
+  const extraClass = exiting ? ' mlist-card--exit' : entering ? ' mlist-card--enter' : ''
 
   return (
-    <div className={`mlist-card${item.status !== 'pending' ? ' mlist-card--paused' : ''}${due ? ' mlist-card--due' : ''}`}>
+    <div
+      className={`mlist-card${item.status !== 'pending' ? ' mlist-card--paused' : ''}${due ? ' mlist-card--due' : ''}${extraClass}`}
+    >
       <div className="mlist-info">
         <div className="mlist-name">
           {item.name}
@@ -97,24 +111,79 @@ export default function Dashboard() {
   const qc = useQueryClient()
   const [takingAll, setTakingAll] = useState(false)
 
-  const duePending = (data ?? []).filter(
-    (i) => i.status === 'pending' && isDue(i.reminder_time)
+  // exitingMap: снапшоты due-pending элементов, пока играет exit-анимация
+  const [exitingMap, setExitingMap] = useState<Map<string, TodayItem>>(new Map())
+  // enteringIds: ключи элементов, только что появившихся в секции others
+  const [enteringIds, setEnteringIds] = useState<Set<string>>(new Set())
+  const prevDataRef = useRef<TodayItem[]>([])
+
+  useEffect(() => {
+    if (!data) return
+    const prevData = prevDataRef.current
+    const prevDueKeys = new Set(prevData.filter(isDuePending).map(itemKey))
+    const currentDueKeys = new Set(data.filter(isDuePending).map(itemKey))
+
+    // Элементы, которые только что покинули due-pending группу
+    const justLeft = prevData.filter(
+      (i) => prevDueKeys.has(itemKey(i)) && !currentDueKeys.has(itemKey(i))
+    )
+
+    if (justLeft.length > 0) {
+      // Кладём снапшоты (со статусом pending и green-подсветкой)
+      setExitingMap((prev) => {
+        const next = new Map(prev)
+        justLeft.forEach((i) => next.set(itemKey(i), i))
+        return next
+      })
+      const leftKeys = justLeft.map(itemKey)
+      // После exit-анимации (250ms) убираем из due-секции и добавляем enter в others
+      setTimeout(() => {
+        setExitingMap((prev) => {
+          const next = new Map(prev)
+          leftKeys.forEach((k) => next.delete(k))
+          return next
+        })
+        setEnteringIds((prev) => new Set([...prev, ...leftKeys]))
+        setTimeout(() => {
+          setEnteringIds((prev) => {
+            const next = new Set(prev)
+            leftKeys.forEach((k) => next.delete(k))
+            return next
+          })
+        }, 320)
+      }, 260)
+    }
+
+    prevDataRef.current = data
+  }, [data])
+
+  const allItems = data ?? []
+
+  // Due-секция: реально due-pending + снапшоты exiting, сортировка по времени desc
+  const dueItems = [
+    ...allItems.filter(isDuePending),
+    ...[...exitingMap.values()],
+  ].sort((a, b) => b.reminder_time.localeCompare(a.reminder_time))
+
+  // Others-секция: не-due + не-exiting
+  const otherItems = allItems.filter(
+    (i) => !isDuePending(i) && !exitingMap.has(itemKey(i))
   )
 
+  // Реальные due-pending (без снапшотов) — для кнопки и handleTakeAll
+  const trueDuePending = allItems.filter(isDuePending)
+
   const handleTakeAll = async () => {
-    if (!duePending.length) return
+    if (!trueDuePending.length) return
     setTakingAll(true)
-    // Оптимистично ставим всем статус taken
     qc.setQueryData<TodayItem[]>(['today'], (old) =>
       old?.map((item) =>
-        item.status === 'pending' && isDue(item.reminder_time)
-          ? { ...item, status: 'taken' as const }
-          : item
+        isDuePending(item) ? { ...item, status: 'taken' as const } : item
       )
     )
     try {
       await Promise.all(
-        duePending.map((item) =>
+        trueDuePending.map((item) =>
           api.post('/today/intake', {
             medication_id: item.medication_id,
             scheduled_time: item.reminder_time,
@@ -130,10 +199,7 @@ export default function Dashboard() {
     }
   }
 
-  // Найти индекс первого due-pending для вставки кнопки
-  const firstDueIdx = (data ?? []).findIndex(
-    (i) => i.status === 'pending' && isDue(i.reminder_time)
-  )
+  const hasAny = dueItems.length > 0 || otherItems.length > 0
 
   return (
     <div className="page">
@@ -155,23 +221,34 @@ export default function Dashboard() {
         <p className="hint">На сегодня нет приёмов</p>
       )}
 
-      {data && data.length > 0 && (
+      {data && hasAny && (
         <div className="mlist-list">
-          {data.map((item, i) => (
-            <Fragment key={`${item.medication_id}-${item.reminder_time}`}>
-              {i === firstDueIdx && duePending.length > 1 && (
-                <div className="take-all-row">
-                  <button
-                    className="btn-take-all"
-                    onClick={handleTakeAll}
-                    disabled={takingAll}
-                  >
-                    💊 Выпил всё
-                  </button>
-                </div>
-              )}
-              <MedCard item={item} />
-            </Fragment>
+          {dueItems.map((item) => (
+            <MedCard
+              key={itemKey(item)}
+              item={item}
+              exiting={exitingMap.has(itemKey(item))}
+            />
+          ))}
+
+          {trueDuePending.length >= 2 && (
+            <div className="take-all-row">
+              <button
+                className="btn-take-all"
+                onClick={handleTakeAll}
+                disabled={takingAll}
+              >
+                💊 Выпил всё
+              </button>
+            </div>
+          )}
+
+          {otherItems.map((item) => (
+            <MedCard
+              key={itemKey(item)}
+              item={item}
+              entering={enteringIds.has(itemKey(item))}
+            />
           ))}
         </div>
       )}
