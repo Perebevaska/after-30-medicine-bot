@@ -300,7 +300,19 @@
 }
 
 .mlist-card--paused { opacity: 0.6; }
-.mlist-card--due { border-left: 3px solid #4caf50; }
+.mlist-card--due {
+  border-left: 4px solid #4caf50;
+  background: rgba(76, 175, 80, 0.08);
+}
+
+.mlist-card--due .mlist-name {
+  color: #2e7d32;
+}
+
+.mlist-card--due .mlist-schedule {
+  color: #4caf50;
+  font-weight: 700;
+}
 
 .mlist-info { flex: 1; min-width: 0; }
 
