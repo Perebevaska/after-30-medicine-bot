@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { useToday, useLogIntake } from '../api/hooks'
 import { useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client'
@@ -13,27 +14,88 @@ const MEAL: Record<string, string> = {
   no_meal: 'Не зависит',
 }
 
+interface HeartParticle {
+  id: number
+  x: number
+  y: number
+  dx: number
+  dy: number
+  size: number
+  dur: number
+}
+
+let _pid = 0
+
 function WishCard() {
   const [wish, setWish] = useState(randomWish)
-  const [spinning, setSpinning] = useState(false)
+  const [particles, setParticles] = useState<HeartParticle[]>([])
+  const btnRef = useRef<HTMLButtonElement>(null)
+
+  const spawnHearts = () => {
+    const rect = btnRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const cx = rect.left + rect.width / 2
+    const cy = rect.top + rect.height / 2
+    const count = 13
+    const batch: HeartParticle[] = Array.from({ length: count }, () => {
+      const angle = Math.random() * Math.PI * 2
+      const dist = 65 + Math.random() * 140
+      return {
+        id: ++_pid,
+        x: cx,
+        y: cy,
+        dx: Math.cos(angle) * dist,
+        dy: Math.sin(angle) * dist,
+        size: 9 + Math.random() * 13,
+        dur: 520 + Math.random() * 380,
+      }
+    })
+    setParticles((p) => [...p, ...batch])
+    const maxDur = Math.max(...batch.map((p) => p.dur)) + 60
+    const ids = new Set(batch.map((p) => p.id))
+    setTimeout(() => setParticles((p) => p.filter((pt) => !ids.has(pt.id))), maxDur)
+  }
 
   const next = () => {
-    setSpinning(true)
     setWish((w) => randomWish(w))
-    setTimeout(() => setSpinning(false), 400)
+    spawnHearts()
   }
 
   return (
-    <div className="wish-card">
-      <span className="wish-text">{wish}</span>
-      <button
-        className={`wish-refresh${spinning ? ' wish-refresh--spin' : ''}`}
-        onClick={next}
-        aria-label="Другое пожелание"
-      >
-        🔄
-      </button>
-    </div>
+    <>
+      <div className="wish-card">
+        <span className="wish-text">{wish}</span>
+        <button
+          ref={btnRef}
+          className="wish-refresh"
+          onClick={next}
+          aria-label="Другое пожелание"
+        >
+          ❤️
+        </button>
+      </div>
+      {createPortal(
+        <div className="hearts-overlay" aria-hidden="true">
+          {particles.map((p) => (
+            <span
+              key={p.id}
+              className="heart-particle"
+              style={{
+                left: p.x,
+                top: p.y,
+                fontSize: p.size,
+                '--dx': `${p.dx}px`,
+                '--dy': `${p.dy}px`,
+                '--dur': `${p.dur}ms`,
+              } as React.CSSProperties}
+            >
+              ❤️
+            </span>
+          ))}
+        </div>,
+        document.body
+      )}
+    </>
   )
 }
 

@@ -50,11 +50,39 @@
   padding: 2px;
   flex-shrink: 0;
   line-height: 1;
-  transition: transform 0.4s ease;
+  transition: transform 0.12s ease;
 }
 
-.wish-refresh--spin {
-  transform: rotate(360deg);
+.wish-refresh:active {
+  transform: scale(0.8);
+}
+
+/* Hearts particle effect */
+.hearts-overlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  overflow: hidden;
+}
+
+@keyframes heartFly {
+  0%   { opacity: 1; transform: translate(-50%, -50%) scale(0.15); }
+  20%  { opacity: 1; transform: translate(
+           calc(-50% + var(--dx) * 0.22),
+           calc(-50% + var(--dy) * 0.22)
+         ) scale(1.25); }
+  100% { opacity: 0; transform: translate(
+           calc(-50% + var(--dx)),
+           calc(-50% + var(--dy))
+         ) scale(0.55); }
+}
+
+.heart-particle {
+  position: fixed;
+  line-height: 1;
+  user-select: none;
+  animation: heartFly var(--dur) cubic-bezier(0.15, 0.8, 0.5, 1) forwards;
 }
 
 /* Section title */
