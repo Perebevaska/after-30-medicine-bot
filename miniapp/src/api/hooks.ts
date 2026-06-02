@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, getInitDataRaw } from './client'
-import type { TodayItem, IntakeIn, AdherenceResponse, StreakItem, Medication, MedicationIn, Dependent, StockInfo, UserSettings } from './types'
+import type { TodayItem, IntakeIn, AdherenceResponse, StreakItem, Medication, MedicationIn, Dependent, StockInfo, UserSettings, WeekStatRow } from './types'
 
 export function useToday() {
   return useQuery<TodayItem[]>({
@@ -148,6 +148,14 @@ export function useDisableStock() {
   })
 }
 
+export function useWeekStats() {
+  return useQuery<WeekStatRow[]>({
+    queryKey: ['stats-week'],
+    queryFn: () => api.get<WeekStatRow[]>('/stats/week'),
+    enabled: !!getInitDataRaw(),
+  })
+}
+
 export function useSettings() {
   return useQuery<UserSettings>({
     queryKey: ['settings'],
@@ -184,7 +192,36 @@ export function useSetCaregiver() {
   const qc = useQueryClient()
   return useMutation<void, Error, boolean>({
     mutationFn: (enabled) => api.put<void>('/settings/caregiver', { enabled }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['settings'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['settings'] })
+      qc.invalidateQueries({ queryKey: ['dependents'] })
+    },
+  })
+}
+
+export function useCreateDependent() {
+  const qc = useQueryClient()
+  return useMutation<{ id: number }, Error, string>({
+    mutationFn: (name) => api.post<{ id: number }>('/dependents', { name }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['dependents'] }),
+  })
+}
+
+export function useDeleteDependent() {
+  const qc = useQueryClient()
+  return useMutation<void, Error, number>({
+    mutationFn: (id) => api.delete<void>(`/dependents/${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['dependents'] })
+      qc.invalidateQueries({ queryKey: ['medications'] })
+      qc.invalidateQueries({ queryKey: ['today'] })
+    },
+  })
+}
+
+export function useSendExport() {
+  return useMutation<void, Error, string>({
+    mutationFn: (slot) => api.post<void>(`/export/${slot}/send`),
   })
 }
 

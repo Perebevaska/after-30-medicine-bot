@@ -96,6 +96,15 @@ export interface Dependent {
   name: string
 }
 
+export interface WeekStatRow {
+  name: string
+  dosage: string
+  day: string
+  taken: number
+  skipped: number
+  total: number
+}
+
 export interface UserSettings {
   timezone: string
   reminder_mode: 'once' | 'repeat'

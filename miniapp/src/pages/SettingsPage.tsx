@@ -1,65 +1,48 @@
 import { useState, useEffect } from 'react'
-import { useSettings, useSetReminderMode, useSetPreset, useSetDailyPlan, useSetCaregiver } from '../api/hooks'
-
-const PRESET_SLOTS = [
-  { slot: 'morning', label: 'Утро', field: 'time_morning' as const },
-  { slot: 'lunch',   label: 'День',  field: 'time_lunch'   as const },
-  { slot: 'evening', label: 'Вечер', field: 'time_evening' as const },
-  { slot: 'night',   label: 'Ночь',  field: 'time_night'   as const },
-]
+import {
+  useSettings, useSetReminderMode, useSetDailyPlan, useSetCaregiver,
+  useDependents, useCreateDependent, useDeleteDependent,
+} from '../api/hooks'
 
 export default function SettingsPage() {
   const { data, isLoading } = useSettings()
   const setMode = useSetReminderMode()
-  const setPreset = useSetPreset()
   const setDailyPlan = useSetDailyPlan()
   const setCaregiver = useSetCaregiver()
 
-  const [presets, setPresets] = useState<Record<string, string>>({})
+  const { data: deps } = useDependents()
+  const createDep = useCreateDependent()
+  const deleteDep = useDeleteDependent()
+
   const [dailyPlanTime, setDailyPlanTime] = useState('08:00')
+  const [newDepName, setNewDepName] = useState('')
 
   useEffect(() => {
     if (!data) return
-    setPresets({
-      morning: data.time_morning,
-      lunch:   data.time_lunch,
-      evening: data.time_evening,
-      night:   data.time_night,
-    })
     setDailyPlanTime(data.daily_plan_time ?? '08:00')
   }, [data])
 
   if (isLoading) return <div className="page"><p className="hint">Загрузка…</p></div>
   if (!data) return <div className="page"><p className="hint">Нет данных</p></div>
 
-  const handlePresetBlur = (slot: string) => {
-    const time = presets[slot]
-    if (time) setPreset.mutate({ slot, time })
-  }
-
   const handleDailyPlanTimeBlur = () => {
     setDailyPlan.mutate({ enabled: !!data.daily_plan_enabled, time: dailyPlanTime })
   }
 
+  const handleAddDep = () => {
+    const name = newDepName.trim()
+    if (!name) return
+    createDep.mutate(name, { onSuccess: () => setNewDepName('') })
+  }
+
   return (
     <div className="page">
-      <h2 className="section-title">Пресеты времени</h2>
-      <div className="settings-block">
-        {PRESET_SLOTS.map(({ slot, label }) => (
-          <div key={slot} className="settings-row">
-            <span className="settings-label">{label}</span>
-            <input
-              type="time"
-              className="settings-time-input"
-              value={presets[slot] ?? ''}
-              onChange={(e) => setPresets((p) => ({ ...p, [slot]: e.target.value }))}
-              onBlur={() => handlePresetBlur(slot)}
-            />
-          </div>
-        ))}
-      </div>
 
       <h2 className="section-title">Напоминания</h2>
+      <p className="section-hint">
+        <b>Однократно</b> — бот отправит уведомление один раз в назначенное время.<br />
+        <b>Повтор</b> — если не отметить приём, бот будет напоминать каждые 5 минут до 2 часов.
+      </p>
       <div className="settings-block">
         <div className="settings-row">
           <span className="settings-label">Режим</span>
@@ -81,6 +64,10 @@ export default function SettingsPage() {
       </div>
 
       <h2 className="section-title">Ежедневный план</h2>
+      <p className="section-hint">
+        Каждое утро бот пришлёт список всех запланированных на день приёмов.
+        Удобно, чтобы сразу видеть весь день.
+      </p>
       <div className="settings-block">
         <div className="settings-row">
           <span className="settings-label">Включён</span>
@@ -95,7 +82,7 @@ export default function SettingsPage() {
         </div>
         {!!data.daily_plan_enabled && (
           <div className="settings-row">
-            <span className="settings-label">Время плана</span>
+            <span className="settings-label">Время отправки</span>
             <input
               type="time"
               className="settings-time-input"
@@ -108,9 +95,13 @@ export default function SettingsPage() {
       </div>
 
       <h2 className="section-title">Режим опекуна</h2>
+      <p className="section-hint">
+        Позволяет добавлять лекарства для членов семьи или подопечных и отслеживать
+        их приёмы отдельно — всё в одном приложении.
+      </p>
       <div className="settings-block">
         <div className="settings-row">
-          <span className="settings-label">Управление подопечными</span>
+          <span className="settings-label">Включён</span>
           <label className="toggle-switch">
             <input
               type="checkbox"
@@ -121,6 +112,50 @@ export default function SettingsPage() {
           </label>
         </div>
       </div>
+
+      {!!data.caregiver_enabled && (
+        <>
+          <h2 className="section-title">Подопечные</h2>
+          <div className="settings-block">
+            {(!deps || deps.length === 0) && (
+              <div className="settings-row">
+                <span className="settings-label" style={{ color: 'var(--hint)' }}>
+                  Пока нет подопечных
+                </span>
+              </div>
+            )}
+            {deps?.map((d) => (
+              <div key={d.id} className="settings-row">
+                <span className="settings-label">{d.name}</span>
+                <button
+                  className="dep-delete-btn"
+                  onClick={() => deleteDep.mutate(d.id)}
+                  disabled={deleteDep.isPending}
+                >
+                  Удалить
+                </button>
+              </div>
+            ))}
+            <div className="settings-row settings-row--add">
+              <input
+                className="dep-name-input"
+                placeholder="Имя подопечного"
+                value={newDepName}
+                onChange={(e) => setNewDepName(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleAddDep()}
+                maxLength={40}
+              />
+              <button
+                className="dep-add-btn"
+                onClick={handleAddDep}
+                disabled={!newDepName.trim() || createDep.isPending}
+              >
+                Добавить
+              </button>
+            </div>
+          </div>
+        </>
+      )}
 
       <div className="settings-footer">
         <span className="hint">Часовой пояс: {data.timezone}</span>
