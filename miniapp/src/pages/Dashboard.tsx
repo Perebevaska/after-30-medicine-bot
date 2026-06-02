@@ -342,8 +342,6 @@ export default function Dashboard() {
     <div className="page">
       <WishCard ref={wishRef} />
 
-      <h2 className="section-title">Сегодня</h2>
-
       {isLoading && <p className="hint">Загрузка…</p>}
 
       {error && (
@@ -359,16 +357,23 @@ export default function Dashboard() {
       )}
 
       {data && hasAny && (
-        <div className="mlist-list">
-          {dueItems.map((item) => (
-            <MedCard
-              key={itemKey(item)}
-              item={item}
-              exiting={exitingMap.has(itemKey(item))}
-              onTaken={() => wishRef.current?.celebrate()}
-              onSkipped={() => wishRef.current?.skipped()}
-            />
-          ))}
+        <>
+          {dueItems.length > 0 && (
+            <>
+              <h2 className="section-title">Сейчас</h2>
+              <div className="mlist-list">
+                {dueItems.map((item) => (
+                  <MedCard
+                    key={itemKey(item)}
+                    item={item}
+                    exiting={exitingMap.has(itemKey(item))}
+                    onTaken={() => wishRef.current?.celebrate()}
+                    onSkipped={() => wishRef.current?.skipped()}
+                  />
+                ))}
+              </div>
+            </>
+          )}
 
           {trueDuePending.length >= 2 && (
             <div className="take-all-row">
@@ -382,16 +387,23 @@ export default function Dashboard() {
             </div>
           )}
 
-          {otherItems.map((item) => (
-            <MedCard
-              key={itemKey(item)}
-              item={item}
-              entering={enteringIds.has(itemKey(item))}
-              onTaken={() => wishRef.current?.celebrate()}
-              onSkipped={() => wishRef.current?.skipped()}
-            />
-          ))}
-        </div>
+          {otherItems.length > 0 && (
+            <>
+              <h2 className="section-title">Сегодня</h2>
+              <div className="mlist-list">
+                {otherItems.map((item) => (
+                  <MedCard
+                    key={itemKey(item)}
+                    item={item}
+                    entering={enteringIds.has(itemKey(item))}
+                    onTaken={() => wishRef.current?.celebrate()}
+                    onSkipped={() => wishRef.current?.skipped()}
+                  />
+                ))}
+              </div>
+            </>
+          )}
+        </>
       )}
     </div>
   )

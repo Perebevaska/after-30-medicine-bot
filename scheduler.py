@@ -170,10 +170,11 @@ async def _send_daily_plans(app, schedules):
         lines = ["🌅 <b>Доброе утро!</b>\n", "📋 <b>Сегодня нужно принять:</b>\n"]
         for med in data["meds"].values():
             meal = _MEAL_LABELS.get(med["meal_relation"], "")
+            meal_str = f" — {meal}" if meal and med["meal_relation"] != "any" else ""
             dep_label = f" <i>({escape_html(med['dep_name'])})</i>" if med["dep_name"] else ""
             lines.append(f"💊 <b>{escape_html(med['name'])}</b>{dep_label}")
             for reminder_time, dosage in sorted(med["times"]):
-                lines.append(f"   ⏰ {reminder_time} — {escape_html(dosage)} — {meal}")
+                lines.append(f"   ⏰ {reminder_time} — {escape_html(dosage)}{meal_str}")
         lines.append("\nНе забудь взять лекарства с собой! 🎒")
         lines.append("Продуктивного дня! 🚀")
 
