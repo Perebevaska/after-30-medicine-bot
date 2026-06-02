@@ -7,24 +7,14 @@ medications, schedule_rules, intake_log), включая лекарства по
 import pytest
 
 
-@pytest.fixture
-def db(tmp_path, monkeypatch):
-    import database as d
-    monkeypatch.setattr(d, "DB_PATH", str(tmp_path / "test.db"))
-    d.init_db()
-    d.migrate()
-    return d
-
-
 def _counts(d, user_id, med_ids):
     """Сколько строк осталось по каждому участку данных пользователя."""
-    ph = ",".join("?" * len(med_ids)) or "NULL"
     with d.get_connection() as conn:
-        users = conn.execute("SELECT COUNT(*) FROM users WHERE id = ?", (user_id,)).fetchone()[0]
-        deps = conn.execute("SELECT COUNT(*) FROM dependents WHERE user_id = ?", (user_id,)).fetchone()[0]
-        meds = conn.execute("SELECT COUNT(*) FROM medications WHERE user_id = ?", (user_id,)).fetchone()[0]
-        rules = conn.execute(f"SELECT COUNT(*) FROM schedule_rules WHERE medication_id IN ({ph})", med_ids).fetchone()[0] if med_ids else 0
-        logs = conn.execute(f"SELECT COUNT(*) FROM intake_log WHERE medication_id IN ({ph})", med_ids).fetchone()[0] if med_ids else 0
+        users = conn.execute("SELECT COUNT(*) AS n FROM users WHERE id = %s", (user_id,)).fetchone()["n"]
+        deps  = conn.execute("SELECT COUNT(*) AS n FROM dependents WHERE user_id = %s", (user_id,)).fetchone()["n"]
+        meds  = conn.execute("SELECT COUNT(*) AS n FROM medications WHERE user_id = %s", (user_id,)).fetchone()["n"]
+        rules = conn.execute("SELECT COUNT(*) AS n FROM schedule_rules WHERE medication_id = ANY(%s)", (med_ids,)).fetchone()["n"] if med_ids else 0
+        logs  = conn.execute("SELECT COUNT(*) AS n FROM intake_log WHERE medication_id = ANY(%s)", (med_ids,)).fetchone()["n"] if med_ids else 0
     return {"users": users, "dependents": deps, "medications": meds, "schedule_rules": rules, "intake_log": logs}
 
 

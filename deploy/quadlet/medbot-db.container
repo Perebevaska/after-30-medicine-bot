@@ -1,0 +1,24 @@
+[Unit]
+Description=Med Bot — PostgreSQL
+After=network-online.target
+Requires=medbot-pod.service medbot-pgdata-volume.service
+
+[Container]
+Image=docker.io/library/postgres:16-alpine
+Pod=medbot.pod
+Volume=medbot-pgdata.volume:/var/lib/postgresql/data
+Environment=POSTGRES_USER=medbot
+Environment=POSTGRES_PASSWORD=medbot
+Environment=POSTGRES_DB=medbot
+HealthCmd=pg_isready -U medbot
+HealthInterval=10s
+HealthRetries=5
+HealthStartPeriod=15s
+HealthTimeout=5s
+
+[Service]
+Restart=always
+RestartSec=5s
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,11 @@
+.git
+.env
+venv/
+__pycache__/
+*.pyc
+*.pyo
+med_bot.db
+setup_pg.sh
+migrate_sqlite_to_pg.py
+tests/
+.containerignore

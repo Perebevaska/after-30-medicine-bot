@@ -6,13 +6,13 @@ import logging
 import warnings
 from telegram.error import TimedOut, NetworkError
 from telegram.warnings import PTBUserWarning
-from telegram import BotCommand
+from telegram import BotCommand, MenuButtonWebApp, WebAppInfo
 from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler,
     ConversationHandler, MessageHandler, filters
 )
-from database import init_db, migrate
-from scheduler import send_reminders, handle_intake_callback
+from database import init_pool, init_db, migrate, close_pool
+from scheduler import send_reminders, handle_intake_callback, init_arq_pool
 from handlers import meds
 from handlers import timezone as tz_handler
 from handlers import stats, settings, admin, export, caregiver, stock
@@ -31,18 +31,15 @@ logger = logging.getLogger(__name__)
 
 
 async def post_init(app):
-    """Регистрирует команды бота в меню Telegram после запуска.
-
-    В списке только /menu — единая точка входа. /cancel остаётся рабочим
-    как fallback диалогов (выход из текстового ввода), но скрыт из меню.
-
-    Обёрнуто в try/except: транзиентный тайм-аут сети при старте не должен
-    ронять бота — команды переустановятся при следующем перезапуске.
-    """
+    await init_arq_pool()
     try:
         await app.bot.set_my_commands([
             BotCommand("menu", "🏠 Меню"),
         ])
+        from handlers.timezone import MINIAPP_URL
+        await app.bot.set_chat_menu_button(
+            menu_button=MenuButtonWebApp(text="📱 Приложение", web_app=WebAppInfo(url=MINIAPP_URL))
+        )
     except Exception as e:
         logger.warning("Не удалось установить команды бота (транзиентно): %s", e)
 
@@ -57,6 +54,7 @@ async def error_handler(update, context):
 
 def main():
     """Точка входа: инициализирует БД, регистрирует все handlers, запускает бота."""
+    init_pool()
     init_db()
     migrate()
     # Увеличенные таймауты: дефолтные 5с часто срабатывают на нестабильной

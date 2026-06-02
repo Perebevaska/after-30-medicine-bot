@@ -9,6 +9,8 @@ import asyncio
 import pytest
 
 import handlers.meds as m
+import handlers.meds_add as m_add
+import handlers.meds_edit as m_edit
 from constants import (
     FREQ_INTERVAL, FREQ_MONTHDAY, EDIT_FREQ_INTERVAL, EDIT_FREQ_MONTHDAY,
 )
@@ -76,12 +78,14 @@ def mock_db(monkeypatch):
         calls["add_medication"].append((a, kw))
         return 42
 
-    monkeypatch.setattr(m, "get_or_create_user", lambda *a, **kw: 1)
-    monkeypatch.setattr(m, "count_active_medications", lambda *a, **kw: 0)
-    monkeypatch.setattr(m, "add_medication", fake_add_medication)
-    monkeypatch.setattr(m, "add_schedule_rule",
+    monkeypatch.setattr(m_add, "get_or_create_user", lambda *a, **kw: 1)
+    monkeypatch.setattr(m_add, "count_active_medications", lambda *a, **kw: 0)
+    monkeypatch.setattr(m_add, "add_medication", fake_add_medication)
+    monkeypatch.setattr(m_add, "add_schedule_rule",
                         lambda *a, **kw: calls["add_schedule_rule"].append((a, kw)))
-    monkeypatch.setattr(m, "update_medication",
+    monkeypatch.setattr(m_add, "update_medication",
+                        lambda *a, **kw: calls["update_medication"].append((a, kw)))
+    monkeypatch.setattr(m_edit, "update_medication",
                         lambda *a, **kw: calls["update_medication"].append((a, kw)))
     return calls
 

@@ -43,13 +43,9 @@ class FakeUpdate:
 
 
 @pytest.fixture
-def env(tmp_path, monkeypatch):
-    import database as d
-    monkeypatch.setattr(d, "DB_PATH", str(tmp_path / "test.db"))
-    d.init_db()
-    d.migrate()
+def env(db):
     import handlers.export as export
-    return d, export
+    return db, export
 
 
 def _log(d, mid, days_ago, status):
@@ -57,7 +53,7 @@ def _log(d, mid, days_ago, status):
     ts = (datetime.now(timezone.utc) - timedelta(days=days_ago)).strftime("%Y-%m-%d %H:%M:%S")
     with d.get_connection() as conn:
         conn.execute(
-            "INSERT INTO intake_log (medication_id, scheduled_time, status, taken_at) VALUES (?, ?, ?, ?)",
+            "INSERT INTO intake_log (medication_id, scheduled_time, status, taken_at) VALUES (%s, %s, %s, %s)",
             (mid, "09:00", status, ts))
 
 

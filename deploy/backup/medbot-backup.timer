@@ -1,0 +1,10 @@
+[Unit]
+Description=Med Bot — daily PostgreSQL backup
+Requires=medbot-backup.service
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+
+[Install]
+WantedBy=timers.target

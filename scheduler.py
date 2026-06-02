@@ -1,15 +1,26 @@
+import asyncio
 import logging
 from datetime import datetime, timedelta
 import pytz
+from arq import create_pool
+from arq.connections import RedisSettings
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from database import (get_active_schedule_rows, log_intake, apply_intake_stock,
                       get_schedules_by_medication, get_or_create_user, get_medication_by_id)
-from utils import escape_md, get_tz_for_user, local_day_bounds_utc
+from utils import escape_html, get_tz_for_user, local_day_bounds_utc
 # _rule_fires_today живёт в schedule_utils (чистая логика, без telegram/db);
 # реэкспорт для обратной совместимости: stats/export/timezone импортируют его отсюда.
 from schedule_utils import _rule_fires_today, days_of_stock_left
 
 logger = logging.getLogger(__name__)
+
+_arq_pool = None
+
+
+async def init_arq_pool():
+    global _arq_pool
+    _arq_pool = await create_pool(RedisSettings())
+    logger.info("ARQ pool инициализирован")
 
 _MEAL_LABELS = {
     "before": "до еды",
@@ -41,7 +52,8 @@ async def send_reminders(app):
     """Проверяет расписание и отправляет напоминания с учётом TZ каждого пользователя."""
     now_utc = datetime.now(pytz.utc)
     _prune_pending(now_utc)
-    schedules = get_active_schedule_rows()
+    # B3: синхронный psycopg-запрос не должен блокировать event loop каждую минуту.
+    schedules = await asyncio.to_thread(get_active_schedule_rows)
 
     for row in schedules:
         try:
@@ -69,34 +81,28 @@ async def send_reminders(app):
         if not should_send:
             continue
 
-        keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton(
-                "✅ Принял",
-                callback_data=f"taken:{row['medication_id']}:{row['reminder_time']}"
-            ),
-            InlineKeyboardButton(
-                "❌ Пропустить",
-                callback_data=f"skipped:{row['medication_id']}:{row['reminder_time']}"
-            ),
-        ]])
-
         dosage = row["rule_dosage"] or row["med_dosage"]
-        dep_suffix = f" _({escape_md(row['dependent_name'])})_" if row["dependent_name"] else ""
+        dep_suffix = f" <i>({escape_html(row['dependent_name'])})</i>" if row["dependent_name"] else ""
+        buttons = [[
+            {"text": "✅ Принял",    "callback_data": f"taken:{row['medication_id']}:{row['reminder_time']}"},
+            {"text": "❌ Пропустить", "callback_data": f"skipped:{row['medication_id']}:{row['reminder_time']}"},
+        ]]
+        text = (
+            f"💊 Время принять лекарство!\n\n"
+            f"<b>{escape_html(row['name'])}</b>{dep_suffix} — {escape_html(dosage)}\n"
+            f"🍽 Принимать {_MEAL_LABELS.get(row['meal_relation'], row['meal_relation'])}"
+        )
         try:
-            await app.bot.send_message(
+            await _arq_pool.enqueue_job(
+                'send_reminder',
                 chat_id=row["telegram_id"],
-                text=(
-                    f"💊 Время принять лекарство!\n\n"
-                    f"*{escape_md(row['name'])}*{dep_suffix} — {escape_md(dosage)}\n"
-                    f"🍽 Принимать {_MEAL_LABELS.get(row['meal_relation'], row['meal_relation'])}"
-                ),
-                parse_mode="Markdown",
-                reply_markup=keyboard
+                text=text,
+                buttons=buttons,
             )
             _pending[key] = now_utc
-            logger.info("Напоминание отправлено: %s → %s", row["name"], row["telegram_id"])
+            logger.info("Напоминание поставлено в очередь: %s → %s", row["name"], row["telegram_id"])
         except Exception as e:
-            logger.error("Ошибка отправки напоминания: %s", e)
+            logger.error("Ошибка постановки в очередь: %s", e)
 
     await _send_daily_plans(app, schedules)
 
@@ -155,26 +161,26 @@ async def _send_daily_plans(app, schedules):
         if not data["meds"]:
             continue
 
-        lines = ["🌅 *Доброе утро!*\n", "📋 *Сегодня нужно принять:*\n"]
+        lines = ["🌅 <b>Доброе утро!</b>\n", "📋 <b>Сегодня нужно принять:</b>\n"]
         for med in data["meds"].values():
             meal = _MEAL_LABELS.get(med["meal_relation"], "")
-            dep_label = f" _({escape_md(med['dep_name'])})_" if med["dep_name"] else ""
-            lines.append(f"💊 *{escape_md(med['name'])}*{dep_label}")
+            dep_label = f" <i>({escape_html(med['dep_name'])})</i>" if med["dep_name"] else ""
+            lines.append(f"💊 <b>{escape_html(med['name'])}</b>{dep_label}")
             for reminder_time, dosage in sorted(med["times"]):
-                lines.append(f"   ⏰ {reminder_time} — {escape_md(dosage)} — {meal}")
+                lines.append(f"   ⏰ {reminder_time} — {escape_html(dosage)} — {meal}")
         lines.append("\nНе забудь взять лекарства с собой! 🎒")
         lines.append("Продуктивного дня! 🚀")
 
         try:
-            await app.bot.send_message(
+            await _arq_pool.enqueue_job(
+                'send_reminder',
                 chat_id=tid,
                 text="\n".join(lines),
-                parse_mode="Markdown"
             )
             _daily_plan_sent.add(plan_key)
-            logger.info("План дня отправлен: %s", tid)
+            logger.info("План дня поставлен в очередь: %s", tid)
         except Exception as e:
-            logger.error("Ошибка отправки плана дня: %s", e)
+            logger.error("Ошибка постановки плана дня в очередь: %s", e)
 
 
 async def handle_intake_callback(update, context):
@@ -196,15 +202,28 @@ async def handle_intake_callback(update, context):
         return
 
     try:
-        user_tz = get_tz_for_user(update.effective_user.id)
+        telegram_id = update.effective_user.id
+        # S1: callback_data контролируется клиентом — проверяем, что лекарство
+        # принадлежит нажавшему, иначе можно писать в чужой intake_log / запас.
+        # B3: синхронные DB-вызовы — через to_thread, чтобы не блокировать loop.
+        user_id = await asyncio.to_thread(get_or_create_user, telegram_id)
+        if not await asyncio.to_thread(get_medication_by_id, medication_id, user_id):
+            logger.warning(
+                "Отклонён callback на чужое/несуществующее лекарство: med=%s от tg=%s",
+                medication_id, telegram_id
+            )
+            return
+        user_tz = await asyncio.to_thread(get_tz_for_user, telegram_id)
         start_utc, end_utc = local_day_bounds_utc(user_tz)
-        old_status = log_intake(medication_id, scheduled_time, status, start_utc, end_utc)
+        old_status = await asyncio.to_thread(
+            log_intake, medication_id, scheduled_time, status, start_utc, end_utc
+        )
     except Exception as e:
         logger.error("Ошибка записи приёма: %s", e)
         await query.edit_message_text("⚠️ Не удалось записать приём. Попробуй ещё раз.")
         return
 
-    key = (update.effective_user.id, medication_id, scheduled_time)
+    key = (telegram_id, medication_id, scheduled_time)
     _pending.pop(key, None)
 
     if status == "taken":
@@ -215,7 +234,7 @@ async def handle_intake_callback(update, context):
     # F5: автосписание запаса + предупреждение при пересечении порога
     try:
         await _update_stock_on_intake(
-            query.message.reply_text, medication_id, status, old_status, update.effective_user.id, user_tz
+            query.message.reply_text, medication_id, status, old_status, telegram_id, user_tz
         )
     except Exception as e:
         logger.error("Ошибка обновления запаса: %s", e)
@@ -226,21 +245,21 @@ async def _update_stock_on_intake(reply_fn, medication_id, new_status, old_statu
 
     reply_fn — корутина для отправки сообщения (message.reply_text или bot.send_message partial).
     """
-    info = apply_intake_stock(medication_id, new_status, old_status)
+    info = await asyncio.to_thread(apply_intake_stock, medication_id, new_status, old_status)
     if not info or not info["changed"] or new_status != "taken":
         return
-    rules = get_schedules_by_medication(medication_id)
+    rules = await asyncio.to_thread(get_schedules_by_medication, medication_id)
     today = datetime.now(user_tz).date()
     qty, units, thr = info["stock_qty"], info["units_per_dose"], info["low_stock_days"]
     after = days_of_stock_left(rules, qty, units, today)
     before = days_of_stock_left(rules, qty + units, units, today)
     # Предупреждаем один раз — на самом пересечении порога (before выше, after на/ниже).
     if after is not None and after <= thr and (before is None or before > thr):
-        user_id = get_or_create_user(telegram_id)
-        med = get_medication_by_id(medication_id, user_id)
-        name = escape_md(med["name"]) if med else "Лекарство"
+        user_id = await asyncio.to_thread(get_or_create_user, telegram_id)
+        med = await asyncio.to_thread(get_medication_by_id, medication_id, user_id)
+        name = escape_html(med["name"]) if med else "Лекарство"
         await reply_fn(
-            f"⚠️ *{name}* скоро закончится: осталось примерно на {after} дн. ({qty:g} шт.).\n"
+            f"⚠️ <b>{name}</b> скоро закончится: осталось примерно на {after} дн. ({qty:g} шт.).\n"
             f"Не забудь пополнить запас 📦",
-            parse_mode="Markdown"
+            parse_mode="HTML"
         )

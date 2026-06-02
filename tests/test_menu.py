@@ -38,10 +38,13 @@ class FakeUpdate:
 
 
 def _callbacks(markup):
-    return [b.callback_data for row in markup.inline_keyboard for b in row]
+    return [b.callback_data for row in markup.inline_keyboard for b in row if b.callback_data is not None]
 
 
-def test_menu_main_renders_menu():
+def test_menu_main_renders_menu(monkeypatch):
+    import handlers.timezone as _tz
+    monkeypatch.setattr(_tz, "get_or_create_user", lambda *a, **kw: 1)
+    monkeypatch.setattr(_tz, "_owner_streak_hint", lambda *a, **kw: None)
     q = FakeQuery("menu:main")
     run(tz.handle_menu_callback(FakeUpdate(q), None))
     text, markup = q.edits[-1]

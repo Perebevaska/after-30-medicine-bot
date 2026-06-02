@@ -8,14 +8,6 @@ def run(coro):
     return asyncio.run(coro)
 
 
-@pytest.fixture
-def db(tmp_path, monkeypatch):
-    import database as d
-    monkeypatch.setattr(d, "DB_PATH", str(tmp_path / "test.db"))
-    d.init_db()
-    d.migrate()
-    return d
-
 
 def _med(d, tid=4001):
     uid = d.get_or_create_user(tid, "u")
@@ -93,8 +85,9 @@ def _cbs(markup):
 
 
 def test_handler_pause_then_resume(db, monkeypatch):
+    import handlers.meds_edit as meds_edit
+    monkeypatch.setattr(meds_edit, "get_tz_for_user", lambda _id: __import__("pytz").utc)
     import handlers.meds as meds
-    monkeypatch.setattr(meds, "get_tz_for_user", lambda _id: __import__("pytz").utc)
     uid, mid = _med(db, 4005)
 
     q = FakeQuery(f"med_pause:{mid}")

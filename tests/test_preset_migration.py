@@ -2,19 +2,10 @@
 import pytest
 
 
-@pytest.fixture
-def db(tmp_path, monkeypatch):
-    import database as d
-    monkeypatch.setattr(d, "DB_PATH", str(tmp_path / "test.db"))
-    d.init_db()
-    d.migrate()
-    return d
-
-
 def _rule_times(d, med_id):
     with d.get_connection() as conn:
         return sorted(r["reminder_time"] for r in conn.execute(
-            "SELECT reminder_time FROM schedule_rules WHERE medication_id = ?", (med_id,)
+            "SELECT reminder_time FROM schedule_rules WHERE medication_id = %s", (med_id,)
         ))
 
 
