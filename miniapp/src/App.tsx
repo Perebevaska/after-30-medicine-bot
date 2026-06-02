@@ -99,13 +99,25 @@ export default function App() {
     return <MedicationForm editId={editMedId} onBack={closeForm} />
   }
 
+  const activeIdx = NAV_PAGES.indexOf(navPage)
+
   return (
     <div onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
-      {navPage === 'dashboard' && <Dashboard />}
-      {navPage === 'medications' && (
-        <MedicationList onAdd={() => openForm()} onEdit={(id) => openForm(id)} />
-      )}
-      {navPage === 'stock' && <StockPage />}
+      <div className="tabs-outer">
+        {NAV_PAGES.map((page, i) => (
+          <div
+            key={page}
+            className="tab-panel"
+            style={{ transform: `translateX(${(i - activeIdx) * 100}%)` }}
+          >
+            {page === 'dashboard' && <Dashboard />}
+            {page === 'medications' && (
+              <MedicationList onAdd={() => openForm()} onEdit={(id) => openForm(id)} />
+            )}
+            {page === 'stock' && <StockPage />}
+          </div>
+        ))}
+      </div>
       <BottomNav active={navPage} onChange={setNavPage} />
     </div>
   )
