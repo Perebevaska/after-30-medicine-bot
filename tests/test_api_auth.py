@@ -33,7 +33,8 @@ def _make_init_data(
 def test_valid_init_data():
     from api.auth import verify_init_data
     init_data = _make_init_data(12345)
-    assert verify_init_data(init_data, BOT_TOKEN) == 12345
+    telegram_id, username = verify_init_data(init_data, BOT_TOKEN)
+    assert telegram_id == 12345
 
 
 def test_expired_init_data():
