@@ -1,0 +1,25 @@
+[Unit]
+Description=MedBot Telegram Bot
+After=network-online.target postgresql@16-main.service
+Wants=network-online.target
+Requires=postgresql@16-main.service
+# OP1: лимит на crash-loop — 5 рестартов за 5 мин, иначе failed
+StartLimitIntervalSec=300
+StartLimitBurst=5
+# OP3: алерт админу при переходе в failed
+OnFailure=medbot-alert@%n.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/after-30-medicine-bot
+EnvironmentFile=/root/after-30-medicine-bot/.env
+ExecStart=/root/after-30-medicine-bot/venv/bin/python3 bot.py
+# OP1: always (а не on-failure) — переживает TERM/чистый выход
+Restart=always
+RestartSec=5s
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

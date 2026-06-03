@@ -1,0 +1,6 @@
+[Unit]
+Description=MedBot alert for %i (Telegram уведомление о сбое)
+
+[Service]
+Type=oneshot
+ExecStart=/root/after-30-medicine-bot/deploy/alert.sh %i

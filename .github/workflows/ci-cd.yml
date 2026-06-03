@@ -115,6 +115,10 @@ jobs:
             source venv/bin/activate
             pip install -r requirements-lock.txt -q
             cd miniapp && npm ci && npm run build && cd ..
+            # OP1/OP3: синхронизировать systemd-юниты из репо (harden + OnFailure-алерт)
+            chmod +x deploy/alert.sh
+            cp deploy/systemd/medbot-*.service /etc/systemd/system/
+            systemctl daemon-reload
             systemctl restart medbot-bot medbot-api medbot-worker
             # Ждём, пока поднимется API; до 5 попыток.
             ok=0
