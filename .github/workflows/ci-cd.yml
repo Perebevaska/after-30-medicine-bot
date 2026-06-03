@@ -130,3 +130,15 @@ jobs:
               systemctl restart medbot-bot medbot-api medbot-worker
               exit 1
             fi
+            # OP2: проверка статуса всех сервисов после деплоя
+            failed=""
+            for svc in medbot-bot medbot-api medbot-worker; do
+              if ! systemctl is-active --quiet "$svc"; then
+                failed="$failed $svc"
+              fi
+            done
+            if [ -n "$failed" ]; then
+              echo "WARN: сервисы не активны после деплоя:$failed"
+              exit 1
+            fi
+            echo "Все сервисы активны."

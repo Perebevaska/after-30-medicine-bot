@@ -49,8 +49,17 @@ class WorkerSettings:
 
     @staticmethod
     async def on_startup(ctx):
-        ctx['bot'] = Bot(token=os.environ['BOT_TOKEN'])
-        logger.info("ARQ worker запущен")
+        try:
+            ctx['bot'] = Bot(token=os.environ['BOT_TOKEN'])
+            logger.info("ARQ worker запущен")
+        except Exception as exc:
+            logger.critical("ARQ worker startup failed: %s", exc)
+            from alerter import send_admin_alert_sync
+            send_admin_alert_sync(
+                f"🚨 <b>ARQ Worker: ошибка запуска</b>\n"
+                f"<code>{type(exc).__name__}: {exc}</code>"
+            )
+            raise
 
     @staticmethod
     async def on_shutdown(ctx):

@@ -61,7 +61,7 @@ read -rp "Всё верно? Продолжить установку? [y/N] " CO
 info "Обновление пакетов..."
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -q
-apt-get install -y -q git python3 python3-venv python3-pip curl postgresql fonts-dejavu-core
+apt-get install -y -q git python3 python3-venv python3-pip curl postgresql redis-server fonts-dejavu-core
 
 # ─── Node.js 22 ───────────────────────────────────────────────────────────────
 
@@ -125,6 +125,7 @@ cat > .env <<EOF
 BOT_TOKEN=${BOT_TOKEN}
 ADMIN_ID=${ADMIN_ID}
 DATABASE_URL=postgresql://medbot:${DB_PASS}@127.0.0.1/medbot
+REDIS_URL=redis://127.0.0.1:6379
 MINIAPP_ORIGIN=https://${DOMAIN}
 RATE_LIMIT_PER_MINUTE=${RATE_LIMIT}
 TRUST_PROXY=true
@@ -170,11 +171,11 @@ success "Mini App собран"
 
 info "Создание systemd-сервисов..."
 
-cat > /etc/systemd/system/medbot.service <<EOF
+cat > /etc/systemd/system/medbot-bot.service <<EOF
 [Unit]
 Description=Med Bot — Telegram бот напоминаний
-After=network-online.target postgresql.service
-Requires=postgresql.service
+After=network-online.target postgresql.service redis-server.service
+Requires=postgresql.service redis-server.service
 
 [Service]
 Type=simple
@@ -182,8 +183,10 @@ User=root
 WorkingDirectory=${APP_DIR}
 EnvironmentFile=${APP_DIR}/.env
 ExecStart=${APP_DIR}/venv/bin/python3 bot.py
-Restart=on-failure
+Restart=always
 RestartSec=10s
+StartLimitIntervalSec=300
+StartLimitBurst=5
 StandardOutput=journal
 StandardError=journal
 
@@ -194,8 +197,8 @@ EOF
 cat > /etc/systemd/system/medbot-api.service <<EOF
 [Unit]
 Description=Med Bot — FastAPI
-After=network-online.target postgresql.service
-Requires=postgresql.service
+After=network-online.target postgresql.service redis-server.service
+Requires=postgresql.service redis-server.service
 
 [Service]
 Type=simple
@@ -203,8 +206,33 @@ User=root
 WorkingDirectory=${APP_DIR}
 EnvironmentFile=${APP_DIR}/.env
 ExecStart=${APP_DIR}/venv/bin/uvicorn api.main:app --host 127.0.0.1 --port 8000
-Restart=on-failure
+Restart=always
+RestartSec=5s
+StartLimitIntervalSec=300
+StartLimitBurst=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+cat > /etc/systemd/system/medbot-worker.service <<EOF
+[Unit]
+Description=Med Bot — ARQ Worker (очередь Telegram-сообщений)
+After=network-online.target redis-server.service
+Requires=redis-server.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=${APP_DIR}
+EnvironmentFile=${APP_DIR}/.env
+ExecStart=${APP_DIR}/venv/bin/arq worker.WorkerSettings
+Restart=always
 RestartSec=10s
+StartLimitIntervalSec=300
+StartLimitBurst=5
 StandardOutput=journal
 StandardError=journal
 
@@ -234,12 +262,13 @@ EOF
 
 info "Запуск сервисов..."
 systemctl daemon-reload
-systemctl enable medbot medbot-api caddy --quiet
-systemctl restart medbot medbot-api caddy
+systemctl enable medbot-bot medbot-api medbot-worker caddy redis-server --quiet
+systemctl restart redis-server
+systemctl restart medbot-bot medbot-api medbot-worker caddy
 
-# Проверка
+# Проверка (OP1: systemctl is-active для всех сервисов)
 sleep 5
-for svc in medbot medbot-api caddy; do
+for svc in medbot-bot medbot-api medbot-worker caddy redis-server; do
     if systemctl is-active --quiet "$svc"; then
         success "$svc запущен"
     else
@@ -266,8 +295,9 @@ echo ""
 echo "  Mini App:  https://${DOMAIN}/"
 echo "  API:       https://${DOMAIN}/api/health"
 echo ""
-echo "  Логи бота:  journalctl -u medbot -f"
-echo "  Логи API:   journalctl -u medbot-api -f"
-echo "  Логи Caddy: journalctl -u caddy -f"
+echo "  Логи бота:    journalctl -u medbot-bot -f"
+echo "  Логи API:     journalctl -u medbot-api -f"
+echo "  Логи Worker:  journalctl -u medbot-worker -f"
+echo "  Логи Caddy:   journalctl -u caddy -f"
 echo ""
 warn "Не забудьте настроить бэкап БД: deploy/backup/backup.sh"

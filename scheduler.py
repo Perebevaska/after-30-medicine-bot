@@ -100,6 +100,16 @@ def _prune_pending(now_utc: datetime):
 
 async def send_reminders(app):
     """Проверяет расписание и отправляет напоминания с учётом TZ каждого пользователя."""
+    try:
+        await _send_reminders_impl(app)
+        from alerter import on_scheduler_ok
+        on_scheduler_ok()
+    except Exception as exc:
+        from alerter import on_scheduler_error
+        on_scheduler_error(exc)
+
+
+async def _send_reminders_impl(app):
     now_utc = datetime.now(pytz.utc)
     # AX6: восстановить состояние из Redis при первом проходе после старта.
     if not _state_loaded:
