@@ -41,7 +41,7 @@ function BottomNav({ active, onChange }: { active: NavPage; onChange: (p: NavPag
         onClick={() => onChange('medications')}
       >
         <Pill size={22} strokeWidth={1.75} />
-        <span className="nav-label">Лекарства</span>
+        <span className="nav-label">Аптечка</span>
       </button>
       <button
         type="button"

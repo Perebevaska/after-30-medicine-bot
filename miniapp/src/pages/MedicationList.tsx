@@ -160,7 +160,7 @@ export default function MedicationList({ onAdd, onEdit }: Props) {
   return (
     <div className="page">
       <div className="page-header">
-        <span className="page-header-title">Лекарства</span>
+        <span className="page-header-title">Аптечка</span>
         <button className="mlist-add-btn" onClick={onAdd} title="Добавить">
           <Plus size={22} strokeWidth={2} />
         </button>
@@ -171,9 +171,9 @@ export default function MedicationList({ onAdd, onEdit }: Props) {
 
       {data && data.length === 0 && (
         <div className="mlist-empty">
-          <p className="mlist-empty-text">Лекарств пока нет</p>
+          <p className="mlist-empty-text">Аптечка пуста</p>
           <button className="btn-primary" onClick={onAdd}>
-            Добавить первое лекарство
+            Добавить в аптечку
           </button>
         </div>
       )}

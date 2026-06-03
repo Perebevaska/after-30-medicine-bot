@@ -476,7 +476,7 @@ export default function MedicationForm({ editId, onBack }: Props) {
           ←
         </button>
         <h1 className="form-title">
-          {editId != null ? 'Редактировать' : 'Добавить лекарство'}
+          {editId != null ? 'Редактировать' : 'Добавить в аптечку'}
         </h1>
       </div>
 
