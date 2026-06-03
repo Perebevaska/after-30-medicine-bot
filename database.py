@@ -834,20 +834,38 @@ def get_user_medications(user_id: int) -> list:
         ).fetchall()
 
 
+# AX11: общие SQL-фрагменты выборки правил расписания (устранение дублей).
+# Список rule-колонок одинаков во всех трёх выборках (порядок важен — потребители
+# читают по ключам, но держим единый источник истины).
+_RULE_COLS = (
+    "sr.reminder_time, sr.frequency, sr.interval_days, "
+    "sr.weekdays, sr.month_day, sr.anchor_date"
+)
+# Ядро per-user выборок (adherence F3 / streak F2): идентичный JOIN, фильтр, ORDER.
+_USER_RULES_FROM = (
+    "FROM medications m "
+    "JOIN schedule_rules sr ON sr.medication_id = m.id "
+    "LEFT JOIN dependents d ON d.id = m.dependent_id "
+    "WHERE m.user_id = %s AND m.active = 1 AND m.paused = 0 "
+    "ORDER BY m.id"
+)
+
+
 def get_active_schedule_rows() -> list:
     """Все правила расписания активных лекарств + поля пользователя — один проход.
 
     Покрывает и напоминания (reminder_mode), и план дня (daily_plan_enabled /
     daily_plan_time). Фильтрация по плану дня выполняется в Python, без второго запроса.
+    Собственный FROM (JOIN users, без фильтра по user_id, свой ORDER) — горячий путь
+    планировщика, не сливаем с per-user выборками; общий только список rule-колонок.
     """
     with get_connection() as conn:
         return conn.execute(
-            """SELECT u.telegram_id, u.id AS user_id, u.timezone, u.reminder_mode,
+            f"""SELECT u.telegram_id, u.id AS user_id, u.timezone, u.reminder_mode,
                       u.daily_plan_enabled, u.daily_plan_time,
                       u.strict_mode, u.strict_mode_hours, u.reminder_repeat_hours,
                       m.id AS medication_id, m.name, m.dosage AS med_dosage, m.meal_relation,
-                      sr.reminder_time, sr.frequency, sr.interval_days,
-                      sr.weekdays, sr.month_day, sr.anchor_date, sr.dosage AS rule_dosage,
+                      {_RULE_COLS}, sr.dosage AS rule_dosage,
                       d.name AS dependent_name
                FROM schedule_rules sr
                JOIN medications m ON m.id = sr.medication_id
@@ -993,15 +1011,10 @@ def get_adherence_rules(user_id: int) -> list:
     """Правила активных лекарств пользователя + created_at/имя/подопечный (F3)."""
     with get_connection() as conn:
         return conn.execute(
-            """SELECT m.id AS medication_id, m.name, m.dosage AS med_dosage,
+            f"""SELECT m.id AS medication_id, m.name, m.dosage AS med_dosage,
                       m.created_at, d.name AS dependent_name,
-                      sr.reminder_time, sr.frequency, sr.interval_days,
-                      sr.weekdays, sr.month_day, sr.anchor_date
-               FROM medications m
-               JOIN schedule_rules sr ON sr.medication_id = m.id
-               LEFT JOIN dependents d ON d.id = m.dependent_id
-               WHERE m.user_id = %s AND m.active = 1 AND m.paused = 0
-               ORDER BY m.id""",
+                      {_RULE_COLS}
+               {_USER_RULES_FROM}""",
             (user_id,)
         ).fetchall()
 
@@ -1038,15 +1051,10 @@ def get_streak_rows(user_id: int) -> list:
     """Правила активных непаузных лекарств + dependent_id/имя/created_at — для серий (F2)."""
     with get_connection() as conn:
         return conn.execute(
-            """SELECT m.id AS medication_id, m.dependent_id, m.created_at,
+            f"""SELECT m.id AS medication_id, m.dependent_id, m.created_at,
                       d.name AS dependent_name,
-                      sr.reminder_time, sr.frequency, sr.interval_days,
-                      sr.weekdays, sr.month_day, sr.anchor_date
-               FROM medications m
-               JOIN schedule_rules sr ON sr.medication_id = m.id
-               LEFT JOIN dependents d ON d.id = m.dependent_id
-               WHERE m.user_id = %s AND m.active = 1 AND m.paused = 0
-               ORDER BY m.id""",
+                      {_RULE_COLS}
+               {_USER_RULES_FROM}""",
             (user_id,)
         ).fetchall()
 
