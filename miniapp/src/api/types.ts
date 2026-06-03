@@ -7,6 +7,8 @@ export interface TodayItem {
   status: 'pending' | 'taken' | 'skipped'
   is_due: boolean
   dependent_name: string | null
+  linked_user_id?: number
+  linked_user_name?: string
 }
 
 export interface IntakeIn {
@@ -74,6 +76,8 @@ export interface Medication {
   units_per_dose: number
   low_stock_days: number
   rules: ScheduleRule[]
+  linked_user_id?: number
+  linked_user_name?: string
 }
 
 export interface StockInfo {
@@ -89,6 +93,7 @@ export interface MedicationIn {
   meal_relation: MealRelation
   times_per_day: number
   dependent_id?: number | null
+  for_linked_user_id?: number | null
   rules: RuleIn[]
 }
 
@@ -106,6 +111,23 @@ export interface WeekStatRow {
   total: number
 }
 
+export interface CaregiverRequest {
+  id: number
+  caregiver_telegram_id: number
+  caregiver_username: string | null
+  created_at: string
+}
+
+export interface CaregiverLinkInfo {
+  id: number
+  status: string
+  created_at: string
+  caregiver_telegram_id?: number
+  caregiver_username?: string | null
+  dependent_telegram_id?: number
+  dependent_username?: string | null
+}
+
 export interface UserSettings {
   timezone: string
   reminder_mode: 'once' | 'repeat'
@@ -121,6 +143,10 @@ export interface UserSettings {
   strict_mode_hours: number
   reminder_repeat_hours: number
   is_admin: boolean
+  caregiver_code: string
+  pending_requests: CaregiverRequest[]
+  active_caregiver: CaregiverLinkInfo | null
+  active_dependents: CaregiverLinkInfo[]
 }
 
 export interface ServiceStatus {

@@ -1781,6 +1781,29 @@
 .dep-add-btn:disabled { opacity: 0.4; cursor: default; }
 
 
+/* ── Caregiver links ─────────────────────────────────────────────────────── */
+
+.caregiver-code {
+  font-family: monospace;
+  font-size: 1.05em;
+  letter-spacing: 0.05em;
+  color: var(--text);
+  flex: 1;
+}
+
+.caregiver-status-icon {
+  font-size: 1.1em;
+  color: var(--hint);
+  min-width: 20px;
+  text-align: center;
+}
+
+.caregiver-request-row {
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+
 /* ── Admin panel ─────────────────────────────────────────────────────────── */
 
 .info-tip {

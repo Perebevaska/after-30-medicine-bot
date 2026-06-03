@@ -154,18 +154,30 @@ function MedCard({ med, onEdit }: { med: Medication; onEdit: (id: number) => voi
 }
 
 interface Props {
-  onAdd: () => void
-  onEdit: (id: number) => void
+  onAdd: (linkedUserId?: number) => void
+  onEdit: (id: number, linkedUserId?: number) => void
 }
 
 export default function MedicationList({ onAdd, onEdit }: Props) {
   const { data, isLoading, error } = useMedications()
 
+  const ownMeds = data?.filter((m) => !m.linked_user_id) ?? []
+  // F7: group linked deps' meds by linked_user_id
+  const linkedGroups = (data ?? [])
+    .filter((m) => m.linked_user_id)
+    .reduce<Record<number, { name: string; meds: Medication[] }>>((acc, m) => {
+      const uid = m.linked_user_id!
+      if (!acc[uid]) acc[uid] = { name: m.linked_user_name ?? `id${uid}`, meds: [] }
+      acc[uid].meds.push(m)
+      return acc
+    }, {})
+  const hasAny = ownMeds.length > 0 || Object.keys(linkedGroups).length > 0
+
   return (
     <div className="page">
       <div className="page-header">
         <span className="page-header-title">Аптечка</span>
-        <button className="mlist-add-btn" onClick={onAdd} title="Добавить">
+        <button className="mlist-add-btn" onClick={() => onAdd()} title="Добавить">
           <Plus size={22} strokeWidth={2} />
         </button>
       </div>
@@ -173,22 +185,48 @@ export default function MedicationList({ onAdd, onEdit }: Props) {
       {isLoading && <p className="hint">Загрузка…</p>}
       {error && <p className="hint error">{apiErrorMessage(error)}</p>}
 
-      {data && data.length === 0 && (
+      {data && !hasAny && (
         <div className="mlist-empty">
           <p className="mlist-empty-text">Аптечка пуста</p>
-          <button className="btn-primary" onClick={onAdd}>
+          <button className="btn-primary" onClick={() => onAdd()}>
             Добавить в аптечку
           </button>
         </div>
       )}
 
-      {data && data.length > 0 && (
+      {ownMeds.length > 0 && (
         <div className="mlist-list">
-          {data.map((med) => (
-            <MedCard key={med.id} med={med} onEdit={onEdit} />
+          {ownMeds.map((med) => (
+            <MedCard key={med.id} med={med} onEdit={(id) => onEdit(id)} />
           ))}
         </div>
       )}
+
+      {/* F7: linked dependents' sections */}
+      {Object.values(linkedGroups).map((group) => (
+        <div key={group.name}>
+          <h2 className="section-title">@{group.name}</h2>
+          <div className="mlist-list">
+            {group.meds.map((med) => (
+              <MedCard
+                key={med.id}
+                med={med}
+                onEdit={(id) => onEdit(id, med.linked_user_id)}
+              />
+            ))}
+          </div>
+          <div style={{ padding: '4px 16px 12px' }}>
+            <button
+              className="mlist-add-btn"
+              style={{ width: '100%', borderRadius: 8, height: 36, fontSize: '0.9em' }}
+              onClick={() => onAdd(group.meds[0]?.linked_user_id)}
+              title="Добавить лекарство подопечному"
+            >
+              <Plus size={16} strokeWidth={2} /> Добавить
+            </button>
+          </div>
+        </div>
+      ))}
     </div>
   )
 }

@@ -73,6 +73,7 @@ export default function App() {
   const [navPage, setNavPage] = useState<NavPage>('dashboard')
   const [resetKeys, setResetKeys] = useState<ResetKeys>({ dashboard: 0, medications: 0, stats: 0, settings: 0 })
   const [editMedId, setEditMedId] = useState<number | undefined>()
+  const [editLinkedUserId, setEditLinkedUserId] = useState<number | undefined>()
   const [showForm, setShowForm] = useState(false)
   const touchStart = useRef<{ x: number; y: number } | null>(null)
 
@@ -111,18 +112,20 @@ export default function App() {
     if (dx > 0 && idx > 0) setNavPage(NAV_PAGES[idx - 1])
   }
 
-  const openForm = (editId?: number) => {
+  const openForm = (editId?: number, linkedUserId?: number) => {
     setEditMedId(editId)
+    setEditLinkedUserId(linkedUserId)
     setShowForm(true)
   }
 
   const closeForm = () => {
     setShowForm(false)
     setEditMedId(undefined)
+    setEditLinkedUserId(undefined)
   }
 
   if (showForm) {
-    return <MedicationForm editId={editMedId} onBack={closeForm} />
+    return <MedicationForm editId={editMedId} linkedUserId={editLinkedUserId} onBack={closeForm} />
   }
 
   const activeIdx = NAV_PAGES.indexOf(navPage)
@@ -138,7 +141,7 @@ export default function App() {
           >
             {page === 'dashboard' && <Dashboard key={resetKeys.dashboard} />}
             {page === 'medications' && (
-              <MedicationList key={resetKeys.medications} onAdd={() => openForm()} onEdit={(id) => openForm(id)} />
+              <MedicationList key={resetKeys.medications} onAdd={(uid) => openForm(undefined, uid)} onEdit={(id, uid) => openForm(id, uid)} />
             )}
             {page === 'stats' && <StatsPage key={resetKeys.stats} />}
             {page === 'settings' && <SettingsPage key={resetKeys.settings} />}

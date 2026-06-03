@@ -3,7 +3,8 @@ import {
   useSettings, useSetReminderMode, useSetDailyPlan, useSetCaregiver,
   useDependents, useCreateDependent, useDeleteDependent,
   useSetTimezone, useSetTimezoneByLocation, useDeleteAccount, useSetStrictMode,
-  useAdminStats,
+  useAdminStats, useRequestCaregiverLink, useConfirmCaregiverLink,
+  useDeclineCaregiverLink, useDeleteCaregiverLink,
 } from '../api/hooks'
 
 function InfoTip({ text }: { text: string }) {
@@ -105,6 +106,33 @@ export default function SettingsPage() {
   const [geoError, setGeoError] = useState('')
   const [confirmDeleteAccount, setConfirmDeleteAccount] = useState(false)
   const [deleted, setDeleted] = useState(false)
+
+  // F7: caregiver links
+  const requestLink = useRequestCaregiverLink()
+  const confirmLink = useConfirmCaregiverLink()
+  const declineLink = useDeclineCaregiverLink()
+  const deleteLink = useDeleteCaregiverLink()
+  const [linkCode, setLinkCode] = useState('')
+  const [linkError, setLinkError] = useState('')
+  const [codeCopied, setCodeCopied] = useState(false)
+
+  const handleCopyCode = () => {
+    if (!data?.caregiver_code) return
+    navigator.clipboard.writeText(data.caregiver_code).then(() => {
+      setCodeCopied(true)
+      setTimeout(() => setCodeCopied(false), 2000)
+    })
+  }
+
+  const handleRequestLink = () => {
+    const code = linkCode.trim().toUpperCase()
+    if (!code) return
+    setLinkError('')
+    requestLink.mutate(code, {
+      onSuccess: () => setLinkCode(''),
+      onError: (e) => setLinkError(e.message),
+    })
+  }
 
   const filteredZones = useMemo(() => {
     const q = tzSearch.toLowerCase()
@@ -321,6 +349,89 @@ export default function SettingsPage() {
           </div>
         </>
       )}
+
+      <h2 className="section-title">Опека</h2>
+      <p className="section-hint">
+        Привяжи другого пользователя как подопечного — ты сможешь управлять его аптечкой
+        и видеть его приёмы. Для связи нужен код подопечного.
+      </p>
+      <div className="settings-block">
+        <div className="settings-row">
+          <span className="settings-label">Мой код</span>
+          <span className="caregiver-code">{data.caregiver_code ?? '…'}</span>
+          <button className="tz-change-btn" onClick={handleCopyCode}>
+            {codeCopied ? 'Скопировано!' : 'Копировать'}
+          </button>
+        </div>
+
+        {/* Active caregiver (I'm a dependent) */}
+        {data.active_caregiver && (
+          <div className="settings-row">
+            <span className="settings-label" style={{ color: 'var(--hint)', fontSize: '0.85em' }}>
+              Мой опекун: @{data.active_caregiver.caregiver_username ?? data.active_caregiver.caregiver_telegram_id}
+            </span>
+          </div>
+        )}
+
+        {/* Pending incoming requests (I'm about to become a dependent) */}
+        {data.pending_requests?.map((req) => (
+          <div key={req.id} className="settings-row caregiver-request-row">
+            <span className="settings-label">
+              Запрос от @{req.caregiver_username ?? req.caregiver_telegram_id}
+            </span>
+            <button
+              className="dep-add-btn"
+              onClick={() => confirmLink.mutate(req.id)}
+              disabled={confirmLink.isPending}
+            >
+              Принять
+            </button>
+            <button
+              className="dep-delete-btn"
+              onClick={() => declineLink.mutate(req.id)}
+              disabled={declineLink.isPending}
+            >
+              Отклонить
+            </button>
+          </div>
+        ))}
+
+        {/* Active dependents (I'm the caregiver) */}
+        {data.active_dependents?.map((dep) => (
+          <div key={dep.id} className="settings-row">
+            <span className="settings-label">
+              @{dep.dependent_username ?? dep.dependent_telegram_id}
+            </span>
+            <button
+              className="dep-delete-btn"
+              onClick={() => deleteLink.mutate(dep.id)}
+              disabled={deleteLink.isPending}
+            >
+              Разорвать
+            </button>
+          </div>
+        ))}
+
+        {/* Link request form */}
+        <div className="settings-row settings-row--add">
+          <input
+            className="dep-name-input"
+            placeholder="Код подопечного (XXXX-XXXX)"
+            value={linkCode}
+            onChange={(e) => setLinkCode(e.target.value.toUpperCase())}
+            onKeyDown={(e) => e.key === 'Enter' && handleRequestLink()}
+            maxLength={9}
+          />
+          <button
+            className="dep-add-btn"
+            onClick={handleRequestLink}
+            disabled={!linkCode.trim() || requestLink.isPending}
+          >
+            Привязать
+          </button>
+        </div>
+        {linkError && <p className="hint error" style={{ margin: '4px 0 0' }}>{linkError}</p>}
+      </div>
 
       <h2 className="section-title">Часовой пояс</h2>
       <p className="section-hint">

@@ -543,6 +543,47 @@ def is_active_dependent(telegram_id: int) -> bool:
         return row is not None
 
 
+def get_linked_dependents_for_caregiver(caregiver_telegram_id: int) -> list:
+    """Возвращает [{user_id, telegram_id, username}] активных подопечных опекуна."""
+    with get_connection() as conn:
+        user = conn.execute(
+            "SELECT id FROM users WHERE telegram_id = %s", (caregiver_telegram_id,)
+        ).fetchone()
+        if not user:
+            return []
+        return conn.execute(
+            "SELECT u.id AS user_id, u.telegram_id, u.username "
+            "FROM caregiver_links cl JOIN users u ON u.id = cl.dependent_id "
+            "WHERE cl.caregiver_id = %s AND cl.status = 'active'",
+            (user["id"],)
+        ).fetchall()
+
+
+def is_caregiver_for_user_id(caregiver_telegram_id: int, dependent_user_id: int) -> bool:
+    """True если у пользователя есть активная связь как опекун с данным dependent_user_id."""
+    with get_connection() as conn:
+        user = conn.execute(
+            "SELECT id FROM users WHERE telegram_id = %s", (caregiver_telegram_id,)
+        ).fetchone()
+        if not user:
+            return False
+        row = conn.execute(
+            "SELECT 1 FROM caregiver_links "
+            "WHERE caregiver_id = %s AND dependent_id = %s AND status = 'active'",
+            (user["id"], dependent_user_id)
+        ).fetchone()
+        return row is not None
+
+
+def get_medication_by_id_any_user(medication_id: int, user_ids: list):
+    """Возвращает лекарство если оно принадлежит любому из user_ids."""
+    with get_connection() as conn:
+        return conn.execute(
+            "SELECT * FROM medications WHERE id = %s AND user_id = ANY(%s)",
+            (medication_id, user_ids)
+        ).fetchone()
+
+
 def get_dependents(telegram_id: int) -> list:
     """Возвращает список подопечных пользователя [{id, name}, ...]."""
     with get_connection() as conn:

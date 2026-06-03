@@ -92,6 +92,7 @@ class MedicationIn(BaseModel):
     meal_relation: _MealRelation
     times_per_day: int = Field(ge=1, le=24)
     dependent_id: Optional[int] = None
+    for_linked_user_id: Optional[int] = None  # F7: user_id linked dependent
     rules: list[RuleIn] = Field(min_length=1, max_length=MAX_RULES_PER_MED)
 
 
@@ -107,26 +108,49 @@ class MedicationUpdate(BaseModel):
 async def list_medications(user: TelegramUser = Depends(require_db_user)):
     meds = await asyncio.to_thread(db.get_user_medications, user.user_id)
     rules = await asyncio.to_thread(db.get_rules_grouped_for_user, user.user_id)
-    return [
-        {**dict(m), "rules": [dict(r) for r in rules.get(m["id"], [])]}
-        for m in meds
-    ]
+    result = [{**dict(m), "rules": [dict(r) for r in rules.get(m["id"], [])]} for m in meds]
+    # F7: include linked dependents' medications
+    linked = await asyncio.to_thread(db.get_linked_dependents_for_caregiver, user.telegram_id)
+    for dep in linked:
+        dep_uid = dep["user_id"]
+        dep_meds = await asyncio.to_thread(db.get_user_medications, dep_uid)
+        dep_rules = await asyncio.to_thread(db.get_rules_grouped_for_user, dep_uid)
+        dep_name = dep["username"] or f"id{dep['telegram_id']}"
+        for m in dep_meds:
+            result.append({
+                **dict(m),
+                "rules": [dict(r) for r in dep_rules.get(m["id"], [])],
+                "linked_user_id": dep_uid,
+                "linked_user_name": dep_name,
+            })
+    return result
 
 
 @router.post("", status_code=201)
 async def create_medication(body: MedicationIn, user: TelegramUser = Depends(require_db_user)):
-    # S2: dependent_id приходит от клиента — проверяем владельца, иначе лекарство
-    # можно привязать к чужому подопечному.
-    if body.dependent_id is not None:
-        deps = await asyncio.to_thread(db.get_dependents, user.telegram_id)
-        if body.dependent_id not in {d["id"] for d in deps}:
-            raise HTTPException(404, "Подопечный не найден")
-    count = await asyncio.to_thread(db.count_active_medications, user.user_id, body.dependent_id)
+    # F7: creating med for a linked dependent
+    if body.for_linked_user_id is not None:
+        ok = await asyncio.to_thread(
+            db.is_caregiver_for_user_id, user.telegram_id, body.for_linked_user_id
+        )
+        if not ok:
+            raise HTTPException(403, "Нет активной связи с этим подопечным")
+        target_user_id = body.for_linked_user_id
+        dep_id = None
+    else:
+        # S2: dependent_id приходит от клиента — проверяем владельца.
+        if body.dependent_id is not None:
+            deps = await asyncio.to_thread(db.get_dependents, user.telegram_id)
+            if body.dependent_id not in {d["id"] for d in deps}:
+                raise HTTPException(404, "Подопечный не найден")
+        target_user_id = user.user_id
+        dep_id = body.dependent_id
+    count = await asyncio.to_thread(db.count_active_medications, target_user_id, dep_id)
     if count >= MAX_MEDICATIONS_PER_USER:
         raise HTTPException(400, f"Лимит {MAX_MEDICATIONS_PER_USER} лекарств достигнут")
     med_id = await asyncio.to_thread(
-        db.add_medication, user.user_id, body.name, body.dosage,
-        body.meal_relation, body.times_per_day, body.dependent_id,
+        db.add_medication, target_user_id, body.name, body.dosage,
+        body.meal_relation, body.times_per_day, dep_id,
     )
     for rule in body.rules:
         await asyncio.to_thread(
@@ -137,15 +161,24 @@ async def create_medication(body: MedicationIn, user: TelegramUser = Depends(req
     return {"id": med_id}
 
 
+async def _resolve_med(med_id: int, user: TelegramUser):
+    """Returns (med_row, owner_user_id). Allows caregiver to manage linked dep's meds."""
+    linked = await asyncio.to_thread(db.get_linked_dependents_for_caregiver, user.telegram_id)
+    allowed_ids = [user.user_id] + [d["user_id"] for d in linked]
+    med = await asyncio.to_thread(db.get_medication_by_id_any_user, med_id, allowed_ids)
+    if not med:
+        raise HTTPException(404, "Лекарство не найдено")
+    return med
+
+
 @router.put("/{med_id}")
 async def update_medication(
     med_id: int, body: MedicationUpdate,
     user: TelegramUser = Depends(require_db_user),
 ):
-    if not await asyncio.to_thread(db.get_medication_by_id, med_id, user.user_id):
-        raise HTTPException(404, "Лекарство не найдено")
+    med = await _resolve_med(med_id, user)
     await asyncio.to_thread(
-        db.update_medication, med_id, user.user_id,
+        db.update_medication, med_id, med["user_id"],
         body.name, body.dosage, body.meal_relation, body.times_per_day,
         [r.model_dump() for r in body.rules],
     )
@@ -154,20 +187,17 @@ async def update_medication(
 
 @router.delete("/{med_id}", status_code=204)
 async def delete_medication(med_id: int, user: TelegramUser = Depends(require_db_user)):
-    if not await asyncio.to_thread(db.get_medication_by_id, med_id, user.user_id):
-        raise HTTPException(404, "Лекарство не найдено")
-    await asyncio.to_thread(db.deactivate_medication, med_id, user.user_id)
+    med = await _resolve_med(med_id, user)
+    await asyncio.to_thread(db.deactivate_medication, med_id, med["user_id"])
 
 
 @router.post("/{med_id}/pause", status_code=204)
 async def pause_medication(med_id: int, user: TelegramUser = Depends(require_db_user)):
-    if not await asyncio.to_thread(db.get_medication_by_id, med_id, user.user_id):
-        raise HTTPException(404, "Лекарство не найдено")
-    await asyncio.to_thread(db.set_medication_paused, med_id, user.user_id, True)
+    med = await _resolve_med(med_id, user)
+    await asyncio.to_thread(db.set_medication_paused, med_id, med["user_id"], True)
 
 
 @router.post("/{med_id}/resume", status_code=204)
 async def resume_medication(med_id: int, user: TelegramUser = Depends(require_db_user)):
-    if not await asyncio.to_thread(db.get_medication_by_id, med_id, user.user_id):
-        raise HTTPException(404, "Лекарство не найдено")
-    await asyncio.to_thread(db.set_medication_paused, med_id, user.user_id, False)
+    med = await _resolve_med(med_id, user)
+    await asyncio.to_thread(db.set_medication_paused, med_id, med["user_id"], False)

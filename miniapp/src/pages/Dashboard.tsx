@@ -221,14 +221,23 @@ export default function Dashboard() {
   const [takingAll, setTakingAll] = useState(false)
   const wishRef = useRef<WishCardHandle>(null)
 
-  // Render полностью из data — без снапшотов/таймеров анимации (источник
-  // дублирования карточек). Переход due→others анимируется CSS на mount
-  // карточки в секции «Сегодня» (mlist-card--enter, играет один раз).
   const allItems = data ?? []
-  const dueItems = allItems
+  // F7: separate own items from linked dependents' items
+  const ownItems = allItems.filter((i) => !i.linked_user_id)
+  const linkedItems = allItems.filter((i) => i.linked_user_id)
+
+  // Group linked items by linked_user_id
+  const linkedGroups = linkedItems.reduce<Record<number, { name: string; items: TodayItem[] }>>((acc, item) => {
+    const uid = item.linked_user_id!
+    if (!acc[uid]) acc[uid] = { name: item.linked_user_name ?? `id${uid}`, items: [] }
+    acc[uid].items.push(item)
+    return acc
+  }, {})
+
+  const dueItems = ownItems
     .filter(isDuePending)
     .sort((a, b) => b.reminder_time.localeCompare(a.reminder_time))
-  const otherItems = allItems.filter((i) => !isDuePending(i))
+  const otherItems = ownItems.filter((i) => !isDuePending(i))
 
   const handleTakeAll = async () => {
     if (!dueItems.length) return
@@ -259,6 +268,7 @@ export default function Dashboard() {
   }
 
   const hasAny = dueItems.length > 0 || otherItems.length > 0
+  const hasLinked = linkedItems.length > 0
 
   return (
     <div className="page">
@@ -320,6 +330,32 @@ export default function Dashboard() {
           )}
         </>
       )}
+
+      {/* F7: read-only sections for linked dependents */}
+      {hasLinked && Object.values(linkedGroups).map((group) => (
+        <div key={group.name}>
+          <h2 className="section-title">@{group.name}</h2>
+          <div className="mlist-list">
+            {group.items.map((item) => (
+              <div
+                key={itemKey(item)}
+                className={`mlist-card${item.status === 'skipped' ? ' mlist-card--skipped' : item.status === 'taken' ? ' mlist-card--paused' : ''}${item.is_due && item.status === 'pending' ? ' mlist-card--due' : ''}`}
+              >
+                <div className="mlist-info">
+                  <div className="mlist-name">{item.name}</div>
+                  <div className="mlist-meta">
+                    {item.dosage}
+                  </div>
+                  <div className="mlist-schedule">{item.reminder_time}</div>
+                </div>
+                <span className="caregiver-status-icon">
+                  {item.status === 'taken' ? '✓' : item.status === 'skipped' ? '✗' : ''}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   )
 }

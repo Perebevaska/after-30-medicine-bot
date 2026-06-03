@@ -382,16 +382,20 @@ function RuleSection({ rule, index, errors, onChange }: RuleSectionProps) {
 
 interface Props {
   editId?: number
+  linkedUserId?: number  // F7: create/edit for linked dependent (their user_id)
   onBack: () => void
 }
 
-export default function MedicationForm({ editId, onBack }: Props) {
+export default function MedicationForm({ editId, linkedUserId, onBack }: Props) {
   const { data: meds } = useMedications()
   const { data: deps } = useDependents()
   const createMed = useCreateMedication()
   const updateMed = useUpdateMedication()
 
+  // For linked dep edits, find the med from the combined list
   const existing = editId != null ? meds?.find((m) => m.id === editId) : undefined
+  // Effective linkedUserId: from prop (new med) or from existing med
+  const effectiveLinkedUserId = linkedUserId ?? existing?.linked_user_id
 
   const [form, setForm] = useState<FormState>(() => {
     if (existing) {
@@ -453,7 +457,8 @@ export default function MedicationForm({ editId, onBack }: Props) {
       dosage: form.dosage.trim(),
       meal_relation: form.meal_relation,
       times_per_day: form.times_per_day,
-      dependent_id: form.dependent_id,
+      dependent_id: effectiveLinkedUserId ? null : form.dependent_id,
+      for_linked_user_id: effectiveLinkedUserId ?? null,
       rules: form.rules.map(ruleToIn),
     }
 
@@ -476,13 +481,15 @@ export default function MedicationForm({ editId, onBack }: Props) {
           ←
         </button>
         <h1 className="form-title">
-          {editId != null ? 'Редактировать' : 'Добавить в аптечку'}
+          {editId != null
+            ? effectiveLinkedUserId ? 'Редактировать (подопечный)' : 'Редактировать'
+            : effectiveLinkedUserId ? 'Добавить подопечному' : 'Добавить в аптечку'}
         </h1>
       </div>
 
       <div className="form-body">
-        {/* Dependent — first when caregiver has dependents */}
-        {deps && deps.length > 0 && (
+        {/* Dependent — first when caregiver has dependents; hidden for linked dep */}
+        {deps && deps.length > 0 && !effectiveLinkedUserId && (
           <div className="form-section">
             <label className="field-label">Для кого</label>
             <select

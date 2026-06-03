@@ -1,6 +1,67 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, getInitDataRaw } from './client'
-import type { TodayItem, IntakeIn, AdherenceResponse, StreakItem, Medication, MedicationIn, Dependent, StockInfo, UserSettings, WeekStatRow, AdminStats } from './types'
+import type { TodayItem, IntakeIn, AdherenceResponse, StreakItem, Medication, MedicationIn, Dependent, StockInfo, UserSettings, WeekStatRow, AdminStats, CaregiverLinkInfo } from './types'
+
+export interface CaregiverLinksData {
+  as_caregiver: CaregiverLinkInfo[]
+  as_dependent: CaregiverLinkInfo[]
+  pending_for_me: CaregiverLinksData['as_dependent']
+  active_caregiver: CaregiverLinkInfo | null
+}
+
+export function useCaregiverLinks() {
+  return useQuery<CaregiverLinksData>({
+    queryKey: ['caregiver-links'],
+    queryFn: () => api.get<CaregiverLinksData>('/caregiver-links'),
+    enabled: !!getInitDataRaw(),
+  })
+}
+
+export function useRequestCaregiverLink() {
+  const qc = useQueryClient()
+  return useMutation<{ id: number }, Error, string>({
+    mutationFn: (code) => api.post<{ id: number }>('/caregiver-links', { code }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['caregiver-links'] })
+      qc.invalidateQueries({ queryKey: ['settings'] })
+    },
+  })
+}
+
+export function useConfirmCaregiverLink() {
+  const qc = useQueryClient()
+  return useMutation<void, Error, number>({
+    mutationFn: (id) => api.post<void>(`/caregiver-links/${id}/confirm`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['caregiver-links'] })
+      qc.invalidateQueries({ queryKey: ['settings'] })
+    },
+  })
+}
+
+export function useDeclineCaregiverLink() {
+  const qc = useQueryClient()
+  return useMutation<void, Error, number>({
+    mutationFn: (id) => api.post<void>(`/caregiver-links/${id}/decline`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['caregiver-links'] })
+      qc.invalidateQueries({ queryKey: ['settings'] })
+    },
+  })
+}
+
+export function useDeleteCaregiverLink() {
+  const qc = useQueryClient()
+  return useMutation<void, Error, number>({
+    mutationFn: (id) => api.delete<void>(`/caregiver-links/${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['caregiver-links'] })
+      qc.invalidateQueries({ queryKey: ['settings'] })
+      qc.invalidateQueries({ queryKey: ['medications'] })
+      qc.invalidateQueries({ queryKey: ['today'] })
+    },
+  })
+}
 
 export function useToday() {
   return useQuery<TodayItem[]>({
