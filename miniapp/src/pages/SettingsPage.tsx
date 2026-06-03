@@ -160,7 +160,9 @@ export default function SettingsPage() {
 
   return (
     <div className="page">
-      <h2 className="page-title">Настройки</h2>
+      <div className="page-header">
+        <span className="page-header-title">Настройки</span>
+      </div>
 
       <h2 className="section-title">Напоминания</h2>
       <p className="section-hint">

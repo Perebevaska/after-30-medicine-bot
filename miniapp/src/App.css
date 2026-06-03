@@ -148,13 +148,20 @@
   animation: heartFly var(--dur) cubic-bezier(0.15, 0.8, 0.5, 1) forwards;
 }
 
-/* Page title (top of each tab) */
-.page-title {
-  font-size: 20px;
+/* Page header — unified across all tabs (same as .mlist-header) */
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px 10px;
+  background: var(--secondary-bg);
+  border-bottom: 1px solid rgba(0,0,0,0.08);
+}
+
+.page-header-title {
+  font-size: 17px;
   font-weight: 700;
   color: var(--text);
-  padding: 16px 16px 4px;
-  margin: 0;
 }
 
 /* Section title */
@@ -360,21 +367,6 @@
 }
 
 /* ── Medication list ─────────────────────────────────────────────────────── */
-
-.mlist-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 14px 16px 10px;
-  background: var(--secondary-bg);
-  border-bottom: 1px solid rgba(0,0,0,0.08);
-}
-
-.mlist-title {
-  font-size: 17px;
-  font-weight: 700;
-  color: var(--text);
-}
 
 .mlist-add-btn {
   font-size: 14px;

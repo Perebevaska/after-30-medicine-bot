@@ -159,8 +159,8 @@ export default function MedicationList({ onAdd, onEdit }: Props) {
 
   return (
     <div className="page">
-      <div className="mlist-header">
-        <h2 className="mlist-title">Лекарства</h2>
+      <div className="page-header">
+        <span className="page-header-title">Лекарства</span>
         <button className="mlist-add-btn" onClick={onAdd} title="Добавить">
           <Plus size={22} strokeWidth={2} />
         </button>

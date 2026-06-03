@@ -219,7 +219,9 @@ export default function StatsPage() {
 
   return (
     <div className="page">
-      <h2 className="page-title">Прогресс</h2>
+      <div className="page-header">
+        <span className="page-header-title">Прогресс</span>
+      </div>
       <h2 className="section-title">Серия</h2>
       {streakLoading && <p className="hint">Загрузка…</p>}
       {!streakLoading && (
