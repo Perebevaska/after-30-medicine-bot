@@ -240,6 +240,17 @@ StandardError=journal
 WantedBy=multi-user.target
 EOF
 
+# ─── journald: ограничение размера логов (OP4) ────────────────────────────────
+
+info "Настройка journald (SystemMaxUse=200M)..."
+mkdir -p /etc/systemd/journald.conf.d/
+cat > /etc/systemd/journald.conf.d/medbot.conf <<EOF
+[Journal]
+SystemMaxUse=200M
+EOF
+systemctl restart systemd-journald
+success "journald настроен ($(journalctl --disk-usage 2>/dev/null | grep -oP '[\d.]+ [A-Z]+' | head -1 || echo '?'))"
+
 # ─── Caddyfile ────────────────────────────────────────────────────────────────
 
 info "Настройка Caddy..."

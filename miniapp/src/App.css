@@ -1341,6 +1341,20 @@
   color: var(--hint);
 }
 
+.skipped-days-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 0 4px;
+}
+
+.skipped-days-emoji { font-size: 18px; }
+
+.skipped-days-text {
+  font-size: 14px;
+  color: var(--hint);
+}
+
 .stats-adh-block {
   padding: 4px 16px 8px;
 }

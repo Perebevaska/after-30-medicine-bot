@@ -103,6 +103,31 @@ function DoctorPreview({ meds }: { meds: Medication[] }) {
   )
 }
 
+// ─── S2: дней с пропусками за 7 дней ─────────────────────────────────────
+
+function SkippedDaysBadge({ weekRows }: { weekRows: WeekStatRow[] }) {
+  if (!weekRows.length) return null
+  const skippedDays = new Set(weekRows.filter((r) => r.skipped > 0).map((r) => r.day)).size
+  let emoji: string
+  let text: string
+  if (skippedDays === 0) {
+    emoji = '💚'
+    text = 'Всё под контролем'
+  } else if (skippedDays <= 2) {
+    emoji = '😕'
+    text = `${skippedDays} дн. с пропусками за неделю`
+  } else {
+    emoji = '😟'
+    text = `${skippedDays} дн. с пропусками за неделю`
+  }
+  return (
+    <div className="skipped-days-badge">
+      <span className="skipped-days-emoji">{emoji}</span>
+      <span className="skipped-days-text">{text}</span>
+    </div>
+  )
+}
+
 // ─── Report card ──────────────────────────────────────────────────────────
 
 type ReportDef = {
@@ -117,25 +142,25 @@ const REPORTS: ReportDef[] = [
     slot: 'plan',
     icon: '📋',
     title: 'Расписание на неделю',
-    desc: 'Все лекарства с временем приёма и указанием относительно еды.',
+    desc: 'Полное расписание лекарств: время и приём относительно еды.',
   },
   {
     slot: 'week',
     icon: '📅',
     title: 'История за 7 дней',
-    desc: 'Что и когда принято или пропущено за последние 7 дней.',
+    desc: 'Все приёмы за последние 7 дней — что отмечено, что пропущено.',
   },
   {
     slot: 'adherence',
     icon: '📊',
-    title: 'Соблюдение режима',
-    desc: 'Процент выполнения по каждому лекарству за 30 дней.',
+    title: 'Мой прогресс',
+    desc: 'Насколько регулярно принималось каждое лекарство за 30 дней.',
   },
   {
     slot: 'doctor',
     icon: '🩺',
     title: 'Отчёт для врача',
-    desc: 'Сводка лекарств и расписания в формате для врача или стационара.',
+    desc: 'Сводка для врача: лекарства, дозировки и расписание.',
   },
 ]
 
@@ -238,13 +263,14 @@ export default function StatsPage() {
               <span className="streak-label">{s.name}</span>
             </div>
           ))}
+          <SkippedDaysBadge weekRows={weekRows} />
         </div>
       )}
 
-      <h2 className="section-title">Соблюдение (30 дней)</h2>
+      <h2 className="section-title">Регулярность (30 дней)</h2>
       {adherenceLoading && <p className="hint">Загрузка…</p>}
       {!adherenceLoading && meds.length === 0 && (
-        <p className="hint">Нет данных — начните отмечать приёмы</p>
+        <p className="hint">Начни отмечать приёмы — и здесь появится твой прогресс 💊</p>
       )}
       {!adherenceLoading && meds.length > 0 && (
         <div className="stats-adh-block">
