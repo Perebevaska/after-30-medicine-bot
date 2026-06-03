@@ -33,7 +33,7 @@ function BottomNav({ active, onChange }: { active: NavPage; onChange: (p: NavPag
         onClick={() => onChange('dashboard')}
       >
         <TodayIcon />
-        <span className="nav-label">Сегодня</span>
+        <span className="nav-label">Приёмы</span>
       </button>
       <button
         type="button"
@@ -49,7 +49,7 @@ function BottomNav({ active, onChange }: { active: NavPage; onChange: (p: NavPag
         onClick={() => onChange('stats')}
       >
         <ChartNoAxesColumnIncreasing size={22} strokeWidth={1.75} />
-        <span className="nav-label">Статистика</span>
+        <span className="nav-label">Прогресс</span>
       </button>
       <button
         type="button"
