@@ -35,7 +35,8 @@ class LocationIn(BaseModel):
 
 class ReminderModeIn(BaseModel):
     mode: Literal["once", "repeat"]
-    hours: Optional[int] = Field(default=None, ge=1, le=12)
+    hours: Optional[int] = Field(default=None, ge=0, le=23)
+    minutes: Optional[int] = Field(default=0, ge=0, le=59)
 
 
 class PresetIn(BaseModel):
@@ -55,7 +56,22 @@ class CaregiverIn(BaseModel):
 
 class StrictModeIn(BaseModel):
     enabled: bool
-    hours: Optional[int] = Field(default=None, ge=1, le=24)
+    hours: Optional[int] = Field(default=None, ge=0, le=23)
+    minutes: Optional[int] = Field(default=0, ge=0, le=59)
+
+
+class DependentReminderModeIn(BaseModel):
+    link_id: int
+    mode: Literal["once", "repeat"]
+    hours: Optional[int] = Field(default=None, ge=0, le=23)
+    minutes: Optional[int] = Field(default=0, ge=0, le=59)
+
+
+class DependentStrictModeIn(BaseModel):
+    link_id: int
+    enabled: bool
+    hours: Optional[int] = Field(default=None, ge=0, le=23)
+    minutes: Optional[int] = Field(default=0, ge=0, le=59)
 
 
 @router.get("")
@@ -98,7 +114,7 @@ async def set_timezone_by_location(body: LocationIn, telegram_id: int = Depends(
 async def set_reminder_mode(body: ReminderModeIn, telegram_id: int = Depends(require_telegram_user)):
     if await asyncio.to_thread(db.is_active_dependent, telegram_id):
         raise HTTPException(403, "Опекун управляет этой настройкой")
-    await asyncio.to_thread(db.set_reminder_mode, telegram_id, body.mode, body.hours)
+    await asyncio.to_thread(db.set_reminder_mode, telegram_id, body.mode, body.hours, body.minutes or 0)
 
 
 @router.put("/presets/{slot}", status_code=204)
@@ -125,7 +141,33 @@ async def set_caregiver(body: CaregiverIn, telegram_id: int = Depends(require_te
 async def set_strict_mode(body: StrictModeIn, telegram_id: int = Depends(require_telegram_user)):
     if await asyncio.to_thread(db.is_active_dependent, telegram_id):
         raise HTTPException(403, "Опекун управляет этой настройкой")
-    await asyncio.to_thread(db.set_strict_mode, telegram_id, body.enabled, body.hours)
+    await asyncio.to_thread(db.set_strict_mode, telegram_id, body.enabled, body.hours, body.minutes or 0)
+
+
+@router.put("/dependent-reminder-mode", status_code=204)
+async def set_dependent_reminder_mode(
+    body: DependentReminderModeIn,
+    telegram_id: int = Depends(require_telegram_user),
+):
+    ok = await asyncio.to_thread(
+        db.set_dependent_settings, telegram_id, body.link_id,
+        reminder_mode=body.mode, reminder_hours=body.hours, reminder_minutes=body.minutes or 0,
+    )
+    if not ok:
+        raise HTTPException(403, "Нет активной связи с подопечным")
+
+
+@router.put("/dependent-strict-mode", status_code=204)
+async def set_dependent_strict_mode(
+    body: DependentStrictModeIn,
+    telegram_id: int = Depends(require_telegram_user),
+):
+    ok = await asyncio.to_thread(
+        db.set_dependent_settings, telegram_id, body.link_id,
+        strict_mode=body.enabled, strict_hours=body.hours, strict_minutes=body.minutes or 0,
+    )
+    if not ok:
+        raise HTTPException(403, "Нет активной связи с подопечным")
 
 
 @router.delete("/account", status_code=204)

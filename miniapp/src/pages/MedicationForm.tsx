@@ -233,6 +233,7 @@ interface RuleSectionProps {
 function RuleSection({ rule, index, errors, onChange }: RuleSectionProps) {
   const set = (patch: Partial<RuleState>) => onChange(index, patch)
   const [showDosage, setShowDosage] = useState(!!rule.custom_dosage)
+  const [drumOpen, setDrumOpen] = useState(false)
 
   const toggleWeekday = (day: number) => {
     const days = rule.weekdays.includes(day)
@@ -247,10 +248,19 @@ function RuleSection({ rule, index, errors, onChange }: RuleSectionProps) {
 
       <div className="form-field">
         <label className="field-label">Время</label>
-        <TimePicker
-          value={rule.reminder_time}
-          onChange={(v) => set({ reminder_time: v })}
-        />
+        <span
+          className={`settings-time-chip${drumOpen ? ' settings-time-chip--active' : ''}`}
+          onClick={() => setDrumOpen((v) => !v)}
+        >
+          {rule.reminder_time}
+          <span className="settings-time-chip-chevron">{drumOpen ? '‹' : '›'}</span>
+        </span>
+        {drumOpen && (
+          <div className="plan-time-expand">
+            <TimePicker value={rule.reminder_time} onChange={(v) => set({ reminder_time: v })} />
+            <button type="button" className="plan-time-done-btn" onClick={() => setDrumOpen(false)}>Готово</button>
+          </div>
+        )}
         {errors[`rule_${index}_time`] && (
           <span className="field-error">{errors[`rule_${index}_time`]}</span>
         )}
@@ -490,14 +500,14 @@ export default function MedicationForm({ editId, linkedUserId, onBack }: Props) 
         </button>
         <h1 className="form-title">
           {editId != null
-            ? effectiveLinkedUserId ? 'Редактировать (подопечный)' : 'Редактировать'
+            ? effectiveLinkedUserId ? 'Редактировать (близкий)' : 'Редактировать'
             : effectiveLinkedUserId ? 'Добавить подопечному' : 'Добавить в аптечку'}
         </h1>
       </div>
 
       <div className="form-body">
         {/* Dependent / linked user selector */}
-        {(deps && deps.length > 0 || linkedDeps.length > 0) && !effectiveLinkedUserId && (
+        {!!settings?.caregiver_enabled && (deps && deps.length > 0 || linkedDeps.length > 0) && !effectiveLinkedUserId && (
           <div className="form-section">
             <label className="field-label">Для кого</label>
             <select

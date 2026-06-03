@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import { Send } from 'lucide-react'
 import { useAdherence, useStreak, useSendExport, useWeekStats, useSettings } from '../api/hooks'
 import type { WeekStatRow, StreakItem } from '../api/types'
 
@@ -95,7 +96,7 @@ function ReportRow({ slot, icon, title }: ReportDef) {
         onClick={handleSend}
         disabled={isPending}
       >
-        {isPending ? '⏳' : sent ? '✅' : isError ? '⚠️' : '→ Tg'}
+        {isPending ? '⏳' : sent ? '✅' : isError ? '⚠️' : <Send size={15} strokeWidth={2} />}
       </button>
     </div>
   )

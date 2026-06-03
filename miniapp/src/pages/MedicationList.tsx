@@ -32,7 +32,14 @@ type CardView = 'collapsed' | 'actions' | 'stock' | 'confirm-delete'
 
 const CLOSE_MS = 220
 
-function MedCard({ med, onEdit }: { med: Medication; onEdit: (id: number) => void }) {
+function MedCard({
+  med, onEdit, onOpen, forceClose,
+}: {
+  med: Medication
+  onEdit: (id: number) => void
+  onOpen: () => void
+  forceClose: boolean
+}) {
   const [view, setView] = useState<CardView>('collapsed')
   const [isOpen, setIsOpen] = useState(false)
   const { mutate: del, isPending: delPending } = useDeleteMedication()
@@ -41,7 +48,12 @@ function MedCard({ med, onEdit }: { med: Medication; onEdit: (id: number) => voi
 
   useEffect(() => () => { if (closeTimerRef.current) clearTimeout(closeTimerRef.current) }, [])
 
-  const open = () => { setView('actions'); setIsOpen(true) }
+  useEffect(() => {
+    if (forceClose && isOpen) close()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [forceClose])
+
+  const open = () => { setView('actions'); setIsOpen(true); onOpen() }
   const close = () => {
     setIsOpen(false)
     if (closeTimerRef.current) clearTimeout(closeTimerRef.current)
@@ -160,6 +172,7 @@ interface Props {
 
 export default function MedicationList({ onAdd, onEdit }: Props) {
   const { data, isLoading, error } = useMedications()
+  const [openMedId, setOpenMedId] = useState<number | null>(null)
 
   const ownMeds = data?.filter((m) => !m.linked_user_id) ?? []
   // F7: group linked deps' meds by linked_user_id
@@ -197,7 +210,13 @@ export default function MedicationList({ onAdd, onEdit }: Props) {
       {ownMeds.length > 0 && (
         <div className="mlist-list">
           {ownMeds.map((med) => (
-            <MedCard key={med.id} med={med} onEdit={(id) => onEdit(id)} />
+            <MedCard
+              key={med.id}
+              med={med}
+              onEdit={(id) => onEdit(id)}
+              onOpen={() => setOpenMedId(med.id)}
+              forceClose={openMedId !== null && openMedId !== med.id}
+            />
           ))}
         </div>
       )}
@@ -212,6 +231,8 @@ export default function MedicationList({ onAdd, onEdit }: Props) {
                 key={med.id}
                 med={med}
                 onEdit={(id) => onEdit(id, med.linked_user_id)}
+                onOpen={() => setOpenMedId(med.id)}
+                forceClose={openMedId !== null && openMedId !== med.id}
               />
             ))}
           </div>

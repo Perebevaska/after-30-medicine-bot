@@ -100,7 +100,7 @@ export function useHearts() {
 
 export function useSetStrictMode() {
   const qc = useQueryClient()
-  return useMutation<void, Error, { enabled: boolean; hours?: number }>({
+  return useMutation<void, Error, { enabled: boolean; hours?: number; minutes?: number }>({
     mutationFn: (body) => api.put<void>('/settings/strict-mode', body),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['settings'] }),
   })
@@ -270,7 +270,7 @@ export function useSetTimezoneByLocation() {
 
 export function useSetReminderMode() {
   const qc = useQueryClient()
-  return useMutation<void, Error, { mode: 'once' | 'repeat'; hours?: number }>({
+  return useMutation<void, Error, { mode: 'once' | 'repeat'; hours?: number; minutes?: number }>({
     mutationFn: (body) => api.put<void>('/settings/reminder-mode', body),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['settings'] }),
   })
@@ -300,6 +300,22 @@ export function useSetCaregiver() {
       qc.invalidateQueries({ queryKey: ['settings'] })
       qc.invalidateQueries({ queryKey: ['dependents'] })
     },
+  })
+}
+
+export function useSetDependentReminderMode() {
+  const qc = useQueryClient()
+  return useMutation<void, Error, { link_id: number; mode: 'once' | 'repeat'; hours?: number; minutes?: number }>({
+    mutationFn: (v) => api.put<void>('/settings/dependent-reminder-mode', v),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['settings'] }),
+  })
+}
+
+export function useSetDependentStrictMode() {
+  const qc = useQueryClient()
+  return useMutation<void, Error, { link_id: number; enabled: boolean; hours?: number; minutes?: number }>({
+    mutationFn: (v) => api.put<void>('/settings/dependent-strict-mode', v),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['settings'] }),
   })
 }
 

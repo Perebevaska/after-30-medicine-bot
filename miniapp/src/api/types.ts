@@ -128,6 +128,12 @@ export interface CaregiverLinkInfo {
   dependent_user_id?: number
   dependent_telegram_id?: number
   dependent_username?: string | null
+  reminder_mode?: 'once' | 'repeat'
+  reminder_repeat_hours?: number
+  reminder_repeat_minutes?: number
+  strict_mode?: number
+  strict_mode_hours?: number
+  strict_mode_minutes?: number
 }
 
 export interface UserSettings {
@@ -143,7 +149,9 @@ export interface UserSettings {
   hearts: number
   strict_mode: number
   strict_mode_hours: number
+  strict_mode_minutes: number
   reminder_repeat_hours: number
+  reminder_repeat_minutes: number
   is_admin: boolean
   caregiver_code: string
   pending_requests: CaregiverRequest[]

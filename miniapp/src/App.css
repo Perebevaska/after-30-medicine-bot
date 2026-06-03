@@ -23,6 +23,36 @@
   min-height: 100%;
 }
 
+/* Timezone banner */
+.tz-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 12px 16px 4px;
+  padding: 12px 14px;
+  background: color-mix(in srgb, var(--button-color) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--button-color) 30%, transparent);
+  border-radius: 12px;
+}
+
+.tz-banner-text {
+  flex: 1;
+  font-size: 0.88em;
+  color: var(--text);
+  line-height: 1.45;
+}
+
+.tz-banner-close {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  padding: 2px;
+  color: var(--hint);
+  cursor: pointer;
+  line-height: 1;
+  margin-top: 1px;
+}
+
 /* Wish card */
 .wish-card {
   position: relative;
@@ -1783,13 +1813,40 @@
 
 /* ── Caregiver links ─────────────────────────────────────────────────────── */
 
-.caregiver-code {
-  font-family: monospace;
-  font-size: 1.05em;
-  letter-spacing: 0.05em;
+.caregiver-username {
+  font-size: 0.95em;
   color: var(--text);
   flex: 1;
-  margin-left: 8px;
+  text-align: right;
+}
+
+.caregiver-code-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px 5px 12px;
+  background: var(--secondary-bg);
+  border: 1px solid rgba(128,128,128,0.2);
+  border-radius: 20px;
+  cursor: pointer;
+  transition: opacity 0.15s;
+  flex-shrink: 0;
+}
+
+.caregiver-code-chip:active { opacity: 0.6; }
+
+.caregiver-code-text {
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 1em;
+  letter-spacing: 0.12em;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.caregiver-code-icon {
+  font-size: 0.95em;
+  color: var(--hint);
+  line-height: 1;
 }
 
 .caregiver-status-icon {
@@ -1799,9 +1856,165 @@
   text-align: center;
 }
 
-.caregiver-locked-hint {
-  color: #e6900a;
+.caregiver-off-confirm {
+  padding: 10px 0 4px;
+  border-top: 1px solid var(--secondary-bg);
+}
+
+.caregiver-off-confirm-text {
+  font-size: 0.85em;
+  color: var(--hint);
+  line-height: 1.5;
+  margin: 0 0 10px;
+}
+
+.caregiver-off-confirm-actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.caregiver-off-info {
+  padding: 8px 0 4px;
+  border-top: 1px solid var(--secondary-bg);
+}
+
+.caregiver-off-info-text {
   font-size: 0.82em;
+  color: var(--hint);
+  line-height: 1.4;
+  margin: 0 0 8px;
+}
+
+.caregiver-divider {
+  height: 1px;
+  background: var(--hint);
+  opacity: 0.15;
+  margin: 6px 0;
+}
+
+.caregiver-locked-hint {
+  color: var(--hint);
+  font-size: 0.8em;
+}
+
+.settings-row--tappable {
+  cursor: pointer;
+  user-select: none;
+}
+
+.settings-time-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  background: var(--secondary-bg);
+  border: 1px solid rgba(128,128,128,0.2);
+  border-radius: 20px;
+  font-size: 0.95em;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: 0.04em;
+  transition: background 0.15s;
+  width: fit-content;
+  cursor: pointer;
+  user-select: none;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.settings-time-chip--locked {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.settings-time-chip--active {
+  background: color-mix(in srgb, var(--button-color) 15%, var(--secondary-bg));
+  border-color: color-mix(in srgb, var(--button-color) 40%, transparent);
+}
+
+.settings-time-chip-chevron {
+  font-size: 1em;
+  color: var(--hint);
+  line-height: 1;
+}
+
+.plan-time-expand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 0 8px;
+  border-top: 1px solid var(--secondary-bg);
+}
+
+.plan-time-done-btn {
+  padding: 7px 28px;
+  background: var(--button-color);
+  color: var(--button-text-color);
+  border: none;
+  border-radius: 20px;
+  font-size: 0.9em;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.drum-picker--single {
+  justify-content: center;
+}
+
+.drum-picker--single .drum-sep {
+  font-size: 1em;
+  color: var(--hint);
+  align-self: center;
+  padding-bottom: 2px;
+}
+
+.settings-time-chip-text {
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 0.95em;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.settings-caregiver-dep-setting {
+  background: var(--secondary-bg);
+  border-radius: 8px;
+  margin-top: 4px;
+  padding: 6px 12px;
+  gap: 8px;
+}
+
+.settings-caregiver-dep-setting .settings-label {
+  font-size: 0.88em;
+  color: var(--hint);
+  flex: 1;
+}
+
+.toggle-switch--sm {
+  transform: scale(0.82);
+  transform-origin: right center;
+  flex-shrink: 0;
+}
+
+.settings-row--drum {
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.settings-locked-row-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+}
+
+.settings-locked-value {
+  font-size: 0.95em;
+  color: var(--text);
+  font-weight: 500;
 }
 
 .btn-caregiver-break {
@@ -1931,40 +2144,62 @@
 
 .btn-delete-account {
   align-self: flex-start;
-  background: none;
-  border: none;
-  color: rgba(204, 51, 51, 0.65);
+  background: rgba(204, 51, 51, 0.08);
+  border: 1px solid rgba(204, 51, 51, 0.25);
+  color: rgba(204, 51, 51, 0.8);
   font-size: 13px;
   cursor: pointer;
-  padding: 0;
-  text-decoration: underline;
-  text-underline-offset: 3px;
+  padding: 7px 16px;
+  border-radius: 8px;
+  font-weight: 500;
 }
 
-.btn-delete-account:hover { color: #cc3333; }
+.btn-delete-account:active { opacity: 0.7; }
 
 .account-delete-confirm {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
 }
 
 .account-delete-warn {
   font-size: 13px;
-  color: #cc3333;
+  color: var(--hint);
+  line-height: 1.5;
 }
 
-.btn-delete-account--confirm {
-  align-self: flex-start;
-  padding: 8px 16px;
-  border-radius: 8px;
+.account-delete-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.account-delete-cancel-btn {
+  flex: 1;
+  padding: 9px 0;
+  border-radius: 10px;
+  background: var(--secondary-bg);
+  border: 1px solid rgba(128,128,128,0.2);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.account-delete-cancel-btn:disabled { opacity: 0.5; cursor: default; }
+
+.account-delete-confirm-btn {
+  flex: 1;
+  padding: 9px 0;
+  border-radius: 10px;
   background: #cc3333;
+  border: none;
   color: #fff;
-  text-decoration: none;
+  font-size: 14px;
   font-weight: 600;
+  cursor: pointer;
 }
 
-.btn-delete-account--confirm:disabled { opacity: 0.5; cursor: default; }
+.account-delete-confirm-btn:disabled { opacity: 0.5; cursor: default; }
 
 .btn-cancel-delete {
   background: none;
@@ -1972,7 +2207,7 @@
   font-size: 14px;
   color: var(--link);
   cursor: pointer;
-  padding: 0;
+  padding: 4px 0;
   align-self: flex-start;
 }
 

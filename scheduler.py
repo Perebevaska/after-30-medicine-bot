@@ -150,7 +150,7 @@ async def _send_reminders_impl(app):
             should_send = True  # первая отправка: точная минута ИЛИ догон после пропуска
         elif row["reminder_mode"] == "repeat" and already:
             elapsed = (now_utc - _pending[key]).total_seconds()
-            repeat_window = (row.get("reminder_repeat_hours") or 2) * 3600
+            repeat_window = ((row.get("reminder_repeat_hours") or 2) * 60 + (row.get("reminder_repeat_minutes") or 0)) * 60
             if 300 <= elapsed < repeat_window:
                 should_send = True
             elif elapsed >= repeat_window:
@@ -294,8 +294,8 @@ async def _apply_strict_autoskip(schedules):
         now_local = datetime.now(tz)
         today = now_local.date()
         now_min = now_local.hour * 60 + now_local.minute
-        hours = first["strict_mode_hours"] or 2
-        threshold = hours * 60
+        hours = (first["strict_mode_hours"] or 2) + (first.get("strict_mode_minutes") or 0) / 60
+        threshold = int(hours * 60)
         start_utc, end_utc = local_day_bounds_utc(tz, now_local)
         statuses = await asyncio.to_thread(get_today_intake_statuses, tid, start_utc, end_utc)
 

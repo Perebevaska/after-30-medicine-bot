@@ -5,7 +5,67 @@ import {
   useSetTimezone, useSetTimezoneByLocation, useDeleteAccount, useSetStrictMode,
   useAdminStats, useRequestCaregiverLink, useConfirmCaregiverLink,
   useDeclineCaregiverLink, useDeleteCaregiverLink, useRequestLinkBreak,
+  useSetDependentReminderMode, useSetDependentStrictMode,
 } from '../api/hooks'
+
+// ─── DrumPicker ───────────────────────────────────────────────────────────────
+const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'))
+const MINUTES = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'))
+const DRUM_ITEM_H = 44
+const DRUM_PAD = 1
+
+function DrumColumn({ items, value, onChange }: {
+  items: string[]; value: string; onChange: (v: string) => void
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+  const fromScroll = useRef(false)
+  const [selIdx, setSelIdx] = useState(() => Math.max(0, items.indexOf(value)))
+
+  useEffect(() => {
+    if (fromScroll.current) { fromScroll.current = false; return }
+    const idx = items.indexOf(value)
+    if (idx < 0) return
+    setSelIdx(idx)
+    const el = ref.current
+    if (!el) return
+    const id = setTimeout(() => { el.scrollTop = idx * DRUM_ITEM_H }, 0)
+    return () => clearTimeout(id)
+  }, [value, items])
+
+  const handleScroll = () => {
+    if (!ref.current) return
+    const idx = Math.max(0, Math.min(items.length - 1, Math.round(ref.current.scrollTop / DRUM_ITEM_H)))
+    setSelIdx(idx)
+    if (items[idx] !== value) { fromScroll.current = true; onChange(items[idx]) }
+  }
+
+  return (
+    <div className="drum-col">
+      <div className="drum-col-fade drum-col-fade--top" />
+      <div className="drum-col-fade drum-col-fade--bot" />
+      <div className="drum-col-line drum-col-line--top" />
+      <div className="drum-col-line drum-col-line--bot" />
+      <div className="drum-col-scroll" ref={ref} onScroll={handleScroll}>
+        {Array.from({ length: DRUM_PAD }, (_, i) => <div key={`pre${i}`} className="drum-col-item" />)}
+        {items.map((item, i) => (
+          <div key={item} className={`drum-col-item${i === selIdx ? ' drum-col-item--sel' : ''}`}>{item}</div>
+        ))}
+        {Array.from({ length: DRUM_PAD }, (_, i) => <div key={`post${i}`} className="drum-col-item" />)}
+      </div>
+    </div>
+  )
+}
+
+function TimePicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [hh, mm] = value.split(':')
+  return (
+    <div className="drum-picker">
+      <DrumColumn items={HOURS} value={hh ?? '08'} onChange={(h) => onChange(`${h}:${mm ?? '00'}`)} />
+      <span className="drum-sep">:</span>
+      <DrumColumn items={MINUTES} value={mm ?? '00'} onChange={(m) => onChange(`${hh ?? '08'}:${m}`)} />
+    </div>
+  )
+}
 
 function InfoTip({ text }: { text: string }) {
   const [open, setOpen] = useState(false)
@@ -98,14 +158,28 @@ export default function SettingsPage() {
   const deleteAccount = useDeleteAccount()
   const { data: adminStats, refetch: refetchAdmin } = useAdminStats(!!data?.is_admin)
   const [dailyPlanTime, setDailyPlanTime] = useState('08:00')
-  const [strictHours, setStrictHours] = useState(2)
-  const [repeatHours, setRepeatHours] = useState(2)
-  const [newDepName, setNewDepName] = useState('')
+  const [planTimeEditing, setPlanTimeEditing] = useState(false)
+  const [strictTime, setStrictTime] = useState('02:00')
+  const [strictTimeOpen, setStrictTimeOpen] = useState(false)
+  const [repeatTime, setRepeatTime] = useState('02:00')
+  const [repeatTimeOpen, setRepeatTimeOpen] = useState(false)
+  const [newDepInput, setNewDepInput] = useState('')
+  const [depInputError, setDepInputError] = useState('')
+  const [caregiverOffConfirm, setCaregiverOffConfirm] = useState(false)
   const [tzEditing, setTzEditing] = useState(false)
   const [tzSearch, setTzSearch] = useState('')
   const [geoError, setGeoError] = useState('')
   const [confirmDeleteAccount, setConfirmDeleteAccount] = useState(false)
+  const [deleteBlockedByCaregiver, setDeleteBlockedByCaregiver] = useState(false)
   const [deleted, setDeleted] = useState(false)
+
+  const setDepRepeatMode = useSetDependentReminderMode()
+  const setDepStrictMode = useSetDependentStrictMode()
+  const [depRepeatTimes, setDepRepeatTimes] = useState<Record<number, string>>({})
+  const [depStrictTimes, setDepStrictTimes] = useState<Record<number, string>>({})
+  const [depRepeatOpen, setDepRepeatOpen] = useState<Record<number, boolean>>({})
+  const [depStrictOpen, setDepStrictOpen] = useState<Record<number, boolean>>({})
+  const dpTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   // F7: caregiver links
   const requestLink = useRequestCaregiverLink()
@@ -113,26 +187,36 @@ export default function SettingsPage() {
   const declineLink = useDeclineCaregiverLink()
   const requestBreak = useRequestLinkBreak()
   const deleteLink = useDeleteCaregiverLink()
-  const [linkCode, setLinkCode] = useState('')
-  const [linkError, setLinkError] = useState('')
   const [codeCopied, setCodeCopied] = useState(false)
+  const [detachConfirmId, setDetachConfirmId] = useState<number | null>(null)
 
   const handleCopyCode = () => {
     if (!data?.caregiver_code) return
-    navigator.clipboard.writeText(data.caregiver_code).then(() => {
-      setCodeCopied(true)
-      setTimeout(() => setCodeCopied(false), 2000)
-    })
+    const code = data.caregiver_code
+    navigator.clipboard.writeText(code).catch(() => {})
+    setCodeCopied(true)
+    setTimeout(() => setCodeCopied(false), 2000)
+    try {
+      const tg = (window as any).Telegram?.WebApp
+      tg?.openTelegramLink?.(`https://t.me/share/url?url=${encodeURIComponent(code)}&text=${encodeURIComponent('Мой код для подключения опекуна: ' + code)}`)
+    } catch {}
   }
 
-  const handleRequestLink = () => {
-    const code = linkCode.trim().toUpperCase()
-    if (!code) return
-    setLinkError('')
-    requestLink.mutate(code, {
-      onSuccess: () => setLinkCode(''),
-      onError: (e) => setLinkError(e.message),
-    })
+  const handleAddDepOrLink = () => {
+    const val = newDepInput.trim()
+    if (!val) return
+    setDepInputError('')
+    if (/^[A-Z0-9]{4}-[A-Z0-9]{4}$/i.test(val)) {
+      requestLink.mutate(val.toUpperCase(), {
+        onSuccess: () => setNewDepInput(''),
+        onError: (e) => setDepInputError((e as any).message),
+      })
+    } else {
+      createDep.mutate(val, {
+        onSuccess: () => setNewDepInput(''),
+        onError: (e) => setDepInputError((e as any).message),
+      })
+    }
   }
 
   const filteredZones = useMemo(() => {
@@ -167,28 +251,41 @@ export default function SettingsPage() {
     )
   }
 
+  const toTime = (h: number, m: number) =>
+    `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+  const parseTime = (t: string) => {
+    const [hh, mm] = t.split(':').map(Number)
+    return { hours: hh || 0, minutes: mm || 0 }
+  }
+
   useEffect(() => {
     if (!data) return
     setDailyPlanTime(data.daily_plan_time ?? '08:00')
-    setStrictHours(data.strict_mode_hours ?? 2)
-    setRepeatHours(data.reminder_repeat_hours ?? 2)
+    setStrictTime(toTime(data.strict_mode_hours ?? 2, data.strict_mode_minutes ?? 0))
+    setRepeatTime(toTime(data.reminder_repeat_hours ?? 2, data.reminder_repeat_minutes ?? 0))
+    const rt: Record<number, string> = {}
+    const st: Record<number, string> = {}
+    data.active_dependents?.forEach((dep) => {
+      rt[dep.id] = toTime(dep.reminder_repeat_hours ?? 2, dep.reminder_repeat_minutes ?? 0)
+      st[dep.id] = toTime(dep.strict_mode_hours ?? 2, dep.strict_mode_minutes ?? 0)
+    })
+    setDepRepeatTimes(rt)
+    setDepStrictTimes(st)
   }, [data])
 
   if (isLoading) return <div className="page"><p className="hint">Загрузка…</p></div>
   if (!data) return <div className="page"><p className="hint">Нет данных</p></div>
 
-  const handleDailyPlanTimeBlur = () => {
-    setDailyPlan.mutate({ enabled: !!data.daily_plan_enabled, time: dailyPlanTime })
+  const handleDailyPlanTimeChange = (v: string) => {
+    setDailyPlanTime(v)
+    if (dpTimerRef.current) clearTimeout(dpTimerRef.current)
+    dpTimerRef.current = setTimeout(() => {
+      setDailyPlan.mutate({ enabled: !!data.daily_plan_enabled, time: v })
+    }, 700)
   }
 
   // F7-3.1: подопечный не может менять повтор и строгий режим
   const isDependent = !!data.active_caregiver
-
-  const handleAddDep = () => {
-    const name = newDepName.trim()
-    if (!name) return
-    createDep.mutate(name, { onSuccess: () => setNewDepName('') })
-  }
 
   return (
     <div className="page">
@@ -208,27 +305,75 @@ export default function SettingsPage() {
               type="checkbox"
               checked={data.reminder_mode === 'repeat'}
               disabled={isDependent}
-              onChange={(e) => setMode.mutate({ mode: e.target.checked ? 'repeat' : 'once', hours: repeatHours })}
+              onChange={(e) => {
+                const { hours, minutes } = parseTime(repeatTime)
+                setMode.mutate({ mode: e.target.checked ? 'repeat' : 'once', hours, minutes })
+              }}
             />
             <span className="toggle-track" />
           </label>
         </div>
         {data.reminder_mode === 'repeat' && (
-          <div className="settings-row">
-            <span className="settings-label">Повторять до (часов)</span>
-            <input
-              type="number"
-              className="settings-time-input"
-              min={1}
-              max={12}
-              value={repeatHours}
-              disabled={isDependent}
-              onChange={(e) => setRepeatHours(Math.min(12, Math.max(1, +e.target.value)))}
-              onBlur={() => !isDependent && setMode.mutate({ mode: 'repeat', hours: repeatHours })}
-            />
-            {isDependent && <span className="caregiver-locked-hint">управляется опекуном</span>}
-          </div>
+          <>
+            <div
+              className={`settings-row${!isDependent ? ' settings-row--tappable' : ''}`}
+              onClick={!isDependent ? () => setRepeatTimeOpen((v) => !v) : undefined}
+            >
+              <span className="settings-label">Повторять до</span>
+              {isDependent ? (
+                <span className="settings-locked-row-right">
+                  <span className="settings-time-chip settings-time-chip--locked">{repeatTime}</span>
+                  <span className="caregiver-locked-hint">управляется опекуном</span>
+                </span>
+              ) : (
+                <span className={`settings-time-chip${repeatTimeOpen ? ' settings-time-chip--active' : ''}`}>
+                  {repeatTime}
+                  <span className="settings-time-chip-chevron">{repeatTimeOpen ? '‹' : '›'}</span>
+                </span>
+              )}
+            </div>
+            {!isDependent && repeatTimeOpen && (
+              <div className="plan-time-expand">
+                <TimePicker
+                  value={repeatTime}
+                  onChange={(v) => {
+                    setRepeatTime(v)
+                    const { hours, minutes } = parseTime(v)
+                    setMode.mutate({ mode: 'repeat', hours, minutes })
+                  }}
+                />
+                <button className="plan-time-done-btn" onClick={() => setRepeatTimeOpen(false)}>Готово</button>
+              </div>
+            )}
+          </>
         )}
+        {!isDependent && data.active_dependents?.map((dep) => (
+          <div key={dep.id}>
+            <div className="settings-row settings-caregiver-dep-setting">
+              <span className="settings-label">Близкий</span>
+              <span
+                className={`settings-time-chip${depRepeatOpen[dep.id] ? ' settings-time-chip--active' : ''}`}
+                onClick={() => setDepRepeatOpen((p) => ({ ...p, [dep.id]: !p[dep.id] }))}
+              >
+                {depRepeatTimes[dep.id] ?? '02:00'}
+                <span className="settings-time-chip-chevron">{depRepeatOpen[dep.id] ? '‹' : '›'}</span>
+              </span>
+            </div>
+            {depRepeatOpen[dep.id] && (
+              <div className="plan-time-expand">
+                <TimePicker
+                  value={depRepeatTimes[dep.id] ?? '02:00'}
+                  onChange={(v) => {
+                    setDepRepeatTimes((p) => ({ ...p, [dep.id]: v }))
+                    const { hours, minutes } = parseTime(v)
+                    setDepRepeatMode.mutate({ link_id: dep.id, mode: 'repeat', hours, minutes })
+                  }}
+                />
+                <button className="plan-time-done-btn" onClick={() => setDepRepeatOpen((p) => ({ ...p, [dep.id]: false }))}>Готово</button>
+              </div>
+            )}
+          </div>
+        ))}
       </div>
 
       <h2 className="section-title">Ежедневный план</h2>
@@ -248,16 +393,21 @@ export default function SettingsPage() {
           </label>
         </div>
         {!!data.daily_plan_enabled && (
-          <div className="settings-row">
-            <span className="settings-label">Время отправки</span>
-            <input
-              type="time"
-              className="settings-time-input"
-              value={dailyPlanTime}
-              onChange={(e) => setDailyPlanTime(e.target.value)}
-              onBlur={handleDailyPlanTimeBlur}
-            />
-          </div>
+          <>
+            <div className="settings-row settings-row--tappable" onClick={() => setPlanTimeEditing((v) => !v)}>
+              <span className="settings-label">Время отправки</span>
+              <span className={`settings-time-chip${planTimeEditing ? ' settings-time-chip--active' : ''}`}>
+                {dailyPlanTime}
+                <span className="settings-time-chip-chevron">{planTimeEditing ? '‹' : '›'}</span>
+              </span>
+            </div>
+            {planTimeEditing && (
+              <div className="plan-time-expand">
+                <TimePicker value={dailyPlanTime} onChange={handleDailyPlanTimeChange} />
+                <button className="plan-time-done-btn" onClick={() => setPlanTimeEditing(false)}>Готово</button>
+              </div>
+            )}
+          </>
         )}
       </div>
 
@@ -274,30 +424,81 @@ export default function SettingsPage() {
               type="checkbox"
               checked={!!data.strict_mode}
               disabled={isDependent}
-              onChange={(e) => setStrict.mutate({ enabled: e.target.checked, hours: strictHours })}
+              onChange={(e) => {
+                const { hours, minutes } = parseTime(strictTime)
+                setStrict.mutate({ enabled: e.target.checked, hours, minutes })
+              }}
             />
             <span className="toggle-track" />
           </label>
         </div>
         {!!data.strict_mode && (
-          <div className="settings-row">
-            <span className="settings-label">Через сколько часов</span>
-            <input
-              type="number"
-              className="settings-time-input"
-              min={1}
-              max={24}
-              value={strictHours}
-              disabled={isDependent}
-              onChange={(e) => setStrictHours(Math.min(24, Math.max(1, +e.target.value)))}
-              onBlur={() => !isDependent && setStrict.mutate({ enabled: true, hours: strictHours })}
-            />
-            {isDependent && <span className="caregiver-locked-hint">управляется опекуном</span>}
-          </div>
+          <>
+            <div
+              className={`settings-row${!isDependent ? ' settings-row--tappable' : ''}`}
+              onClick={!isDependent ? () => setStrictTimeOpen((v) => !v) : undefined}
+            >
+              <span className="settings-label">Через сколько</span>
+              {isDependent ? (
+                <span className="settings-locked-row-right">
+                  <span className="settings-time-chip settings-time-chip--locked">{strictTime}</span>
+                  <span className="caregiver-locked-hint">управляется опекуном</span>
+                </span>
+              ) : (
+                <span className={`settings-time-chip${strictTimeOpen ? ' settings-time-chip--active' : ''}`}>
+                  {strictTime}
+                  <span className="settings-time-chip-chevron">{strictTimeOpen ? '‹' : '›'}</span>
+                </span>
+              )}
+            </div>
+            {!isDependent && strictTimeOpen && (
+              <div className="plan-time-expand">
+                <TimePicker
+                  value={strictTime}
+                  onChange={(v) => {
+                    setStrictTime(v)
+                    const { hours, minutes } = parseTime(v)
+                    setStrict.mutate({ enabled: true, hours, minutes })
+                  }}
+                />
+                <button className="plan-time-done-btn" onClick={() => setStrictTimeOpen(false)}>Готово</button>
+              </div>
+            )}
+          </>
         )}
+        {!isDependent && data.active_dependents?.map((dep) => (
+          <div key={dep.id}>
+            <div className="settings-row settings-caregiver-dep-setting">
+              <span className="settings-label">Близкий</span>
+              <span
+                className={`settings-time-chip${depStrictOpen[dep.id] ? ' settings-time-chip--active' : ''}`}
+                onClick={() => setDepStrictOpen((p) => ({ ...p, [dep.id]: !p[dep.id] }))}
+              >
+                {depStrictTimes[dep.id] ?? '02:00'}
+                <span className="settings-time-chip-chevron">{depStrictOpen[dep.id] ? '‹' : '›'}</span>
+              </span>
+            </div>
+            {depStrictOpen[dep.id] && (
+              <div className="plan-time-expand">
+                <TimePicker
+                  value={depStrictTimes[dep.id] ?? '02:00'}
+                  onChange={(v) => {
+                    setDepStrictTimes((p) => ({ ...p, [dep.id]: v }))
+                    const { hours, minutes } = parseTime(v)
+                    setDepStrictMode.mutate({ link_id: dep.id, enabled: true, hours, minutes })
+                  }}
+                />
+                <button className="plan-time-done-btn" onClick={() => setDepStrictOpen((p) => ({ ...p, [dep.id]: false }))}>Готово</button>
+              </div>
+            )}
+          </div>
+        ))}
       </div>
 
-      <h2 className="section-title">Опека</h2>
+      <h2 className="section-title">Забота</h2>
+      <p className="section-hint">
+        Позволяет близкому человеку следить за приёмами и управлять аптечкой.
+      </p>
 
       {isDependent ? (
         /* ── Вид подопечного ── */
@@ -321,18 +522,27 @@ export default function SettingsPage() {
             </div>
           )}
           <div className="settings-block">
-            {/* Мой опекун */}
+            {/* Режим заботы — заблокирован, ПЕРВЫМ */}
             <div className="settings-row">
+              <span className="settings-label">Режим заботы</span>
+              <label className="toggle-switch toggle-switch--locked">
+                <input type="checkbox" checked disabled />
+                <span className="toggle-track" />
+              </label>
+              <span className="caregiver-locked-hint">вкл. автоматически</span>
+            </div>
+            {/* Мой опекун */}
+            <div className="settings-row" style={{ borderTop: '1px solid var(--secondary-bg)', paddingTop: 10, marginTop: 2 }}>
               <span className="settings-label">Мой опекун</span>
-              <span className="caregiver-code" style={{ fontSize: '0.95em' }}>
+              <span className="caregiver-username">
                 @{data.active_caregiver!.caregiver_username ?? `id${data.active_caregiver!.caregiver_telegram_id}`}
               </span>
             </div>
-            {/* Кнопка разрыва */}
+            {/* Кнопка отключения */}
             {data.active_caregiver!.break_requested ? (
               <div className="settings-row">
                 <span className="settings-label" style={{ color: 'var(--hint)', fontSize: '0.85em' }}>
-                  ⏳ Запрос на разрыв отправлен
+                  ⏳ Запрос на отключение отправлен
                 </span>
               </div>
             ) : (
@@ -342,27 +552,10 @@ export default function SettingsPage() {
                   onClick={() => requestBreak.mutate(data.active_caregiver!.id)}
                   disabled={requestBreak.isPending}
                 >
-                  Запросить разрыв связи
+                  Отключиться от опекуна
                 </button>
               </div>
             )}
-            {/* Мой код */}
-            <div className="settings-row" style={{ borderTop: '1px solid var(--secondary-bg)', paddingTop: 10, marginTop: 2 }}>
-              <span className="settings-label">Мой код</span>
-              <span className="caregiver-code">{data.caregiver_code ?? '…'}</span>
-              <button className="tz-change-btn" onClick={handleCopyCode}>
-                {codeCopied ? 'Скопировано!' : 'Копировать'}
-              </button>
-            </div>
-            {/* Режим подопечных — заблокирован */}
-            <div className="settings-row">
-              <span className="settings-label">Режим подопечных</span>
-              <label className="toggle-switch toggle-switch--locked">
-                <input type="checkbox" checked disabled />
-                <span className="toggle-track" />
-              </label>
-              <span className="caregiver-locked-hint" style={{ marginLeft: 8 }}>вкл. автоматически</span>
-            </div>
           </div>
         </>
       ) : (
@@ -387,28 +580,55 @@ export default function SettingsPage() {
             </div>
           )}
           <div className="settings-block">
-            {/* Мой код */}
+            {/* 1. Тогл */}
             <div className="settings-row">
-              <span className="settings-label">Мой код</span>
-              <span className="caregiver-code">{data.caregiver_code ?? '…'}</span>
-              <button className="tz-change-btn" onClick={handleCopyCode}>
-                {codeCopied ? 'Скопировано!' : 'Копировать'}
-              </button>
-            </div>
-
-            {/* Режим подопечных тогл */}
-            <div className="settings-row" style={{ borderTop: '1px solid var(--secondary-bg)', paddingTop: 10, marginTop: 2 }}>
-              <span className="settings-label">Режим подопечных</span>
+              <span className="settings-label">Режим заботы</span>
               <label className="toggle-switch">
-                <input type="checkbox" checked={!!data.caregiver_enabled} onChange={(e) => setCaregiver.mutate(e.target.checked)} />
+                <input
+                  type="checkbox"
+                  checked={!!data.caregiver_enabled}
+                  onChange={(e) => {
+                    const turning_off = !e.target.checked
+                    if (turning_off && data.active_dependents?.length) {
+                      setCaregiverOffConfirm(true)
+                    } else {
+                      setCaregiver.mutate(e.target.checked)
+                    }
+                  }}
+                />
                 <span className="toggle-track" />
               </label>
             </div>
-            <p className="settings-hint-small">Макс. 2 подопечных (по имени или по коду Telegram)</p>
 
-            {/* Локальные подопечные */}
+            {caregiverOffConfirm && (
+              <div className="caregiver-off-info">
+                <p className="caregiver-off-info-text">
+                  Связь с подопечными <b>не удаляется</b> — отключается только наблюдение в приложении и уведомления.
+                </p>
+                <button
+                  className="tz-change-btn"
+                  onClick={() => { setCaregiver.mutate(false); setCaregiverOffConfirm(false) }}
+                  disabled={setCaregiver.isPending}
+                >
+                  Понятно
+                </button>
+              </div>
+            )}
+
             {!!data.caregiver_enabled && (
               <>
+                {/* 2. Мой код — сразу после тогла */}
+                <div className="settings-row">
+                  <span className="settings-label">Мой код</span>
+                  <button className="caregiver-code-chip" onClick={handleCopyCode} title="Скопировать и поделиться">
+                    <span className="caregiver-code-text">{data.caregiver_code ?? '…'}</span>
+                    <span className="caregiver-code-icon">{codeCopied ? '✓' : '⎘'}</span>
+                  </button>
+                </div>
+
+                {/* 3. Список подопечных */}
+                <div className="caregiver-divider" />
+
                 {deps?.map((d) => (
                   <div key={d.id} className="settings-row">
                     <span className="settings-label">{d.name}</span>
@@ -417,69 +637,87 @@ export default function SettingsPage() {
                     </button>
                   </div>
                 ))}
-                {(!deps || deps.length === 0) && !data.active_dependents?.length && (
+
+                {data.active_dependents?.map((dep) => (
+                  <div key={dep.id}>
+                    <div className="settings-row caregiver-dep-row">
+                      <span className="settings-label">
+                        @{dep.dependent_username ?? `id${dep.dependent_telegram_id}`}
+                        {!!dep.break_requested && <span className="caregiver-break-badge"> ⚠️</span>}
+                      </span>
+                      {dep.break_requested ? (
+                        <button
+                          className="dep-add-btn"
+                          onClick={() => deleteLink.mutate(dep.id)}
+                          disabled={deleteLink.isPending}
+                        >
+                          Подтвердить отключение
+                        </button>
+                      ) : detachConfirmId === dep.id ? null : (
+                        <button
+                          className="dep-delete-btn"
+                          onClick={() => setDetachConfirmId(dep.id)}
+                        >
+                          Отвязать
+                        </button>
+                      )}
+                    </div>
+                    {detachConfirmId === dep.id && (
+                      <div className="account-delete-confirm" style={{ padding: '8px 0 4px', borderTop: '1px solid var(--secondary-bg)' }}>
+                        <p className="account-delete-warn">
+                          Подопечный потеряет доступ к управлению своими настройками через опекуна.
+                        </p>
+                        <div className="account-delete-actions">
+                          <button className="account-delete-cancel-btn" onClick={() => setDetachConfirmId(null)} disabled={deleteLink.isPending}>
+                            Отмена
+                          </button>
+                          <button
+                            className="account-delete-confirm-btn"
+                            onClick={() => { deleteLink.mutate(dep.id); setDetachConfirmId(null) }}
+                            disabled={deleteLink.isPending}
+                          >
+                            Отвязать
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+
+                {data.pending_sent?.map((dep) => (
+                  <div key={dep.id} className="settings-row caregiver-dep-row">
+                    <span className="settings-label" style={{ color: 'var(--hint)' }}>
+                      @{dep.dependent_username ?? `id${dep.dependent_telegram_id}`}
+                    </span>
+                    <span className="caregiver-status-badge pending">ожидает</span>
+                  </div>
+                ))}
+
+                {(!deps?.length && !data.active_dependents?.length && !data.pending_sent?.length) && (
                   <div className="settings-row">
                     <span className="settings-label" style={{ color: 'var(--hint)' }}>Пока нет подопечных</span>
                   </div>
                 )}
+
+                {/* 4. Добавить */}
+                <div className="caregiver-divider" />
+
                 <div className="settings-row settings-row--add">
                   <input
                     className="dep-name-input"
-                    placeholder="Имя (локальный подопечный)"
-                    value={newDepName}
-                    onChange={(e) => setNewDepName(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleAddDep()}
+                    placeholder="Имя или код XXXX-XXXX"
+                    value={newDepInput}
+                    onChange={(e) => setNewDepInput(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleAddDepOrLink()}
                     maxLength={40}
                   />
-                  <button className="dep-add-btn" onClick={handleAddDep} disabled={!newDepName.trim() || createDep.isPending}>
+                  <button className="dep-add-btn" onClick={handleAddDepOrLink} disabled={!newDepInput.trim() || createDep.isPending || requestLink.isPending}>
                     Добавить
                   </button>
                 </div>
+                {depInputError && <p className="hint error" style={{ margin: '4px 0 0' }}>{depInputError}</p>}
               </>
             )}
-
-            {/* Linked dependents (активные) */}
-            {data.active_dependents?.map((dep) => (
-              <div key={dep.id} className="settings-row caregiver-dep-row">
-                <span className="settings-label">
-                  @{dep.dependent_username ?? `id${dep.dependent_telegram_id}`}
-                  {!!dep.break_requested && <span className="caregiver-break-badge"> ⚠️</span>}
-                </span>
-                <button
-                  className={dep.break_requested ? 'dep-add-btn' : 'dep-delete-btn'}
-                  onClick={() => deleteLink.mutate(dep.id)}
-                  disabled={deleteLink.isPending}
-                >
-                  {dep.break_requested ? 'Подтвердить разрыв' : 'Разорвать'}
-                </button>
-              </div>
-            ))}
-
-            {/* Pending sent requests */}
-            {data.pending_sent?.map((dep) => (
-              <div key={dep.id} className="settings-row caregiver-dep-row">
-                <span className="settings-label" style={{ color: 'var(--hint)' }}>
-                  @{dep.dependent_username ?? `id${dep.dependent_telegram_id}`}
-                </span>
-                <span className="caregiver-status-badge pending">ожидает</span>
-              </div>
-            ))}
-
-            {/* Форма привязки по коду */}
-            <div className="settings-row settings-row--add" style={{ marginTop: 4 }}>
-              <input
-                className="dep-name-input"
-                placeholder="Код подопечного (XXXX-XXXX)"
-                value={linkCode}
-                onChange={(e) => setLinkCode(e.target.value.toUpperCase())}
-                onKeyDown={(e) => e.key === 'Enter' && handleRequestLink()}
-                maxLength={9}
-              />
-              <button className="dep-add-btn" onClick={handleRequestLink} disabled={!linkCode.trim() || requestLink.isPending}>
-                Привязать
-              </button>
-            </div>
-            {linkError && <p className="hint error" style={{ margin: '4px 0 0' }}>{linkError}</p>}
           </div>
         </>
       )}
@@ -645,40 +883,61 @@ export default function SettingsPage() {
 
       <div className="account-delete-section">
         <p className="account-delete-note">
-          Бот хранит только анонимный Telegram ID и список лекарств — без имени, фото и контактов.
-          Если хочешь сделать перерыв, лучше поставить лекарства на паузу — данные сохранятся.
+          Мы храним твой Telegram ID, никнейм и список лекарств.
+          Хочешь сделать перерыв — лучше поставь лекарства на паузу, данные сохранятся.
         </p>
         {deleted ? (
           <p className="account-deleted-msg">Данные удалены. До свидания 👋</p>
+        ) : deleteBlockedByCaregiver ? (
+          <div className="account-delete-confirm">
+            <p className="account-delete-warn" style={{ color: 'var(--hint)' }}>
+              Удаление невозможно, пока есть связь с опекуном.
+              Сначала отключись от опекуна в блоке «Забота» выше.
+            </p>
+            <button className="btn-cancel-delete" onClick={() => setDeleteBlockedByCaregiver(false)}>
+              Понятно
+            </button>
+          </div>
         ) : !confirmDeleteAccount ? (
           <button
             className="btn-delete-account"
-            onClick={() => setConfirmDeleteAccount(true)}
+            onClick={() => {
+              if (isDependent) { setDeleteBlockedByCaregiver(true); return }
+              setConfirmDeleteAccount(true)
+            }}
           >
             Удалить все мои данные
           </button>
         ) : (
           <div className="account-delete-confirm">
             <p className="account-delete-warn">
-              История приёмов, расписание и все лекарства исчезнут навсегда.
+              Лекарства, история приёмов и расписание исчезнут навсегда.
             </p>
-            <button
-              className="btn-delete-account btn-delete-account--confirm"
-              disabled={deleteAccount.isPending}
-              onClick={() =>
-                deleteAccount.mutate(undefined, {
-                  onSuccess: () => setDeleted(true),
-                })
-              }
-            >
-              Да, удалить навсегда
-            </button>
-            <button
-              className="btn-cancel-delete"
-              onClick={() => setConfirmDeleteAccount(false)}
-            >
-              Отмена
-            </button>
+            {deleteAccount.isError && (
+              <p className="hint error" style={{ fontSize: '13px', margin: 0 }}>
+                Не удалось удалить данные. Попробуй ещё раз.
+              </p>
+            )}
+            <div className="account-delete-actions">
+              <button
+                className="account-delete-cancel-btn"
+                onClick={() => { setConfirmDeleteAccount(false); deleteAccount.reset() }}
+                disabled={deleteAccount.isPending}
+              >
+                Отмена
+              </button>
+              <button
+                className="account-delete-confirm-btn"
+                disabled={deleteAccount.isPending}
+                onClick={() =>
+                  deleteAccount.mutate(undefined, {
+                    onSuccess: () => setDeleted(true),
+                  })
+                }
+              >
+                {deleteAccount.isPending ? '…' : 'Удалить'}
+              </button>
+            </div>
           </div>
         )}
       </div>

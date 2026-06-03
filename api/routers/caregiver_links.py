@@ -91,7 +91,7 @@ async def request_break(link_id: int, telegram_id: int = Depends(require_telegra
         if care_tid:
             await _bot_notify(
                 care_tid,
-                "⚠️ Подопечный запросил разрыв связи. "
+                "⚠️ Подопечный хочет отключиться от опеки. "
                 "Откройте приложение → Настройки → Опека для подтверждения.",
             )
 

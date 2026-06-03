@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, forwardRef, useImperativeHandle } from 'react'
 import { createPortal } from 'react-dom'
 import { Check, X } from 'lucide-react'
-import { useToday, useLogIntake, useHearts } from '../api/hooks'
+import { useToday, useLogIntake, useHearts, useSettings } from '../api/hooks'
 import { useQueryClient } from '@tanstack/react-query'
 import { api, apiErrorMessage } from '../api/client'
 import type { TodayItem } from '../api/types'
@@ -217,8 +217,10 @@ function MedCard({
 
 export default function Dashboard() {
   const { data, isLoading, error } = useToday()
+  const { data: settings } = useSettings()
   const qc = useQueryClient()
   const [takingAll, setTakingAll] = useState(false)
+  const [tzBannerDismissed, setTzBannerDismissed] = useState(false)
   const wishRef = useRef<WishCardHandle>(null)
 
   const allItems = data ?? []
@@ -270,8 +272,21 @@ export default function Dashboard() {
   const hasAny = dueItems.length > 0 || otherItems.length > 0
   const hasLinked = linkedItems.length > 0
 
+  const showTzBanner = !tzBannerDismissed && settings?.timezone === 'UTC'
+
   return (
     <div className="page">
+      {showTzBanner && (
+        <div className="tz-banner">
+          <span className="tz-banner-text">
+            🌍 Похоже, часовой пояс не задан — напоминания могут приходить не вовремя.
+            Зайди в <b>Настройки</b> и выбери свой город 🕐
+          </span>
+          <button className="tz-banner-close" onClick={() => setTzBannerDismissed(true)} aria-label="Закрыть">
+            <X size={16} strokeWidth={2.5} />
+          </button>
+        </div>
+      )}
       <WishCard ref={wishRef} />
 
       {isLoading && <p className="hint">Загрузка…</p>}

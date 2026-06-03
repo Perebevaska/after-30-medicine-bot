@@ -187,9 +187,11 @@ def migrate():
             ("daily_plan_time",    "TEXT DEFAULT '08:00'"),
             ("caregiver_enabled",  "INTEGER DEFAULT 0"),
             ("hearts",             "INTEGER DEFAULT 0"),
-            ("strict_mode",            "INTEGER DEFAULT 0"),
-            ("strict_mode_hours",      "INTEGER DEFAULT 2"),
-            ("reminder_repeat_hours",  "INTEGER DEFAULT 2"),
+            ("strict_mode",               "INTEGER DEFAULT 0"),
+            ("strict_mode_hours",         "INTEGER DEFAULT 2"),
+            ("strict_mode_minutes",       "INTEGER DEFAULT 0"),
+            ("reminder_repeat_hours",     "INTEGER DEFAULT 2"),
+            ("reminder_repeat_minutes",   "INTEGER DEFAULT 0"),
         ]:
             conn.execute(
                 f"ALTER TABLE IF EXISTS users ADD COLUMN IF NOT EXISTS {col} {definition}"
@@ -275,8 +277,8 @@ def get_reminder_mode(telegram_id: int) -> str:
         return row["reminder_mode"] if row else "once"
 
 
-def set_reminder_mode(telegram_id: int, mode: str, hours: int = None):
-    """Устанавливает режим напоминаний; опционально обновляет reminder_repeat_hours."""
+def set_reminder_mode(telegram_id: int, mode: str, hours: int = None, minutes: int = 0):
+    """Устанавливает режим напоминаний; опционально обновляет reminder_repeat_hours/minutes."""
     with get_connection() as conn:
         if hours is None:
             conn.execute(
@@ -285,8 +287,8 @@ def set_reminder_mode(telegram_id: int, mode: str, hours: int = None):
             )
         else:
             conn.execute(
-                "UPDATE users SET reminder_mode = %s, reminder_repeat_hours = %s WHERE telegram_id = %s",
-                (mode, hours, telegram_id)
+                "UPDATE users SET reminder_mode = %s, reminder_repeat_hours = %s, reminder_repeat_minutes = %s WHERE telegram_id = %s",
+                (mode, hours, minutes, telegram_id)
             )
 
 
@@ -584,7 +586,8 @@ def get_caregiver_links(telegram_id: int) -> dict:
         uid = user["id"]
         as_caregiver = conn.execute(
             "SELECT cl.id, cl.status, cl.created_at, cl.break_requested, "
-            "u.id AS dependent_user_id, u.telegram_id AS dependent_telegram_id, u.username AS dependent_username "
+            "u.id AS dependent_user_id, u.telegram_id AS dependent_telegram_id, u.username AS dependent_username, "
+            "u.reminder_mode, u.reminder_repeat_hours, u.strict_mode, u.strict_mode_hours "
             "FROM caregiver_links cl JOIN users u ON u.id = cl.dependent_id "
             "WHERE cl.caregiver_id = %s AND cl.status IN ('pending','active') ORDER BY cl.id",
             (uid,)
@@ -622,12 +625,14 @@ def is_active_dependent(telegram_id: int) -> bool:
 
 
 def get_linked_dependents_for_caregiver(caregiver_telegram_id: int) -> list:
-    """Возвращает [{user_id, telegram_id, username}] активных подопечных опекуна."""
+    """Возвращает [{user_id, telegram_id, username}] активных подопечных опекуна.
+    Возвращает пустой список если caregiver_enabled = 0 (режим выключен)."""
     with get_connection() as conn:
         user = conn.execute(
-            "SELECT id FROM users WHERE telegram_id = %s", (caregiver_telegram_id,)
+            "SELECT id, caregiver_enabled FROM users WHERE telegram_id = %s",
+            (caregiver_telegram_id,)
         ).fetchone()
-        if not user:
+        if not user or not user["caregiver_enabled"]:
             return []
         return conn.execute(
             "SELECT u.id AS user_id, u.telegram_id, u.username "
@@ -651,6 +656,56 @@ def is_caregiver_for_user_id(caregiver_telegram_id: int, dependent_user_id: int)
             (user["id"], dependent_user_id)
         ).fetchone()
         return row is not None
+
+
+def set_dependent_settings(
+    caregiver_telegram_id: int,
+    link_id: int,
+    reminder_mode: str = None,
+    reminder_hours: int = None,
+    reminder_minutes: int = None,
+    strict_mode: bool = None,
+    strict_hours: int = None,
+    strict_minutes: int = None,
+) -> bool:
+    """Опекун меняет настройки подопечного. True если нашёл активную связь."""
+    with get_connection() as conn:
+        care_user = conn.execute(
+            "SELECT id FROM users WHERE telegram_id = %s", (caregiver_telegram_id,)
+        ).fetchone()
+        if not care_user:
+            return False
+        link = conn.execute(
+            "SELECT dependent_id FROM caregiver_links "
+            "WHERE id = %s AND caregiver_id = %s AND status = 'active'",
+            (link_id, care_user["id"])
+        ).fetchone()
+        if not link:
+            return False
+        dep_id = link["dependent_id"]
+        if reminder_mode is not None:
+            if reminder_hours is not None:
+                conn.execute(
+                    "UPDATE users SET reminder_mode = %s, reminder_repeat_hours = %s, reminder_repeat_minutes = %s WHERE id = %s",
+                    (reminder_mode, reminder_hours, reminder_minutes or 0, dep_id),
+                )
+            else:
+                conn.execute(
+                    "UPDATE users SET reminder_mode = %s WHERE id = %s",
+                    (reminder_mode, dep_id),
+                )
+        if strict_mode is not None:
+            if strict_hours is not None:
+                conn.execute(
+                    "UPDATE users SET strict_mode = %s, strict_mode_hours = %s, strict_mode_minutes = %s WHERE id = %s",
+                    (1 if strict_mode else 0, strict_hours, strict_minutes or 0, dep_id),
+                )
+            else:
+                conn.execute(
+                    "UPDATE users SET strict_mode = %s WHERE id = %s",
+                    (1 if strict_mode else 0, dep_id),
+                )
+        return True
 
 
 def get_medication_by_id_any_user(medication_id: int, user_ids: list):
@@ -1073,8 +1128,8 @@ def get_hearts(telegram_id: int) -> int:
         return row["hearts"] if row else 0
 
 
-def set_strict_mode(telegram_id: int, enabled: bool, hours: int = None):
-    """Включает/выключает строгий режим; опционально обновляет порог в часах."""
+def set_strict_mode(telegram_id: int, enabled: bool, hours: int = None, minutes: int = 0):
+    """Включает/выключает строгий режим; опционально обновляет порог в часах/минутах."""
     with get_connection() as conn:
         if hours is None:
             conn.execute(
@@ -1083,8 +1138,8 @@ def set_strict_mode(telegram_id: int, enabled: bool, hours: int = None):
             )
         else:
             conn.execute(
-                "UPDATE users SET strict_mode = %s, strict_mode_hours = %s WHERE telegram_id = %s",
-                (1 if enabled else 0, hours, telegram_id)
+                "UPDATE users SET strict_mode = %s, strict_mode_hours = %s, strict_mode_minutes = %s WHERE telegram_id = %s",
+                (1 if enabled else 0, hours, minutes, telegram_id)
             )
 
 
@@ -1154,6 +1209,10 @@ def delete_user_data(telegram_id: int) -> list:
             conn.execute("DELETE FROM schedule_rules WHERE medication_id = ANY(%s)", (med_ids,))
             conn.execute("DELETE FROM medications WHERE user_id = %s", (user_id,))
         conn.execute("DELETE FROM dependents WHERE user_id = %s", (user_id,))
+        conn.execute(
+            "DELETE FROM caregiver_links WHERE caregiver_id = %s OR dependent_id = %s",
+            (user_id, user_id),
+        )
         conn.execute("DELETE FROM users WHERE telegram_id = %s", (telegram_id,))
         return med_ids
 
