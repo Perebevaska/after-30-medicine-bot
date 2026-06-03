@@ -1312,71 +1312,61 @@
 
 /* ── Stats page ──────────────────────────────────────────────────────────── */
 
-.stats-streak-block {
-  padding: 4px 16px 8px;
-}
-
-.streak-row {
+/* Summary card */
+.stats-summary-card {
+  margin: 12px 12px 4px;
+  padding: 16px;
+  background: var(--secondary-bg);
+  border-radius: 14px;
   display: flex;
-  align-items: baseline;
+  flex-direction: column;
   gap: 6px;
-  padding: 6px 0;
 }
 
-.streak-row--dep {
-  opacity: 0.8;
-}
-
-.streak-fire { font-size: 22px; }
-
-.streak-count {
-  font-size: 32px;
-  font-weight: 700;
-  color: var(--text);
+.summary-pct {
+  font-size: 48px;
+  font-weight: 800;
   line-height: 1;
-}
-
-.streak-label {
-  font-size: 14px;
-  color: var(--hint);
 }
 
 .skipped-days-badge {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 0 4px;
 }
 
-.skipped-days-emoji { font-size: 18px; }
+.skipped-days-emoji { font-size: 17px; }
 
 .skipped-days-text {
   font-size: 14px;
   color: var(--hint);
 }
 
-.stats-adh-block {
-  padding: 4px 16px 8px;
-}
-
-.adh-total {
+.summary-streak {
   display: flex;
   align-items: baseline;
-  justify-content: space-between;
-  padding: 8px 0 12px;
-  border-bottom: 1px solid rgba(0,0,0,0.08);
-  margin-bottom: 8px;
+  gap: 5px;
+  margin-top: 4px;
 }
 
-.adh-total-label {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text);
-}
+.summary-streak--dep { opacity: 0.75; margin-top: 2px; }
 
-.adh-total-pct {
-  font-size: 24px;
+.streak-fire { font-size: 18px; }
+
+.summary-streak-count {
+  font-size: 22px;
   font-weight: 700;
+  color: var(--text);
+  line-height: 1;
+}
+
+.summary-streak-label {
+  font-size: 13px;
+  color: var(--hint);
+}
+
+.stats-adh-block {
+  padding: 4px 16px 8px;
 }
 
 .adh-row {
@@ -1695,52 +1685,35 @@
   margin: 0 0 16px;
 }
 
-.report-card {
-  background: var(--bg);
-  padding: 14px 16px;
+.report-row {
   display: flex;
-  flex-direction: column;
+  align-items: center;
   gap: 10px;
+  padding: 13px 16px;
+  background: var(--bg);
 }
 
-.report-header {
-  display: flex;
-  gap: 12px;
-  align-items: flex-start;
-}
-
-.report-icon {
-  font-size: 24px;
+.report-row-icon {
+  font-size: 20px;
   flex-shrink: 0;
-  line-height: 1.2;
+  line-height: 1;
 }
 
-.report-titles {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.report-title {
+.report-row-title {
+  flex: 1;
   font-size: 15px;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--text);
 }
 
-.report-desc {
-  font-size: 13px;
-  color: var(--hint);
-  line-height: 1.4;
-}
-
 .report-send-btn {
-  align-self: flex-start;
-  padding: 8px 16px;
+  flex-shrink: 0;
+  padding: 7px 13px;
   background: var(--button-bg);
   color: var(--button-text);
   border: none;
   border-radius: 8px;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   transition: opacity 0.15s;
@@ -1794,85 +1767,6 @@
 
 .dep-add-btn:disabled { opacity: 0.4; cursor: default; }
 
-/* ── Report preview ──────────────────────────────────────────────────────── */
-
-.report-actions {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
-.report-preview-btn {
-  padding: 7px 12px;
-  background: var(--secondary-bg);
-  border: none;
-  border-radius: 8px;
-  font-size: 13px;
-  color: var(--hint);
-  cursor: pointer;
-}
-
-.report-preview {
-  border-top: 1px solid rgba(0,0,0,0.07);
-  padding-top: 10px;
-}
-
-.preview-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.preview-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-}
-
-.preview-row--total {
-  border-bottom: 1px solid rgba(0,0,0,0.07);
-  padding-bottom: 6px;
-  margin-bottom: 2px;
-}
-
-.preview-row--week {
-  align-items: center;
-}
-
-.preview-week-bar {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.preview-name {
-  font-size: 13px;
-  color: var(--text);
-  flex: 1;
-  min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.preview-dep {
-  font-size: 12px;
-  color: var(--hint);
-}
-
-.preview-meta {
-  font-size: 12px;
-  color: var(--hint);
-  flex-shrink: 0;
-}
-
-.preview-empty {
-  font-size: 13px;
-  color: var(--hint);
-  text-align: center;
-  padding: 8px 0;
-}
 
 /* ── Admin panel ─────────────────────────────────────────────────────────── */
 
