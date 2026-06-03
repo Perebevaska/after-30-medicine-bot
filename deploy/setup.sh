@@ -259,20 +259,9 @@ success "journald настроен ($(journalctl --disk-usage 2>/dev/null | grep
 # ─── Caddyfile ────────────────────────────────────────────────────────────────
 
 info "Настройка Caddy..."
-cat > /etc/caddy/Caddyfile <<EOF
-${DOMAIN} {
-    handle /api/* {
-        uri strip_prefix /api
-        reverse_proxy 127.0.0.1:8000
-    }
-
-    handle {
-        root * ${APP_DIR}/miniapp/dist
-        try_files {path} /index.html
-        file_server
-    }
-}
-EOF
+# D-3: единый источник конфига — deploy/Caddyfile.template (рендер sed, без envsubst-зависимости).
+sed -e "s|\${DOMAIN}|${DOMAIN}|g" -e "s|\${APP_DIR}|${APP_DIR}|g" \
+    "${APP_DIR}/deploy/Caddyfile.template" > /etc/caddy/Caddyfile
 
 # ─── Запуск сервисов ──────────────────────────────────────────────────────────
 

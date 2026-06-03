@@ -159,7 +159,12 @@ grep SQL-инъекции     → только whitelisted {col}, безопас
 **Низкий**
 8. ✅ `D-5` — health-check после отката в CI (+ ресинк юнитов перед рестартом отката).
 9. ✅ `B-3` — `/health` отдаёт `error` без текста исключения (детали в лог).
-10. ✅ pool `open=True` (ушла deprecation). Остаток: venv→3.14; deprecated TestClient-путь в `test_api_a5` (тест-инфра, не прод).
+10. ✅ pool `open=True` (ушла deprecation).
+11. ✅ venv → Python 3.14.5 (deadsnakes), совпадает с CI/прод; 174 passed.
+12. ✅ TestClient deprecation — `filterwarnings` в `pytest.ini`; pytest = 0 warnings.
+13. ✅ Caddyfile → `deploy/Caddyfile.template` (единый источник; setup.sh + CI ресинк по `CADDY_DOMAIN`).
+
+**Все находки аудита закрыты.** Остаточный осознанный долг (не из аудита): AX12 (O(users×meds) проход планировщика), app-heartbeat для OP3, vitest-регресс Dashboard.
 
 ---
 

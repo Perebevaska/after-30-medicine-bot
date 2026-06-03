@@ -100,10 +100,13 @@ jobs:
     steps:
       - name: SSH Deploy
         uses: appleboy/ssh-action@v1
+        env:
+          CADDY_DOMAIN: ${{ secrets.CADDY_DOMAIN }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
+          envs: CADDY_DOMAIN
           script: |
             set -e
             cd /root/after-30-medicine-bot
@@ -120,6 +123,13 @@ jobs:
             cp deploy/backup/medbot-backup.service deploy/backup/medbot-backup.timer /etc/systemd/system/
             systemctl daemon-reload
             systemctl enable --now medbot-backup.timer
+            # D-3: ресинк Caddyfile из шаблона (только если задан секрет CADDY_DOMAIN —
+            # иначе не трогаем рабочий конфиг). reload — graceful, без обрыва TLS.
+            if [ -n "${CADDY_DOMAIN:-}" ]; then
+              sed -e "s|\${DOMAIN}|${CADDY_DOMAIN}|g" -e "s|\${APP_DIR}|/root/after-30-medicine-bot|g" \
+                  deploy/Caddyfile.template > /etc/caddy/Caddyfile
+              systemctl reload caddy || systemctl restart caddy
+            fi
             systemctl restart medbot-bot medbot-api medbot-worker
             # Ждём, пока поднимется API; до 5 попыток.
             ok=0
