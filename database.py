@@ -39,7 +39,7 @@ def init_pool(dsn: str | None = None):
     if _pool is not None:
         return
     dsn = dsn or os.environ["DATABASE_URL"]
-    _pool = ConnectionPool(dsn, min_size=1, max_size=10)
+    _pool = ConnectionPool(dsn, min_size=1, max_size=10, open=True)
 
 
 def close_pool():

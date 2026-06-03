@@ -31,7 +31,7 @@ logger = logging.getLogger("api")
 
 # ── Rate limiting ────────────────────────────────────────────────────────────
 
-_RATE_LIMIT = int(os.getenv("RATE_LIMIT_PER_MINUTE", "60"))
+_RATE_LIMIT = int(os.getenv("RATE_LIMIT_PER_MINUTE", "300"))
 # За обратным прокси (Caddy) реальный IP — в X-Forwarded-For. Включать только
 # если прокси доверенный, иначе клиент может подделать заголовок.
 _TRUST_PROXY = os.getenv("TRUST_PROXY", "").lower() in ("1", "true", "yes")
@@ -181,17 +181,21 @@ async def health(response: Response):
     def _redis_check():
         _redis_lib.from_url(_REDIS_URL).ping()
 
+    # B-3: /health не требует авторизации — наружу отдаём только «ok»/«error»,
+    # без текста исключения (имена хостов/портов/DSN). Детали — в лог.
     try:
         await asyncio.to_thread(_db_check)
         checks["db"] = "ok"
     except Exception as e:
-        checks["db"] = f"error: {e}"
+        logger.error("health: проверка БД упала: %s", e)
+        checks["db"] = "error"
 
     try:
         await asyncio.to_thread(_redis_check)
         checks["redis"] = "ok"
     except Exception as e:
-        checks["redis"] = f"error: {e}"
+        logger.error("health: проверка Redis упала: %s", e)
+        checks["redis"] = "error"
 
     ok = all(v == "ok" for v in checks.values())
     if not ok:

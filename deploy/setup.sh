@@ -13,7 +13,8 @@ die()     { echo -e "${RED}[ERROR]${NC} $*"; exit 1; }
 [[ $EUID -ne 0 ]] && die "Запустите скрипт от root: sudo bash setup.sh"
 
 REPO_URL="https://github.com/Perebevaska/after-30-medicine-bot.git"
-BRANCH="develop"
+# D-2: прод отслеживает main — CI/CD деплоит только при push в main.
+BRANCH="main"
 APP_DIR="/root/after-30-medicine-bot"
 
 echo ""
@@ -46,12 +47,16 @@ fi
 read -rp "RATE_LIMIT_PER_MINUTE (по умолчанию: 60): " RATE_LIMIT
 RATE_LIMIT="${RATE_LIMIT:-60}"
 
+read -rp "SSH-порт (Enter — 27027; введите 22 чтобы не менять): " SSH_PORT
+SSH_PORT="${SSH_PORT:-27027}"
+
 echo ""
 info "Конфигурация:"
 echo "  Домен:   $DOMAIN"
 echo "  Bot:     ${BOT_TOKEN:0:10}..."
 echo "  Admin:   $ADMIN_ID"
 echo "  DB pass: ${DB_PASS:0:8}..."
+echo "  SSH:     порт $SSH_PORT"
 echo ""
 read -rp "Всё верно? Продолжить установку? [y/N] " CONFIRM
 [[ "${CONFIRM,,}" != "y" ]] && die "Установка отменена"
@@ -272,8 +277,12 @@ EOF
 # ─── Запуск сервисов ──────────────────────────────────────────────────────────
 
 info "Запуск сервисов..."
+# D-4: бэкап-юниты БД из репо + ежедневный таймер pg_dump (ротация 7 дней).
+cp "${APP_DIR}/deploy/backup/medbot-backup.service" "${APP_DIR}/deploy/backup/medbot-backup.timer" /etc/systemd/system/
+chmod +x "${APP_DIR}/deploy/backup/backup.sh"
 systemctl daemon-reload
 systemctl enable medbot-bot medbot-api medbot-worker caddy redis-server --quiet
+systemctl enable --now medbot-backup.timer --quiet
 systemctl restart redis-server
 systemctl restart medbot-bot medbot-api medbot-worker caddy
 
@@ -286,6 +295,72 @@ for svc in medbot-bot medbot-api medbot-worker caddy redis-server; do
         warn "$svc не запустился — проверьте: journalctl -u $svc -n 30"
     fi
 done
+
+# ─── Безопасность (hardening) ─────────────────────────────────────────────────
+# Воспроизводит ручной аудит безопасности: ufw + fail2ban + swappiness + X11 off
+# + смена SSH-порта через ssh.socket (Ubuntu 24.04 — socket-активация).
+# Идемпотентно. Порт 22 НЕ срезается автоматически (защита от лок-аута) — см. вывод в конце.
+
+info "Безопасность: firewall, fail2ban, sshd, sysctl..."
+apt-get install -y -q ufw fail2ban
+
+# .env — только владелец (внутри токен + пароль БД)
+chmod 600 "${APP_DIR}/.env"
+
+# swappiness 10 — меньше своп-долбёж диска при малой RAM
+echo 'vm.swappiness=10' > /etc/sysctl.d/99-swappiness.conf
+sysctl -w vm.swappiness=10 >/dev/null
+
+# X11Forwarding off — на сервере не нужен
+if grep -q '^X11Forwarding yes' /etc/ssh/sshd_config; then
+    sed -i 's/^X11Forwarding yes/X11Forwarding no/' /etc/ssh/sshd_config
+fi
+sshd -t || die "sshd_config невалиден после правки X11Forwarding"
+
+# SSH-порт через ssh.socket override; держим И 22 И новый порт до ручной проверки
+if [[ "$SSH_PORT" != "22" ]]; then
+    mkdir -p /etc/systemd/system/ssh.socket.d
+    cat > /etc/systemd/system/ssh.socket.d/override.conf <<EOF
+[Socket]
+ListenStream=
+ListenStream=0.0.0.0:22
+ListenStream=[::]:22
+ListenStream=0.0.0.0:${SSH_PORT}
+ListenStream=[::]:${SSH_PORT}
+EOF
+    systemctl daemon-reload
+    systemctl restart ssh.socket
+fi
+
+# UFW — default deny incoming, разрешаем SSH(+22 temp)/HTTP/HTTPS
+ufw default deny incoming >/dev/null
+ufw default allow outgoing >/dev/null
+ufw allow "${SSH_PORT}/tcp" comment 'ssh' >/dev/null
+[[ "$SSH_PORT" != "22" ]] && ufw allow 22/tcp comment 'ssh-old-temp' >/dev/null
+ufw allow 80/tcp comment 'http-caddy' >/dev/null
+ufw allow 443/tcp comment 'https-caddy' >/dev/null
+ufw --force enable >/dev/null
+
+# fail2ban — jail sshd; journalmatch на ssh.service (socket-активация логирует туда)
+F2B_PORTS="${SSH_PORT}"
+[[ "$SSH_PORT" != "22" ]] && F2B_PORTS="22,${SSH_PORT}"
+cat > /etc/fail2ban/jail.local <<EOF
+[DEFAULT]
+bantime  = 1h
+findtime = 10m
+maxretry = 5
+backend  = systemd
+
+[sshd]
+enabled  = true
+port     = ${F2B_PORTS}
+maxretry = 4
+bantime  = 2h
+journalmatch = _SYSTEMD_UNIT=ssh.service + _COMM=sshd
+EOF
+systemctl enable --now fail2ban >/dev/null 2>&1
+systemctl restart fail2ban
+success "Hardening применён (ufw + fail2ban + swappiness=10 + X11 off)"
 
 # ─── Финальная проверка ───────────────────────────────────────────────────────
 
@@ -311,4 +386,15 @@ echo "  Логи API:     journalctl -u medbot-api -f"
 echo "  Логи Worker:  journalctl -u medbot-worker -f"
 echo "  Логи Caddy:   journalctl -u caddy -f"
 echo ""
-warn "Не забудьте настроить бэкап БД: deploy/backup/backup.sh"
+success "Бэкап БД: medbot-backup.timer включён (ежедневно, ротация 7 дней)"
+
+if [[ "$SSH_PORT" != "22" ]]; then
+    echo ""
+    warn "SSH-порт сменён на ${SSH_PORT}, но порт 22 ОСТАВЛЕН открытым (защита от лок-аута)."
+    warn "1) В ОТДЕЛЬНОМ терминале проверь:  ssh -p ${SSH_PORT} root@${DOMAIN}"
+    warn "2) Убедившись что вход работает — сруби 22:"
+    echo  "     printf '[Socket]\\nListenStream=\\nListenStream=0.0.0.0:${SSH_PORT}\\nListenStream=[::]:${SSH_PORT}\\n' > /etc/systemd/system/ssh.socket.d/override.conf"
+    echo  "     systemctl daemon-reload && systemctl restart ssh.socket"
+    echo  "     ufw delete allow 22/tcp"
+    echo  "     sed -i 's/^port     = 22,${SSH_PORT}/port     = ${SSH_PORT}/' /etc/fail2ban/jail.local && systemctl restart fail2ban"
+fi

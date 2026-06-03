@@ -114,9 +114,12 @@ jobs:
             pip install -r requirements-lock.txt -q
             cd miniapp && npm ci && npm run build && cd ..
             # OP1/OP3: синхронизировать systemd-юниты из репо (harden + OnFailure-алерт)
-            chmod +x deploy/alert.sh
+            chmod +x deploy/alert.sh deploy/backup/backup.sh
             cp deploy/systemd/medbot-*.service /etc/systemd/system/
+            # D-4: бэкап-юниты тоже из репо + включить таймер (ежедневный pg_dump).
+            cp deploy/backup/medbot-backup.service deploy/backup/medbot-backup.timer /etc/systemd/system/
             systemctl daemon-reload
+            systemctl enable --now medbot-backup.timer
             systemctl restart medbot-bot medbot-api medbot-worker
             # Ждём, пока поднимется API; до 5 попыток.
             ok=0
@@ -129,7 +132,16 @@ jobs:
               git reset --hard "$PREV"
               pip install -r requirements-lock.txt -q
               cd miniapp && npm ci && npm run build && cd ..
+              cp deploy/systemd/medbot-*.service /etc/systemd/system/
+              systemctl daemon-reload
               systemctl restart medbot-bot medbot-api medbot-worker
+              # D-5: проверить, что откат действительно поднялся (иначе сервис лежит молча).
+              rb=0
+              for i in 1 2 3 4 5; do
+                sleep 3
+                if curl -fsS http://localhost:8000/health > /dev/null; then rb=1; break; fi
+              done
+              [ "$rb" = "1" ] && echo "Откат на $PREV здоров." || echo "ВНИМАНИЕ: откат тоже не прошёл health-check!"
               exit 1
             fi
             # OP2: проверка статуса всех сервисов после деплоя

@@ -73,12 +73,14 @@ async def join_dep_share(body: JoinRequest, telegram_id: int = Depends(require_t
     except db.DatabaseError as e:
         raise HTTPException(400, str(e))
     who = _uname(result.get("viewer_username"), "Кто-то")
-    asyncio.create_task(_bot_notify(
+    # B-1: await вместо create_task — задача fire-and-forget без ссылки могла быть
+    # собрана GC до отправки. _bot_notify сам глушит сетевые ошибки (timeout 5с).
+    await _bot_notify(
         result["owner_telegram_id"],
         f"🔗 {who} хочет помогать с «{result['dep_name']}».\n"
         f"Подтвердите или отклоните прямо здесь, либо в приложении.",
         reply_markup=_confirm_kb(result["share_id"]),
-    ))
+    )
     return {"ok": True}
 
 
@@ -89,10 +91,10 @@ async def confirm_share(share_id: int, telegram_id: int = Depends(require_telegr
     except db.DatabaseError as e:
         raise HTTPException(400, str(e))
     if result.get("viewer_telegram_id"):
-        asyncio.create_task(_bot_notify(
+        await _bot_notify(
             result["viewer_telegram_id"],
             f"Доступ к «{result['dep_name']}» подтверждён. Откройте приложение."
-        ))
+        )
     return {"ok": True}
 
 
@@ -103,10 +105,10 @@ async def decline_share(share_id: int, telegram_id: int = Depends(require_telegr
     if not ok:
         raise HTTPException(404, "Запрос не найден")
     if parties and parties.get("viewer_telegram_id"):
-        asyncio.create_task(_bot_notify(
+        await _bot_notify(
             parties["viewer_telegram_id"],
             f"❌ Запрос на помощь с «{parties.get('dep_name', '')}» отклонён."
-        ))
+        )
     return {"ok": True}
 
 
