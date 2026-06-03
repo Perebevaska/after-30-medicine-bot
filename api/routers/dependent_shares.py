@@ -27,15 +27,18 @@ class JoinRequest(BaseModel):
         return v.upper()
 
 
-async def _bot_notify(chat_id: int, text: str):
+async def _bot_notify(chat_id: int, text: str, reply_markup: dict | None = None):
     token = os.getenv("BOT_TOKEN", "")
     if not token:
         return
+    payload = {"chat_id": chat_id, "text": text}
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
     try:
         async with httpx.AsyncClient(timeout=5) as client:
             await client.post(
                 f"https://api.telegram.org/bot{token}/sendMessage",
-                json={"chat_id": chat_id, "text": text},
+                json=payload,
             )
     except Exception:
         pass
@@ -44,6 +47,14 @@ async def _bot_notify(chat_id: int, text: str):
 def _uname(username: str | None, fallback: str) -> str:
     """Отображаемое имя для уведомления: @username или запасной вариант."""
     return f"@{username}" if username else fallback
+
+
+def _confirm_kb(share_id: int) -> dict:
+    """Inline-клавиатура подтверждения шаринга близкого (callback ловит bot)."""
+    return {"inline_keyboard": [[
+        {"text": "✅ Подтвердить", "callback_data": f"depshare:confirm:{share_id}"},
+        {"text": "❌ Отклонить", "callback_data": f"depshare:decline:{share_id}"},
+    ]]}
 
 
 @router.post("/{dep_id}/code", status_code=200)
@@ -65,7 +76,8 @@ async def join_dep_share(body: JoinRequest, telegram_id: int = Depends(require_t
     asyncio.create_task(_bot_notify(
         result["owner_telegram_id"],
         f"🔗 {who} хочет помогать с «{result['dep_name']}».\n"
-        f"Подтвердите в приложении в разделе Настройки → Забота."
+        f"Подтвердите или отклоните прямо здесь, либо в приложении.",
+        reply_markup=_confirm_kb(result["share_id"]),
     ))
     return {"ok": True}
 

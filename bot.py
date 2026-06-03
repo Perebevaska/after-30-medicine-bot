@@ -15,7 +15,7 @@ from database import init_pool, init_db, migrate, close_pool
 from scheduler import send_reminders, handle_intake_callback, init_arq_pool
 from handlers import meds
 from handlers import timezone as tz_handler
-from handlers import stats, settings, admin, export, caregiver, stock
+from handlers import stats, settings, admin, export, caregiver, stock, care_links
 from utils import cancel
 from constants import SETUP_TZ, SETUP_CITY
 
@@ -124,6 +124,8 @@ def main():
     app.add_handler(CallbackQueryHandler(admin.handle_admin_back, pattern="^admin:back$"))
     app.add_handler(CallbackQueryHandler(tz_handler.handle_menu_callback, pattern="^menu:"))
     app.add_handler(CallbackQueryHandler(handle_intake_callback, pattern="^(taken|skipped):"))
+    for h in care_links.get_handlers():
+        app.add_handler(h)
     app.add_error_handler(error_handler)
 
     job_queue = app.job_queue

@@ -25,18 +25,29 @@ class LinkRequest(BaseModel):
         return v.upper()
 
 
-async def _bot_notify(chat_id: int, text: str):
+async def _bot_notify(chat_id: int, text: str, reply_markup: dict | None = None):
     token = os.getenv("BOT_TOKEN", "")
     if not token:
         return
+    payload = {"chat_id": chat_id, "text": text}
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
     try:
         async with httpx.AsyncClient(timeout=5) as client:
             await client.post(
                 f"https://api.telegram.org/bot{token}/sendMessage",
-                json={"chat_id": chat_id, "text": text},
+                json=payload,
             )
     except Exception:
         pass
+
+
+def _confirm_kb(link_id: int) -> dict:
+    """Inline-клавиатура подтверждения связи (callback ловит bot)."""
+    return {"inline_keyboard": [[
+        {"text": "✅ Подтвердить", "callback_data": f"cglink:confirm:{link_id}"},
+        {"text": "❌ Отклонить", "callback_data": f"cglink:decline:{link_id}"},
+    ]]}
 
 
 def _uname(username: str | None, fallback: str) -> str:
@@ -62,7 +73,8 @@ async def create_link(body: LinkRequest, telegram_id: int = Depends(require_tele
     await _bot_notify(
         result["dependent_telegram_id"],
         f"👨‍👩‍👦 {who} хочет стать вашим помощником и видеть ваши приёмы.\n"
-        "Откройте приложение, чтобы принять или отклонить.",
+        "Подтвердите или отклоните прямо здесь, либо в приложении.",
+        reply_markup=_confirm_kb(result["id"]),
     )
     return {"id": result["id"]}
 
