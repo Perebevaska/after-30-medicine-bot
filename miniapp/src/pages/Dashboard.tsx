@@ -248,9 +248,6 @@ export default function Dashboard() {
 
   return (
     <div className="page">
-      <div className="page-header">
-        <span className="page-header-title">Приёмы</span>
-      </div>
       <WishCard ref={wishRef} />
 
       {isLoading && <p className="hint">Загрузка…</p>}
