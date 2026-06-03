@@ -41,6 +41,11 @@ async def _bot_notify(chat_id: int, text: str):
         pass
 
 
+def _uname(username: str | None, fallback: str) -> str:
+    """Отображаемое имя для уведомления: @username или запасной вариант."""
+    return f"@{username}" if username else fallback
+
+
 @router.post("/{dep_id}/code", status_code=200)
 async def get_or_create_share_code(dep_id: int, telegram_id: int = Depends(require_telegram_user)):
     try:
@@ -56,9 +61,10 @@ async def join_dep_share(body: JoinRequest, telegram_id: int = Depends(require_t
         result = await asyncio.to_thread(db.request_dep_share, telegram_id, body.code)
     except db.DatabaseError as e:
         raise HTTPException(400, str(e))
+    who = _uname(result.get("viewer_username"), "Кто-то")
     asyncio.create_task(_bot_notify(
         result["owner_telegram_id"],
-        f"Кто-то хочет наблюдать за «{result['dep_name']}».\n"
+        f"🔗 {who} хочет помогать с «{result['dep_name']}».\n"
         f"Подтвердите в приложении в разделе Настройки → Забота."
     ))
     return {"ok": True}
@@ -80,9 +86,15 @@ async def confirm_share(share_id: int, telegram_id: int = Depends(require_telegr
 
 @router.post("/{share_id}/decline", status_code=200)
 async def decline_share(share_id: int, telegram_id: int = Depends(require_telegram_user)):
+    parties = await asyncio.to_thread(db.get_dep_share_parties, share_id)
     ok = await asyncio.to_thread(db.decline_dep_share, share_id, telegram_id)
     if not ok:
         raise HTTPException(404, "Запрос не найден")
+    if parties and parties.get("viewer_telegram_id"):
+        asyncio.create_task(_bot_notify(
+            parties["viewer_telegram_id"],
+            f"❌ Запрос на помощь с «{parties.get('dep_name', '')}» отклонён."
+        ))
     return {"ok": True}
 
 

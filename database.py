@@ -472,7 +472,7 @@ def create_caregiver_link(caregiver_telegram_id: int, code: str) -> dict:
     """Создаёт pending-запрос связи. Возвращает {id, dependent_telegram_id}."""
     with get_connection() as conn:
         caregiver = conn.execute(
-            "SELECT id FROM users WHERE telegram_id = %s", (caregiver_telegram_id,)
+            "SELECT id, username FROM users WHERE telegram_id = %s", (caregiver_telegram_id,)
         ).fetchone()
         if not caregiver:
             raise DatabaseError("Пользователь не найден")
@@ -497,7 +497,11 @@ def create_caregiver_link(caregiver_telegram_id: int, code: str) -> dict:
             "RETURNING id",
             (caregiver["id"], dependent["id"])
         ).fetchone()
-        return {"id": row["id"], "dependent_telegram_id": dependent["telegram_id"]}
+        return {
+            "id": row["id"],
+            "dependent_telegram_id": dependent["telegram_id"],
+            "caregiver_username": caregiver["username"],
+        }
 
 
 def confirm_caregiver_link(link_id: int, dependent_telegram_id: int) -> str:
@@ -628,6 +632,39 @@ def get_caregiver_links(telegram_id: int) -> dict:
             "pending_for_me": pending,
             "active_caregiver": active_care,
         }
+
+
+def get_caregiver_link_parties(link_id: int) -> dict | None:
+    """Telegram-id и username обеих сторон связи. Для уведомлений (10-A/10-B)."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT cl.status, "
+            "c.telegram_id AS caregiver_telegram_id, c.username AS caregiver_username, "
+            "d.telegram_id AS dependent_telegram_id, d.username AS dependent_username "
+            "FROM caregiver_links cl "
+            "JOIN users c ON c.id = cl.caregiver_id "
+            "JOIN users d ON d.id = cl.dependent_id "
+            "WHERE cl.id = %s",
+            (link_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def get_dep_share_parties(share_id: int) -> dict | None:
+    """Telegram-id и username владельца + наблюдателя + имя близкого. Для уведомлений."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT ds.status, dep.name AS dep_name, "
+            "o.telegram_id AS owner_telegram_id, o.username AS owner_username, "
+            "v.telegram_id AS viewer_telegram_id, v.username AS viewer_username "
+            "FROM dependent_shares ds "
+            "JOIN users o ON o.id = ds.owner_user_id "
+            "JOIN users v ON v.id = ds.viewer_user_id "
+            "JOIN dependents dep ON dep.id = ds.dep_id "
+            "WHERE ds.id = %s",
+            (share_id,)
+        ).fetchone()
+        return dict(row) if row else None
 
 
 def is_active_dependent(telegram_id: int) -> bool:
@@ -776,7 +813,7 @@ def request_dep_share(viewer_telegram_id: int, code: str) -> dict:
         if not dep:
             raise DatabaseError("Код не найден")
         viewer = conn.execute(
-            "SELECT id FROM users WHERE telegram_id = %s", (viewer_telegram_id,)
+            "SELECT id, username FROM users WHERE telegram_id = %s", (viewer_telegram_id,)
         ).fetchone()
         if not viewer:
             raise DatabaseError("Пользователь не найден")
@@ -806,6 +843,7 @@ def request_dep_share(viewer_telegram_id: int, code: str) -> dict:
             "share_id": share["id"],
             "dep_name": dep["name"],
             "owner_telegram_id": dep["owner_telegram_id"],
+            "viewer_username": viewer["username"],
         }
 
 

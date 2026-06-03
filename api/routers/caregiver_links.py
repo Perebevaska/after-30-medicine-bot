@@ -39,6 +39,11 @@ async def _bot_notify(chat_id: int, text: str):
         pass
 
 
+def _uname(username: str | None, fallback: str) -> str:
+    """Отображаемое имя для уведомления: @username или запасной вариант."""
+    return f"@{username}" if username else fallback
+
+
 @router.get("")
 async def get_links(telegram_id: int = Depends(require_telegram_user)):
     return await asyncio.to_thread(db.get_caregiver_links, telegram_id)
@@ -53,9 +58,10 @@ async def create_link(body: LinkRequest, telegram_id: int = Depends(require_tele
         result = await asyncio.to_thread(db.create_caregiver_link, telegram_id, body.code)
     except db.DatabaseError as e:
         raise HTTPException(400, str(e))
+    who = _uname(result.get("caregiver_username"), "Помощник")
     await _bot_notify(
         result["dependent_telegram_id"],
-        "👨‍👩‍👦 Вам поступил запрос на подключение помощника.\n"
+        f"👨‍👩‍👦 {who} хочет стать вашим помощником и видеть ваши приёмы.\n"
         "Откройте приложение, чтобы принять или отклонить.",
     )
     return {"id": result["id"]}
@@ -63,18 +69,32 @@ async def create_link(body: LinkRequest, telegram_id: int = Depends(require_tele
 
 @router.post("/{link_id}/confirm", status_code=204)
 async def confirm_link(link_id: int, telegram_id: int = Depends(require_telegram_user)):
+    parties = await asyncio.to_thread(db.get_caregiver_link_parties, link_id)
     result = await asyncio.to_thread(db.confirm_caregiver_link, link_id, telegram_id)
     if result == "not_found":
         raise HTTPException(404, "Запрос не найден или уже обработан")
     if result == "limit":
         raise HTTPException(400, "Лимит близких достигнут (максимум 2)")
+    if parties and parties.get("caregiver_telegram_id"):
+        who = _uname(parties.get("dependent_username"), "Ваш близкий")
+        await _bot_notify(
+            parties["caregiver_telegram_id"],
+            f"✅ {who} подтвердил связь. Теперь вы видите его приёмы в приложении.",
+        )
 
 
 @router.post("/{link_id}/decline", status_code=204)
 async def decline_link(link_id: int, telegram_id: int = Depends(require_telegram_user)):
+    parties = await asyncio.to_thread(db.get_caregiver_link_parties, link_id)
     ok = await asyncio.to_thread(db.decline_caregiver_link, link_id, telegram_id)
     if not ok:
         raise HTTPException(404, "Запрос не найден или уже обработан")
+    if parties and parties.get("caregiver_telegram_id"):
+        who = _uname(parties.get("dependent_username"), "Пользователь")
+        await _bot_notify(
+            parties["caregiver_telegram_id"],
+            f"❌ {who} отклонил запрос на подключение помощника.",
+        )
 
 
 @router.post("/{link_id}/request-break", status_code=204)
@@ -84,16 +104,14 @@ async def request_break(link_id: int, telegram_id: int = Depends(require_telegra
     if not ok:
         raise HTTPException(404, "Активная связь не найдена")
     # Notify caregiver
-    links = await asyncio.to_thread(db.get_caregiver_links, telegram_id)
-    active = links.get("active_caregiver")
-    if active:
-        care_tid = active.get("caregiver_telegram_id")
-        if care_tid:
-            await _bot_notify(
-                care_tid,
-                "⚠️ Близкий хочет отключиться. "
-                "Откройте приложение → Настройки → Забота для подтверждения.",
-            )
+    parties = await asyncio.to_thread(db.get_caregiver_link_parties, link_id)
+    if parties and parties.get("caregiver_telegram_id"):
+        who = _uname(parties.get("dependent_username"), "Ваш близкий")
+        await _bot_notify(
+            parties["caregiver_telegram_id"],
+            f"⚠️ {who} хочет отключиться. "
+            "Откройте приложение → Настройки → Забота для подтверждения.",
+        )
 
 
 @router.delete("/{link_id}", status_code=204)
