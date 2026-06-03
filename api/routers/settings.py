@@ -66,6 +66,12 @@ async def get_settings(telegram_id: int = Depends(require_telegram_user)):
     result = dict(row)
     admin_id = int(os.getenv("ADMIN_ID", "0"))
     result["is_admin"] = bool(admin_id and telegram_id == admin_id)
+    # F7: ensure caregiver code exists, then fetch link data
+    code = await asyncio.to_thread(db.ensure_caregiver_code, telegram_id)
+    result["caregiver_code"] = code
+    links = await asyncio.to_thread(db.get_caregiver_links, telegram_id)
+    result["pending_requests"] = links["pending_for_me"]
+    result["active_caregiver"] = links["active_caregiver"]
     return result
 
 
@@ -88,6 +94,8 @@ async def set_timezone_by_location(body: LocationIn, telegram_id: int = Depends(
 
 @router.put("/reminder-mode", status_code=204)
 async def set_reminder_mode(body: ReminderModeIn, telegram_id: int = Depends(require_telegram_user)):
+    if await asyncio.to_thread(db.is_active_dependent, telegram_id):
+        raise HTTPException(403, "Опекун управляет этой настройкой")
     await asyncio.to_thread(db.set_reminder_mode, telegram_id, body.mode, body.hours)
 
 
@@ -113,6 +121,8 @@ async def set_caregiver(body: CaregiverIn, telegram_id: int = Depends(require_te
 
 @router.put("/strict-mode", status_code=204)
 async def set_strict_mode(body: StrictModeIn, telegram_id: int = Depends(require_telegram_user)):
+    if await asyncio.to_thread(db.is_active_dependent, telegram_id):
+        raise HTTPException(403, "Опекун управляет этой настройкой")
     await asyncio.to_thread(db.set_strict_mode, telegram_id, body.enabled, body.hours)
 
 

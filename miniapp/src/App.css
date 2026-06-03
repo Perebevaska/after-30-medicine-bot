@@ -450,6 +450,19 @@
   font-weight: 700;
 }
 
+.mlist-card--skipped {
+  border-left: 4px solid #ef5350;
+  background: rgba(239, 83, 80, 0.07);
+}
+
+.mlist-card--skipped .mlist-name {
+  color: #c62828;
+}
+
+.mlist-card--skipped .mlist-schedule {
+  color: #ef5350;
+}
+
 .mlist-info { flex: 1; min-width: 0; }
 
 .mlist-name {

@@ -171,10 +171,15 @@ function MedCard({
 
   const due = isDuePending(item)
   const extraClass = entering ? ' mlist-card--enter' : ''
+  const statusClass = item.status === 'skipped'
+    ? ' mlist-card--skipped'
+    : item.status === 'taken'
+    ? ' mlist-card--paused'
+    : ''
 
   return (
     <div
-      className={`mlist-card${item.status !== 'pending' ? ' mlist-card--paused' : ''}${due ? ' mlist-card--due' : ''}${extraClass}`}
+      className={`mlist-card${statusClass}${due ? ' mlist-card--due' : ''}${extraClass}`}
     >
       <div className="mlist-info">
         <div className="mlist-name">
