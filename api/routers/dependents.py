@@ -29,7 +29,8 @@ async def list_dependents(telegram_id: int = Depends(require_telegram_user)):
 async def create_dependent(body: DependentIn, telegram_id: int = Depends(require_telegram_user)):
     # SEC-5: лимит числа подопечных — в боте он есть, в API не было (модифицированный
     # клиент мог создавать их без ограничений).
-    count = await asyncio.to_thread(db.count_dependents, telegram_id)
+    # F7-3.4: лимит суммарный (локальные + linked)
+    count = await asyncio.to_thread(db.count_total_dependents, telegram_id)
     if count >= MAX_DEPENDENTS:
         raise HTTPException(400, f"Лимит {MAX_DEPENDENTS} подопечных достигнут")
     dep_id = await asyncio.to_thread(db.add_dependent, telegram_id, body.name)

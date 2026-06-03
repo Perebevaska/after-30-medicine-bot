@@ -4,6 +4,7 @@ import {
   useDependents,
   useCreateMedication,
   useUpdateMedication,
+  useSettings,
 } from '../api/hooks'
 import type { MealRelation, Frequency, ScheduleRule, RuleIn } from '../api/types'
 
@@ -389,13 +390,20 @@ interface Props {
 export default function MedicationForm({ editId, linkedUserId, onBack }: Props) {
   const { data: meds } = useMedications()
   const { data: deps } = useDependents()
+  const { data: settings } = useSettings()
   const createMed = useCreateMedication()
   const updateMed = useUpdateMedication()
 
   // For linked dep edits, find the med from the combined list
   const existing = editId != null ? meds?.find((m) => m.id === editId) : undefined
-  // Effective linkedUserId: from prop (new med) or from existing med
-  const effectiveLinkedUserId = linkedUserId ?? existing?.linked_user_id
+  // F7-3.8: linked dependents available for "Для кого" dropdown
+  const linkedDeps = settings?.active_dependents ?? []
+
+  // Effective linkedUserId: from prop, from existing med, or from dropdown selection
+  const [selectedLinkedUserId, setSelectedLinkedUserId] = useState<number | undefined>(
+    linkedUserId ?? existing?.linked_user_id
+  )
+  const effectiveLinkedUserId = selectedLinkedUserId
 
   const [form, setForm] = useState<FormState>(() => {
     if (existing) {
@@ -488,24 +496,42 @@ export default function MedicationForm({ editId, linkedUserId, onBack }: Props) 
       </div>
 
       <div className="form-body">
-        {/* Dependent — first when caregiver has dependents; hidden for linked dep */}
-        {deps && deps.length > 0 && !effectiveLinkedUserId && (
+        {/* Dependent / linked user selector */}
+        {(deps && deps.length > 0 || linkedDeps.length > 0) && !effectiveLinkedUserId && (
           <div className="form-section">
             <label className="field-label">Для кого</label>
             <select
               className="field-select"
-              value={form.dependent_id ?? ''}
-              onChange={(e) =>
-                setForm((f) => ({
-                  ...f,
-                  dependent_id: e.target.value ? +e.target.value : null,
-                }))
+              value={
+                effectiveLinkedUserId != null
+                  ? `linked:${effectiveLinkedUserId}`
+                  : form.dependent_id != null
+                  ? `dep:${form.dependent_id}`
+                  : ''
               }
+              onChange={(e) => {
+                const v = e.target.value
+                if (!v) {
+                  setForm((f) => ({ ...f, dependent_id: null }))
+                  setSelectedLinkedUserId(undefined)
+                } else if (v.startsWith('dep:')) {
+                  setForm((f) => ({ ...f, dependent_id: +v.slice(4) }))
+                  setSelectedLinkedUserId(undefined)
+                } else if (v.startsWith('linked:')) {
+                  setForm((f) => ({ ...f, dependent_id: null }))
+                  setSelectedLinkedUserId(+v.slice(7))
+                }
+              }}
             >
               <option value="">Для себя</option>
-              {deps.map((d) => (
-                <option key={d.id} value={d.id}>
+              {deps?.map((d) => (
+                <option key={`dep:${d.id}`} value={`dep:${d.id}`}>
                   {d.name}
+                </option>
+              ))}
+              {linkedDeps.map((d) => (
+                <option key={`linked:${d.dependent_user_id}`} value={`linked:${d.dependent_user_id}`}>
+                  @{d.dependent_username ?? `id${d.dependent_telegram_id}`}
                 </option>
               ))}
             </select>

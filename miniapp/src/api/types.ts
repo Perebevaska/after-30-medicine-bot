@@ -122,8 +122,10 @@ export interface CaregiverLinkInfo {
   id: number
   status: string
   created_at: string
+  break_requested?: number
   caregiver_telegram_id?: number
   caregiver_username?: string | null
+  dependent_user_id?: number
   dependent_telegram_id?: number
   dependent_username?: string | null
 }
@@ -147,6 +149,7 @@ export interface UserSettings {
   pending_requests: CaregiverRequest[]
   active_caregiver: CaregiverLinkInfo | null
   active_dependents: CaregiverLinkInfo[]
+  pending_sent: CaregiverLinkInfo[]
 }
 
 export interface ServiceStatus {

@@ -25,19 +25,15 @@ class LinkRequest(BaseModel):
         return v.upper()
 
 
-async def _notify_dependent(dependent_telegram_id: int):
+async def _bot_notify(chat_id: int, text: str):
     token = os.getenv("BOT_TOKEN", "")
     if not token:
         return
-    text = (
-        "👨‍👩‍👦 Вам поступил запрос на подключение опекуна.\n"
-        "Откройте приложение, чтобы принять или отклонить."
-    )
     try:
         async with httpx.AsyncClient(timeout=5) as client:
             await client.post(
                 f"https://api.telegram.org/bot{token}/sendMessage",
-                json={"chat_id": dependent_telegram_id, "text": text},
+                json={"chat_id": chat_id, "text": text},
             )
     except Exception:
         pass
@@ -50,19 +46,28 @@ async def get_links(telegram_id: int = Depends(require_telegram_user)):
 
 @router.post("", status_code=201)
 async def create_link(body: LinkRequest, telegram_id: int = Depends(require_telegram_user)):
+    # F7-3.5: подопечный не может одновременно быть опекуном
+    if await asyncio.to_thread(db.is_active_dependent, telegram_id):
+        raise HTTPException(403, "Подопечный не может привязывать других подопечных")
     try:
         result = await asyncio.to_thread(db.create_caregiver_link, telegram_id, body.code)
     except db.DatabaseError as e:
         raise HTTPException(400, str(e))
-    await _notify_dependent(result["dependent_telegram_id"])
+    await _bot_notify(
+        result["dependent_telegram_id"],
+        "👨‍👩‍👦 Вам поступил запрос на подключение опекуна.\n"
+        "Откройте приложение, чтобы принять или отклонить.",
+    )
     return {"id": result["id"]}
 
 
 @router.post("/{link_id}/confirm", status_code=204)
 async def confirm_link(link_id: int, telegram_id: int = Depends(require_telegram_user)):
-    ok = await asyncio.to_thread(db.confirm_caregiver_link, link_id, telegram_id)
-    if not ok:
+    result = await asyncio.to_thread(db.confirm_caregiver_link, link_id, telegram_id)
+    if result == "not_found":
         raise HTTPException(404, "Запрос не найден или уже обработан")
+    if result == "limit":
+        raise HTTPException(400, "Лимит подопечных достигнут (максимум 2)")
 
 
 @router.post("/{link_id}/decline", status_code=204)
@@ -70,6 +75,25 @@ async def decline_link(link_id: int, telegram_id: int = Depends(require_telegram
     ok = await asyncio.to_thread(db.decline_caregiver_link, link_id, telegram_id)
     if not ok:
         raise HTTPException(404, "Запрос не найден или уже обработан")
+
+
+@router.post("/{link_id}/request-break", status_code=204)
+async def request_break(link_id: int, telegram_id: int = Depends(require_telegram_user)):
+    """Подопечный запрашивает разрыв связи. Опекун подтверждает через DELETE."""
+    ok = await asyncio.to_thread(db.request_caregiver_link_break, link_id, telegram_id)
+    if not ok:
+        raise HTTPException(404, "Активная связь не найдена")
+    # Notify caregiver
+    links = await asyncio.to_thread(db.get_caregiver_links, telegram_id)
+    active = links.get("active_caregiver")
+    if active:
+        care_tid = active.get("caregiver_telegram_id")
+        if care_tid:
+            await _bot_notify(
+                care_tid,
+                "⚠️ Подопечный запросил разрыв связи. "
+                "Откройте приложение → Настройки → Опека для подтверждения.",
+            )
 
 
 @router.delete("/{link_id}", status_code=204)

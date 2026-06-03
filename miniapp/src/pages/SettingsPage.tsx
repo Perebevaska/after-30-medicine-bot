@@ -4,7 +4,7 @@ import {
   useDependents, useCreateDependent, useDeleteDependent,
   useSetTimezone, useSetTimezoneByLocation, useDeleteAccount, useSetStrictMode,
   useAdminStats, useRequestCaregiverLink, useConfirmCaregiverLink,
-  useDeclineCaregiverLink, useDeleteCaregiverLink,
+  useDeclineCaregiverLink, useDeleteCaregiverLink, useRequestLinkBreak,
 } from '../api/hooks'
 
 function InfoTip({ text }: { text: string }) {
@@ -111,6 +111,7 @@ export default function SettingsPage() {
   const requestLink = useRequestCaregiverLink()
   const confirmLink = useConfirmCaregiverLink()
   const declineLink = useDeclineCaregiverLink()
+  const requestBreak = useRequestLinkBreak()
   const deleteLink = useDeleteCaregiverLink()
   const [linkCode, setLinkCode] = useState('')
   const [linkError, setLinkError] = useState('')
@@ -180,6 +181,9 @@ export default function SettingsPage() {
     setDailyPlan.mutate({ enabled: !!data.daily_plan_enabled, time: dailyPlanTime })
   }
 
+  // F7-3.1: подопечный не может менять повтор и строгий режим
+  const isDependent = !!data.active_caregiver
+
   const handleAddDep = () => {
     const name = newDepName.trim()
     if (!name) return
@@ -199,16 +203,22 @@ export default function SettingsPage() {
       <div className="settings-block">
         <div className="settings-row">
           <span className="settings-label">Повтор напоминаний</span>
-          <label className="toggle-switch">
+          <label className={`toggle-switch${isDependent ? ' toggle-switch--locked' : ''}`}>
             <input
               type="checkbox"
               checked={data.reminder_mode === 'repeat'}
+              disabled={isDependent}
               onChange={(e) => setMode.mutate({ mode: e.target.checked ? 'repeat' : 'once', hours: repeatHours })}
             />
             <span className="toggle-track" />
           </label>
         </div>
-        {data.reminder_mode === 'repeat' && (
+        {isDependent && (
+          <div className="settings-row">
+            <span className="settings-label caregiver-locked-hint">Управляется опекуном</span>
+          </div>
+        )}
+        {!isDependent && data.reminder_mode === 'repeat' && (
           <div className="settings-row">
             <span className="settings-label">Повторять до (часов)</span>
             <input
@@ -262,16 +272,22 @@ export default function SettingsPage() {
       <div className="settings-block">
         <div className="settings-row">
           <span className="settings-label">Включён</span>
-          <label className="toggle-switch">
+          <label className={`toggle-switch${isDependent ? ' toggle-switch--locked' : ''}`}>
             <input
               type="checkbox"
               checked={!!data.strict_mode}
+              disabled={isDependent}
               onChange={(e) => setStrict.mutate({ enabled: e.target.checked, hours: strictHours })}
             />
             <span className="toggle-track" />
           </label>
         </div>
-        {!!data.strict_mode && (
+        {isDependent && (
+          <div className="settings-row">
+            <span className="settings-label caregiver-locked-hint">Управляется опекуном</span>
+          </div>
+        )}
+        {!isDependent && !!data.strict_mode && (
           <div className="settings-row">
             <span className="settings-label">Через сколько часов</span>
             <input
@@ -287,14 +303,90 @@ export default function SettingsPage() {
         )}
       </div>
 
-      <h2 className="section-title">Режим опекуна</h2>
+      <h2 className="section-title">Опека</h2>
       <p className="section-hint">
-        Позволяет добавлять лекарства для членов семьи или подопечных и отслеживать
-        их приёмы отдельно — всё в одном приложении.
+        Добавляй подопечных по имени или привязывай других пользователей Telegram по коду.
+        Опекун управляет аптечкой и видит приёмы подопечного.
       </p>
+
+      {/* ── Я как подопечный (меня контролирует опекун) ── */}
+      {data.active_caregiver && (
+        <div className="settings-block">
+          <div className="settings-row">
+            <span className="settings-label">Мой опекун</span>
+            <span className="caregiver-code" style={{ fontSize: '0.95em' }}>
+              @{data.active_caregiver.caregiver_username ?? `id${data.active_caregiver.caregiver_telegram_id}`}
+            </span>
+          </div>
+          <div className="settings-row">
+            <span className="settings-label" style={{ color: 'var(--hint)', fontSize: '0.85em' }}>
+              Повтор и строгий режим управляются опекуном
+            </span>
+          </div>
+          {data.active_caregiver.break_requested ? (
+            <div className="settings-row">
+              <span className="settings-label" style={{ color: 'var(--hint)', fontSize: '0.85em' }}>
+                Запрос на разрыв отправлен — ожидайте подтверждения опекуна
+              </span>
+            </div>
+          ) : (
+            <div className="settings-row">
+              <button
+                className="dep-delete-btn"
+                style={{ marginLeft: 'auto' }}
+                onClick={() => requestBreak.mutate(data.active_caregiver!.id)}
+                disabled={requestBreak.isPending}
+              >
+                Запросить разрыв
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Входящие запросы (опекун хочет меня добавить) ── */}
+      {data.pending_requests && data.pending_requests.length > 0 && (
+        <div className="settings-block">
+          {data.pending_requests.map((req) => (
+            <div key={req.id} className="settings-row caregiver-request-row">
+              <span className="settings-label">
+                Запрос от @{req.caregiver_username ?? `id${req.caregiver_telegram_id}`}
+              </span>
+              <button
+                className="dep-add-btn"
+                onClick={() => confirmLink.mutate(req.id)}
+                disabled={confirmLink.isPending}
+              >
+                Принять
+              </button>
+              <button
+                className="dep-delete-btn"
+                onClick={() => declineLink.mutate(req.id)}
+                disabled={declineLink.isPending}
+              >
+                Отклонить
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── Мой код (для других, чтобы добавить меня как подопечного) ── */}
       <div className="settings-block">
         <div className="settings-row">
-          <span className="settings-label">Включён</span>
+          <span className="settings-label">Мой код</span>
+          <span className="caregiver-code">{data.caregiver_code ?? '…'}</span>
+          <button className="tz-change-btn" onClick={handleCopyCode}>
+            {codeCopied ? 'Скопировано!' : 'Копировать'}
+          </button>
+        </div>
+      </div>
+
+      {/* ── Мои подопечные (я — опекун) ── */}
+      <div className="settings-block">
+        {/* Локальные подопечные — только при включённом режиме */}
+        <div className="settings-row">
+          <span className="settings-label">Режим подопечных</span>
           <label className="toggle-switch">
             <input
               type="checkbox"
@@ -304,16 +396,13 @@ export default function SettingsPage() {
             <span className="toggle-track" />
           </label>
         </div>
-      </div>
 
-      {!!data.caregiver_enabled && (
-        <>
-          <h2 className="section-title">Подопечные</h2>
-          <div className="settings-block">
+        {!!data.caregiver_enabled && (
+          <>
             {(!deps || deps.length === 0) && (
               <div className="settings-row">
                 <span className="settings-label" style={{ color: 'var(--hint)' }}>
-                  Пока нет подопечных
+                  Пока нет локальных подопечных
                 </span>
               </div>
             )}
@@ -346,73 +435,39 @@ export default function SettingsPage() {
                 Добавить
               </button>
             </div>
-          </div>
-        </>
-      )}
-
-      <h2 className="section-title">Опека</h2>
-      <p className="section-hint">
-        Привяжи другого пользователя как подопечного — ты сможешь управлять его аптечкой
-        и видеть его приёмы. Для связи нужен код подопечного.
-      </p>
-      <div className="settings-block">
-        <div className="settings-row">
-          <span className="settings-label">Мой код</span>
-          <span className="caregiver-code">{data.caregiver_code ?? '…'}</span>
-          <button className="tz-change-btn" onClick={handleCopyCode}>
-            {codeCopied ? 'Скопировано!' : 'Копировать'}
-          </button>
-        </div>
-
-        {/* Active caregiver (I'm a dependent) */}
-        {data.active_caregiver && (
-          <div className="settings-row">
-            <span className="settings-label" style={{ color: 'var(--hint)', fontSize: '0.85em' }}>
-              Мой опекун: @{data.active_caregiver.caregiver_username ?? data.active_caregiver.caregiver_telegram_id}
-            </span>
-          </div>
+          </>
         )}
 
-        {/* Pending incoming requests (I'm about to become a dependent) */}
-        {data.pending_requests?.map((req) => (
-          <div key={req.id} className="settings-row caregiver-request-row">
-            <span className="settings-label">
-              Запрос от @{req.caregiver_username ?? req.caregiver_telegram_id}
-            </span>
-            <button
-              className="dep-add-btn"
-              onClick={() => confirmLink.mutate(req.id)}
-              disabled={confirmLink.isPending}
-            >
-              Принять
-            </button>
-            <button
-              className="dep-delete-btn"
-              onClick={() => declineLink.mutate(req.id)}
-              disabled={declineLink.isPending}
-            >
-              Отклонить
-            </button>
-          </div>
-        ))}
-
-        {/* Active dependents (I'm the caregiver) */}
+        {/* Linked dependents (Telegram пользователи) — F7 */}
         {data.active_dependents?.map((dep) => (
-          <div key={dep.id} className="settings-row">
+          <div key={dep.id} className="settings-row caregiver-dep-row">
             <span className="settings-label">
-              @{dep.dependent_username ?? dep.dependent_telegram_id}
+              @{dep.dependent_username ?? `id${dep.dependent_telegram_id}`}
+              {!!dep.break_requested && (
+                <span className="caregiver-break-badge"> ⚠️ просит разорвать</span>
+              )}
             </span>
             <button
               className="dep-delete-btn"
               onClick={() => deleteLink.mutate(dep.id)}
               disabled={deleteLink.isPending}
             >
-              Разорвать
+              {dep.break_requested ? 'Подтвердить разрыв' : 'Разорвать'}
             </button>
           </div>
         ))}
 
-        {/* Link request form */}
+        {/* Pending sent requests (I'm caregiver, waiting for dependent to confirm) — F7-3.9 */}
+        {data.pending_sent?.map((dep: { id: number; dependent_username?: string | null; dependent_telegram_id?: number }) => (
+          <div key={dep.id} className="settings-row caregiver-dep-row">
+            <span className="settings-label" style={{ color: 'var(--hint)' }}>
+              @{dep.dependent_username ?? `id${dep.dependent_telegram_id}`}
+            </span>
+            <span className="caregiver-status-badge pending">ожидает</span>
+          </div>
+        ))}
+
+        {/* Form to link a Telegram user by code */}
         <div className="settings-row settings-row--add">
           <input
             className="dep-name-input"

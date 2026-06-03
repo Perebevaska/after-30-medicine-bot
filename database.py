@@ -109,6 +109,7 @@ def init_db():
             caregiver_id INTEGER NOT NULL REFERENCES users(id),
             dependent_id INTEGER NOT NULL REFERENCES users(id),
             status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'active', 'declined')),
+            break_requested INTEGER DEFAULT 0,
             created_at TEXT DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS'),
             UNIQUE(caregiver_id, dependent_id)
         )
@@ -222,9 +223,14 @@ def migrate():
                 dependent_id INTEGER NOT NULL REFERENCES users(id),
                 status TEXT NOT NULL DEFAULT 'pending'
                     CHECK(status IN ('pending', 'active', 'declined')),
+                break_requested INTEGER DEFAULT 0,
                 created_at TEXT DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS'),
                 UNIQUE(caregiver_id, dependent_id)
             )"""
+        )
+        conn.execute(
+            "ALTER TABLE IF EXISTS caregiver_links "
+            "ADD COLUMN IF NOT EXISTS break_requested INTEGER DEFAULT 0"
         )
         conn.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_caregiver_code "
@@ -389,6 +395,29 @@ def set_caregiver_mode(telegram_id: int, enabled: bool):
 
 # ── F7: caregiver_links ──────────────────────────────────────────────────────
 
+def _count_total_dependents_conn(conn, telegram_id: int, user_id: int) -> int:
+    """Суммарное число подопечных (локальные + активные linked). Принимает открытое соединение."""
+    local = conn.execute(
+        "SELECT COUNT(*) AS n FROM dependents WHERE user_id = %s", (user_id,)
+    ).fetchone()["n"]
+    linked = conn.execute(
+        "SELECT COUNT(*) AS n FROM caregiver_links WHERE caregiver_id = %s AND status = 'active'",
+        (user_id,)
+    ).fetchone()["n"]
+    return local + linked
+
+
+def count_total_dependents(telegram_id: int) -> int:
+    """Суммарное число подопечных пользователя (локальные + активные linked)."""
+    with get_connection() as conn:
+        user = conn.execute(
+            "SELECT id FROM users WHERE telegram_id = %s", (telegram_id,)
+        ).fetchone()
+        if not user:
+            return 0
+        return _count_total_dependents_conn(conn, telegram_id, user["id"])
+
+
 def ensure_caregiver_code(telegram_id: int) -> str:
     """Возвращает caregiver_code пользователя, генерирует при первом вызове."""
     with get_connection() as conn:
@@ -448,20 +477,48 @@ def create_caregiver_link(caregiver_telegram_id: int, code: str) -> dict:
         return {"id": row["id"], "dependent_telegram_id": dependent["telegram_id"]}
 
 
-def confirm_caregiver_link(link_id: int, dependent_telegram_id: int) -> bool:
-    """Подтверждает pending-связь. Только подопечный может подтвердить."""
+def confirm_caregiver_link(link_id: int, dependent_telegram_id: int) -> str:
+    """Подтверждает pending-связь. Возвращает 'ok'|'limit'|'not_found'."""
     with get_connection() as conn:
         dep = conn.execute(
             "SELECT id FROM users WHERE telegram_id = %s", (dependent_telegram_id,)
         ).fetchone()
         if not dep:
-            return False
+            return "not_found"
+        # F7-3.4: лимит 2 подопечных суммарно (local + active linked)
+        total = _count_total_dependents_conn(conn, dependent_telegram_id, dep["id"])
+        # Подопечный проверяет свой лимит как CAREGIVER (не как dependent)
+        # На стороне ОПЕКУНА лимит — отдельная проверка в create_caregiver_link нет,
+        # нужно проверить количество активных dependent у caregiver.
+        # Находим caregiver_id для данной заявки
+        link = conn.execute(
+            "SELECT caregiver_id FROM caregiver_links WHERE id = %s AND dependent_id = %s AND status = 'pending'",
+            (link_id, dep["id"])
+        ).fetchone()
+        if not link:
+            return "not_found"
+        caregiver_id = link["caregiver_id"]
+        # Получаем telegram_id опекуна для проверки его лимита
+        care_user = conn.execute(
+            "SELECT telegram_id FROM users WHERE id = %s", (caregiver_id,)
+        ).fetchone()
+        care_total = _count_total_dependents_conn(conn, care_user["telegram_id"], caregiver_id)
+        if care_total >= 2:
+            return "limit"
         row = conn.execute(
             "UPDATE caregiver_links SET status = 'active' "
             "WHERE id = %s AND dependent_id = %s AND status = 'pending' RETURNING id",
             (link_id, dep["id"])
         ).fetchone()
-        return row is not None
+        if not row:
+            return "not_found"
+        # F7-3.1: форсируем настройки подопечного: repeat 1ч + strict 1ч
+        conn.execute(
+            "UPDATE users SET reminder_mode='repeat', reminder_repeat_hours=1, "
+            "strict_mode=1, strict_mode_hours=1 WHERE id = %s",
+            (dep["id"],)
+        )
+        return "ok"
 
 
 def decline_caregiver_link(link_id: int, dependent_telegram_id: int) -> bool:
@@ -495,6 +552,22 @@ def delete_caregiver_link(link_id: int, caregiver_telegram_id: int) -> bool:
         return row is not None
 
 
+def request_caregiver_link_break(link_id: int, dependent_telegram_id: int) -> bool:
+    """Подопечный запрашивает разрыв активной связи."""
+    with get_connection() as conn:
+        dep = conn.execute(
+            "SELECT id FROM users WHERE telegram_id = %s", (dependent_telegram_id,)
+        ).fetchone()
+        if not dep:
+            return False
+        row = conn.execute(
+            "UPDATE caregiver_links SET break_requested = 1 "
+            "WHERE id = %s AND dependent_id = %s AND status = 'active' RETURNING id",
+            (link_id, dep["id"])
+        ).fetchone()
+        return row is not None
+
+
 def get_caregiver_links(telegram_id: int) -> dict:
     """Все связи пользователя: as_caregiver, as_dependent, pending_for_me."""
     with get_connection() as conn:
@@ -505,14 +578,14 @@ def get_caregiver_links(telegram_id: int) -> dict:
             return {"as_caregiver": [], "as_dependent": [], "pending_for_me": []}
         uid = user["id"]
         as_caregiver = conn.execute(
-            "SELECT cl.id, cl.status, cl.created_at, "
-            "u.telegram_id AS dependent_telegram_id, u.username AS dependent_username "
+            "SELECT cl.id, cl.status, cl.created_at, cl.break_requested, "
+            "u.id AS dependent_user_id, u.telegram_id AS dependent_telegram_id, u.username AS dependent_username "
             "FROM caregiver_links cl JOIN users u ON u.id = cl.dependent_id "
             "WHERE cl.caregiver_id = %s AND cl.status IN ('pending','active') ORDER BY cl.id",
             (uid,)
         ).fetchall()
         as_dependent = conn.execute(
-            "SELECT cl.id, cl.status, cl.created_at, "
+            "SELECT cl.id, cl.status, cl.created_at, cl.break_requested, "
             "u.telegram_id AS caregiver_telegram_id, u.username AS caregiver_username "
             "FROM caregiver_links cl JOIN users u ON u.id = cl.caregiver_id "
             "WHERE cl.dependent_id = %s AND cl.status IN ('pending','active') ORDER BY cl.id",

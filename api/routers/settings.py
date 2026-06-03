@@ -73,6 +73,7 @@ async def get_settings(telegram_id: int = Depends(require_telegram_user)):
     result["pending_requests"] = links["pending_for_me"]
     result["active_caregiver"] = links["active_caregiver"]
     result["active_dependents"] = [l for l in links["as_caregiver"] if l["status"] == "active"]
+    result["pending_sent"] = [l for l in links["as_caregiver"] if l["status"] == "pending"]
     return result
 
 

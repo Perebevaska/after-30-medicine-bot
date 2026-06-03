@@ -63,6 +63,17 @@ export function useDeleteCaregiverLink() {
   })
 }
 
+export function useRequestLinkBreak() {
+  const qc = useQueryClient()
+  return useMutation<void, Error, number>({
+    mutationFn: (id) => api.post<void>(`/caregiver-links/${id}/request-break`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['settings'] })
+      qc.invalidateQueries({ queryKey: ['caregiver-links'] })
+    },
+  })
+}
+
 export function useToday() {
   return useQuery<TodayItem[]>({
     queryKey: ['today'],

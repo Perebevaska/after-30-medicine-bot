@@ -1789,6 +1789,7 @@
   letter-spacing: 0.05em;
   color: var(--text);
   flex: 1;
+  margin-left: 8px;
 }
 
 .caregiver-status-icon {
@@ -1796,6 +1797,39 @@
   color: var(--hint);
   min-width: 20px;
   text-align: center;
+}
+
+.caregiver-locked-hint {
+  color: #e6900a !important;
+  font-size: 0.82em !important;
+}
+
+.toggle-switch--locked {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.caregiver-break-badge {
+  font-size: 0.8em;
+  color: #ef5350;
+  margin-left: 4px;
+}
+
+.caregiver-dep-row {
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.caregiver-status-badge {
+  font-size: 0.8em;
+  padding: 2px 8px;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+
+.caregiver-status-badge.pending {
+  background: rgba(255, 165, 0, 0.15);
+  color: #e6900a;
 }
 
 .caregiver-request-row {
