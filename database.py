@@ -518,6 +518,11 @@ def confirm_caregiver_link(link_id: int, dependent_telegram_id: int) -> str:
             "strict_mode=1, strict_mode_hours=1 WHERE id = %s",
             (dep["id"],)
         )
+        # Авто-включаем caregiver_enabled у опекуна при активации связи
+        conn.execute(
+            "UPDATE users SET caregiver_enabled = 1 WHERE id = %s",
+            (caregiver_id,)
+        )
         return "ok"
 
 

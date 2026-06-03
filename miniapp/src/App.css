@@ -1800,8 +1800,30 @@
 }
 
 .caregiver-locked-hint {
-  color: #e6900a !important;
-  font-size: 0.82em !important;
+  color: #e6900a;
+  font-size: 0.82em;
+}
+
+.btn-caregiver-break {
+  width: 100%;
+  padding: 10px 16px;
+  background: rgba(239, 83, 80, 0.12);
+  color: #c62828;
+  border: 1.5px solid rgba(239, 83, 80, 0.35);
+  border-radius: 10px;
+  font-size: 0.95em;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: center;
+}
+
+.btn-caregiver-break:disabled { opacity: 0.5; cursor: default; }
+
+.settings-hint-small {
+  font-size: 0.78em;
+  color: var(--hint);
+  margin: 2px 16px 6px;
+  padding: 0;
 }
 
 .toggle-switch--locked {
