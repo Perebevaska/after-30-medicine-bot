@@ -4,7 +4,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from api.auth import require_telegram_user
-from handlers.export import (
+from reports import (
     build_plan_pdf, build_week_stats_pdf,
     build_adherence_pdf, build_doctor_pdf,
 )

@@ -13,9 +13,8 @@ from telegram.ext import (
 )
 from database import init_pool, init_db, migrate, close_pool
 from scheduler import send_reminders, handle_intake_callback, init_arq_pool
-from handlers import meds
 from handlers import timezone as tz_handler
-from handlers import stats, settings, admin, export, caregiver, stock, care_links
+from handlers import care_links
 from utils import cancel
 from constants import SETUP_TZ, SETUP_CITY
 
@@ -77,7 +76,6 @@ def main():
         entry_points=[
             CommandHandler("start", tz_handler.start),
             CommandHandler("timezone", tz_handler.timezone_command),
-            CallbackQueryHandler(tz_handler.handle_settings_timezone, pattern="^settings:timezone$"),
         ],
         states={
             SETUP_TZ: [
@@ -91,37 +89,10 @@ def main():
         fallbacks=[cancel_handler],
     )
 
+    # F10-D: бот = напоминания + быстрая отметка приёма + подтверждение связей «Забота».
+    # Управление лекарствами/статистика/настройки/запас перенесены в Mini App.
     app.add_handler(setup_tz_handler)
     app.add_handler(CommandHandler("menu", tz_handler.menu_command))
-    app.add_handler(meds.get_add_handler(cancel_handler))
-    app.add_handler(CommandHandler("meds", meds.meds_command))
-    app.add_handler(meds.get_edit_handler(cancel_handler))
-    app.add_handler(CallbackQueryHandler(meds.handle_delete_callback, pattern="^delete:"))
-    app.add_handler(CallbackQueryHandler(meds.handle_pause_toggle, pattern="^med_(pause|resume):"))
-    app.add_handler(CommandHandler("stats", stats.stats_command))
-    app.add_handler(CommandHandler("settings", settings.settings_command))
-    app.add_handler(CommandHandler("about", settings.about_command))
-    for h in stats.get_handlers():
-        app.add_handler(h)
-    for h in export.get_handlers():
-        app.add_handler(h)
-    app.add_handler(settings.get_handler())
-    app.add_handler(settings.get_preset_handler(cancel_handler))
-    app.add_handler(settings.get_daily_plan_time_handler(cancel_handler))
-    app.add_handler(CallbackQueryHandler(settings.handle_show_presets, pattern="^settings:presets$"))
-    app.add_handler(CallbackQueryHandler(settings.handle_settings_back, pattern="^settings:back$"))
-    app.add_handler(CallbackQueryHandler(settings.handle_daily_plan_settings, pattern="^settings:daily_plan$"))
-    app.add_handler(CallbackQueryHandler(settings.handle_daily_plan_toggle, pattern="^daily_plan:toggle$"))
-    app.add_handler(CallbackQueryHandler(settings.handle_daily_plan_back, pattern="^daily_plan:back$"))
-    app.add_handler(CallbackQueryHandler(settings.handle_delete_request, pattern="^settings:delete$"))
-    app.add_handler(CallbackQueryHandler(settings.handle_delete_confirm, pattern="^delete_data_confirm$"))
-    app.add_handler(CallbackQueryHandler(settings.handle_delete_cancel, pattern="^delete_data_cancel$"))
-    for h in caregiver.get_handlers(cancel_handler):
-        app.add_handler(h)
-    for h in stock.get_handlers(cancel_handler):
-        app.add_handler(h)
-    app.add_handler(CallbackQueryHandler(admin.handle_admin_panel, pattern="^admin:panel$"))
-    app.add_handler(CallbackQueryHandler(admin.handle_admin_back, pattern="^admin:back$"))
     app.add_handler(CallbackQueryHandler(tz_handler.handle_menu_callback, pattern="^menu:"))
     app.add_handler(CallbackQueryHandler(handle_intake_callback, pattern="^(taken|skipped):"))
     for h in care_links.get_handlers():

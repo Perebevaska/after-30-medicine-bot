@@ -16,17 +16,12 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def _geo_keyboard(with_back: bool = False) -> ReplyKeyboardMarkup:
-    """Клавиатура запроса геолокации или ручного ввода города.
-
-    with_back=True добавляет кнопку «◀️ Назад» (для входа из /settings и /timezone).
-    """
+def _geo_keyboard() -> ReplyKeyboardMarkup:
+    """Клавиатура запроса геолокации или ручного ввода города."""
     rows = [
         [KeyboardButton("📍 Отправить геолокацию", request_location=True)],
         [KeyboardButton("✍️ Ввести город вручную")],
     ]
-    if with_back:
-        rows.append([KeyboardButton("◀️ Назад в настройки")])
     return ReplyKeyboardMarkup(rows, resize_keyboard=True, one_time_keyboard=True)
 
 
@@ -76,7 +71,7 @@ def _owner_streak_hint(telegram_id: int, user_id: int) -> str:
     try:
         from database import get_streak_rows, get_intake_statuses_window
         from streak import streak_window, streaks_by_subject
-        from handlers.stats import _streak_phrase
+        from streak import _streak_phrase
         rows = get_streak_rows(user_id)
         if not rows:
             return ""
@@ -103,7 +98,8 @@ def _today_keyboard(has_pending: bool) -> InlineKeyboardMarkup:
 
 async def _render_today_screen(query, user):
     """Рендерит экран «Лекарства на сегодня» (edit-in-place)."""
-    from scheduler import _rule_fires_today, _MEAL_LABELS
+    from schedule_utils import _rule_fires_today
+    from constants import MEAL_LABELS_TEXT as _MEAL_LABELS
     rows = get_schedules_for_user(user.id)
     user_tz = get_tz_for_user(user.id)
     now_local = datetime.now(user_tz)
@@ -229,42 +225,14 @@ async def timezone_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик /timezone: запускает флоу смены часового пояса."""
     await update.message.reply_text(
         "Отправь геолокацию или введи город:",
-        reply_markup=_geo_keyboard(with_back=True)
+        reply_markup=_geo_keyboard()
     )
     return SETUP_TZ
-
-
-async def handle_settings_timezone(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Entry point смены TZ из меню настроек (кнопка «Изменить часовой пояс»)."""
-    query = update.callback_query
-    await query.answer()
-    await query.message.reply_text(
-        "Отправь геолокацию или введи город:",
-        reply_markup=_geo_keyboard(with_back=True)
-    )
-    return SETUP_TZ
-
-
-async def _back_to_settings_from_tz(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Закрывает флоу TZ и возвращает пользователя на страницу /settings."""
-    from handlers.settings import fetch_settings_data, _settings_text, _settings_keyboard
-    user = update.effective_user
-    tz, mode_label, presets, dp, cg = fetch_settings_data(user.id)
-    # Сначала убираем reply-клавиатуру отдельным сообщением, затем рисуем настройки.
-    await update.message.reply_text("⚙️ Возврат в настройки", reply_markup=ReplyKeyboardRemove())
-    await update.message.reply_text(
-        _settings_text(tz, mode_label, presets, dp, cg),
-        parse_mode="HTML",
-        reply_markup=_settings_keyboard(mode_label, dp, cg, user.id)
-    )
-    return ConversationHandler.END
 
 
 async def handle_tz_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Маршрутизирует текстовый ввод: «Назад» → /settings, «Ввести город» → SETUP_CITY, иначе → геокодинг."""
+    """Маршрутизирует текстовый ввод: «Ввести город» → SETUP_CITY, иначе → геокодинг."""
     text = update.message.text
-    if text == "◀️ Назад в настройки":
-        return await _back_to_settings_from_tz(update, context)
     if text == "✍️ Ввести город вручную":
         await update.message.reply_text(
             "Введи название города (можно на русском):",

@@ -27,12 +27,7 @@ async def init_arq_pool():
     _arq_pool = await create_pool(RedisSettings.from_dsn(REDIS_URL))
     logger.info("ARQ pool инициализирован")
 
-_MEAL_LABELS = {
-    "before": "до еды",
-    "after": "после еды",
-    "with": "во время еды",
-    "any": "независимо",
-}
+from constants import MEAL_LABELS_TEXT as _MEAL_LABELS  # noqa: E402 (alias для обратной совместимости)
 
 # AX4: окно догона для once-слотов (минут после времени напоминания)
 CATCHUP_MIN = 5

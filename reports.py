@@ -1,18 +1,20 @@
-import asyncio
+"""PDF-отчёты: план на неделю, история, соблюдение режима, отчёт для врача.
+
+Извлечено из handlers/export.py (F10-D). Чистые builder'ы возвращают BytesIO|None;
+потребитель — api/routers/export.py. Без telegram-хендлеров.
+"""
 import io
-import pytz
 from collections import OrderedDict
 from datetime import datetime, timedelta
+import pytz
 from fpdf import FPDF
-from telegram.ext import CallbackQueryHandler
 
 from database import (get_schedules_for_user, get_history_detailed, get_or_create_user,
                       get_adherence_rules, get_taken_counts, get_taken_intakes)
-from utils import get_tz_for_user, handle_db_errors
-from constants import MONTHS_SHORT
-from scheduler import _rule_fires_today, _MEAL_LABELS  # _MEAL_LABELS: строчные варианты для текста
-from schedule_utils import due_by_med_day
-from handlers.stats import adherence_window, compute_adherence
+from utils import get_tz_for_user
+from constants import MONTHS_SHORT, MEAL_LABELS_TEXT
+from schedule_utils import _rule_fires_today, due_by_med_day
+from adherence import adherence_window, compute_adherence
 
 _FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 _FONT_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
@@ -53,137 +55,6 @@ def _build_pdf(title: str, subtitle: str, sections: list[tuple[str, list[str]]])
     pdf.output(buf)
     buf.seek(0)
     return buf
-
-
-@handle_db_errors
-async def export_week_plan(update, context):
-    """Генерирует PDF-файл с планом лекарств на 7 дней и отправляет пользователю."""
-    query = update.callback_query
-    await query.answer("Генерирую PDF...")
-    user = update.effective_user
-    user_tz = get_tz_for_user(user.id)
-    today = datetime.now(user_tz).date()
-    rows = get_schedules_for_user(user.id)
-
-    sections = []
-    for offset in range(7):
-        day = today + timedelta(days=offset)
-        day_label = f"{day.day} {MONTHS_SHORT[day.month - 1]} ({_WEEKDAY_NAMES[day.weekday()]})"
-        meds: dict = {}
-        for row in rows:
-            if not _rule_fires_today(row, day):
-                continue
-            mid = row["medication_id"]
-            if mid not in meds:
-                meds[mid] = {"name": row["name"], "meal_relation": row["meal_relation"],
-                             "dep_name": row["dependent_name"], "times": []}
-            dosage = row["rule_dosage"] or row["med_dosage"]
-            meds[mid]["times"].append((row["reminder_time"], dosage))
-        if not meds:
-            continue
-        lines = []
-        for med in meds.values():
-            meal = _MEAL_LABELS.get(med["meal_relation"], "")
-            dep_label = f" ({med['dep_name']})" if med["dep_name"] else ""
-            for t, d in sorted(med["times"]):
-                lines.append(f"{t}  {med['name']}{dep_label} — {d}  ({meal})")
-        sections.append((day_label, lines))
-
-    if not sections:
-        await query.message.reply_text("Нет данных для экспорта.")
-        return
-
-    title = "План лекарств на 7 дней"
-    subtitle = f"с {today.strftime('%d.%m.%Y')} по {(today + timedelta(days=6)).strftime('%d.%m.%Y')}"
-    buf = await asyncio.to_thread(_build_pdf, title, subtitle, sections)
-    filename = f"plan_{today.strftime('%Y%m%d')}.pdf"
-    await query.message.reply_document(document=buf, filename=filename, caption="📆 План лекарств на 7 дней")
-
-
-@handle_db_errors
-async def export_week_stats(update, context):
-    """Генерирует PDF-файл с историей приёмов за 7 дней и отправляет пользователю."""
-    query = update.callback_query
-    await query.answer("Генерирую PDF...")
-    user = update.effective_user
-    user_id = get_or_create_user(user.id, user.username)
-    user_tz = get_tz_for_user(user.id)
-    now = datetime.now(user_tz)
-    week_start = now - timedelta(days=7)
-    since_day = user_tz.localize(datetime(week_start.year, week_start.month, week_start.day))
-    since_utc = since_day.astimezone(pytz.utc).strftime("%Y-%m-%d %H:%M:%S")
-    rows = get_history_detailed(user_id, since_utc)
-
-    if not rows:
-        await query.message.reply_text("Нет данных за последние 7 дней.")
-        return
-
-    days: OrderedDict = OrderedDict()
-    total_taken = total_all = 0
-    for r in rows:
-        utc_dt = datetime.strptime(r["taken_at"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=pytz.utc)
-        local_dt = utc_dt.astimezone(user_tz)
-        day_str = f"{local_dt.day} {MONTHS_SHORT[local_dt.month - 1]} ({_WEEKDAY_NAMES[local_dt.weekday()]})"
-        time_str = local_dt.strftime("%H:%M")
-        status_str = "Принято" if r["status"] == "taken" else "Пропущено"
-        if day_str not in days:
-            days[day_str] = []
-        dep_suffix = f" ({r['dependent_name']})" if r["dependent_name"] else ""
-        days[day_str].append(f"{time_str}  {r['name']}{dep_suffix} {r['dosage']} — {status_str}")
-        total_all += 1
-        if r["status"] == "taken":
-            total_taken += 1
-
-    sections = [(day, lines) for day, lines in days.items()]
-    pct = int(total_taken / total_all * 100) if total_all else 0
-    sections.append((f"Итого: {total_taken}/{total_all} ({pct}%)", []))
-
-    title = "История приёмов за 7 дней"
-    subtitle = f"до {now.strftime('%d.%m.%Y')}"
-    buf = await asyncio.to_thread(_build_pdf, title, subtitle, sections)
-    filename = f"history_{now.strftime('%Y%m%d')}.pdf"
-    await query.message.reply_document(document=buf, filename=filename, caption="📈 История приёмов за 7 дней")
-
-
-@handle_db_errors
-async def export_adherence(update, context):
-    """Генерирует PDF-отчёт о соблюдении режима за 30 дней (F3) и отправляет пользователю."""
-    query = update.callback_query
-    await query.answer("Генерирую PDF...")
-    user = update.effective_user
-    user_id = get_or_create_user(user.id, user.username)
-    user_tz = get_tz_for_user(user.id)
-
-    rules = get_adherence_rules(user_id)
-    if not rules:
-        await query.message.reply_text("Нет активных лекарств для отчёта.")
-        return
-
-    today, start_day, start_utc, end_utc = adherence_window(user_tz)
-    taken = get_taken_counts(user_id, start_utc, end_utc)
-    items, total_taken, total_planned = compute_adherence(rules, taken, start_day, today, user_tz)
-
-    if not total_planned:
-        await query.message.reply_text("За последние 30 дней нет запланированных приёмов.")
-        return
-
-    lines = []
-    for it in items:
-        dep = f" ({it['dep']})" if it["dep"] else ""
-        lines.append(f"{it['name']}{dep} — {it['pct']}%  ({it['taken']}/{it['due']})")
-
-    overall = round(total_taken / total_planned * 100)
-    sections = [
-        ("Соблюдение по лекарствам", lines),
-        (f"Итого: {total_taken}/{total_planned} ({overall}%)", []),
-    ]
-    title = "Соблюдение режима за 30 дней"
-    subtitle = f"с {start_day.strftime('%d.%m.%Y')} по {today.strftime('%d.%m.%Y')}"
-    buf = await asyncio.to_thread(_build_pdf, title, subtitle, sections)
-    filename = f"adherence_{today.strftime('%Y%m%d')}.pdf"
-    await query.message.reply_document(
-        document=buf, filename=filename, caption="📊 Соблюдение режима за 30 дней"
-    )
 
 
 # ── Отчёт для врача: календарь приверженности за 30 дней (F1) ────────────────
@@ -396,38 +267,6 @@ def _build_doctor_pdf(subjects, days, start_day, today, period_str, gen_str) -> 
     return buf
 
 
-@handle_db_errors
-async def export_doctor_report(update, context):
-    """Генерирует PDF «Отчёт для врача» — календарь приверженности за 30 дней (F1)."""
-    query = update.callback_query
-    await query.answer("Генерирую отчёт...")
-    user = update.effective_user
-    user_id = get_or_create_user(user.id, user.username)
-    user_tz = get_tz_for_user(user.id)
-
-    rules = get_adherence_rules(user_id)
-    if not rules:
-        await query.message.reply_text("Нет активных лекарств для отчёта.")
-        return
-
-    today, start_day, start_utc, end_utc = adherence_window(user_tz)
-    taken_rows = get_taken_intakes(user_id, start_utc, end_utc)
-    user_label = f"@{user.username}" if user.username else (user.first_name or str(user.id))
-    subjects, days = _prepare_doctor_model(rules, taken_rows, user_tz, start_day, today, user_label)
-
-    if not subjects:
-        await query.message.reply_text("За последние 30 дней нет запланированных приёмов.")
-        return
-
-    period_str = f"{start_day.strftime('%d.%m.%Y')}–{today.strftime('%d.%m.%Y')}"
-    gen_str = datetime.now(user_tz).strftime("%d.%m.%Y")
-    buf = await asyncio.to_thread(_build_doctor_pdf, subjects, days, start_day, today, period_str, gen_str)
-    filename = f"doctor_report_{today.strftime('%Y%m%d')}.pdf"
-    await query.message.reply_document(
-        document=buf, filename=filename, caption="🩺 Отчёт для врача — приверженность за 30 дней"
-    )
-
-
 # ── Standalone builders для API (возвращают BytesIO или None) ────────────────
 
 def build_plan_pdf(telegram_id: int) -> io.BytesIO | None:
@@ -452,7 +291,7 @@ def build_plan_pdf(telegram_id: int) -> io.BytesIO | None:
             continue
         lines = []
         for med in meds.values():
-            meal = _MEAL_LABELS.get(med["meal_relation"], "")
+            meal = MEAL_LABELS_TEXT.get(med["meal_relation"], "")
             dep = f" ({med['dep_name']})" if med["dep_name"] else ""
             for t, d in sorted(med["times"]):
                 lines.append(f"{t}  {med['name']}{dep} — {d}  ({meal})")
@@ -466,20 +305,19 @@ def build_plan_pdf(telegram_id: int) -> io.BytesIO | None:
 
 def build_week_stats_pdf(telegram_id: int) -> io.BytesIO | None:
     """История приёмов за 7 дней. Возвращает BytesIO или None если нет данных."""
-    import pytz as _pytz
     user_id = get_or_create_user(telegram_id)
     user_tz = get_tz_for_user(telegram_id)
     now = datetime.now(user_tz)
     week_start = now - timedelta(days=7)
     since_day = user_tz.localize(datetime(week_start.year, week_start.month, week_start.day))
-    since_utc = since_day.astimezone(_pytz.utc).strftime("%Y-%m-%d %H:%M:%S")
+    since_utc = since_day.astimezone(pytz.utc).strftime("%Y-%m-%d %H:%M:%S")
     rows = get_history_detailed(user_id, since_utc)
     if not rows:
         return None
     days: OrderedDict = OrderedDict()
     total_taken = total_all = 0
     for r in rows:
-        utc_dt = datetime.strptime(r["taken_at"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=_pytz.utc)
+        utc_dt = datetime.strptime(r["taken_at"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=pytz.utc)
         local_dt = utc_dt.astimezone(user_tz)
         day_str = f"{local_dt.day} {MONTHS_SHORT[local_dt.month - 1]} ({_WEEKDAY_NAMES[local_dt.weekday()]})"
         dep_suffix = f" ({r['dependent_name']})" if r["dependent_name"] else ""
@@ -532,13 +370,3 @@ def build_doctor_pdf(telegram_id: int, user_label: str) -> io.BytesIO | None:
     period_str = f"{start_day.strftime('%d.%m.%Y')}–{today.strftime('%d.%m.%Y')}"
     gen_str = datetime.now(user_tz).strftime("%d.%m.%Y")
     return _build_doctor_pdf(subjects, days, start_day, today, period_str, gen_str)
-
-
-def get_handlers():
-    """Возвращает handlers для экспорта в PDF (план, история, соблюдение, отчёт врача)."""
-    return [
-        CallbackQueryHandler(export_week_plan, pattern="^export:plan$"),
-        CallbackQueryHandler(export_week_stats, pattern="^export:week$"),
-        CallbackQueryHandler(export_adherence, pattern="^export:adherence$"),
-        CallbackQueryHandler(export_doctor_report, pattern="^export:doctor$"),
-    ]
