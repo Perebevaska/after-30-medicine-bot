@@ -6,13 +6,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { api, apiErrorMessage } from '../api/client'
 import type { TodayItem } from '../api/types'
 import { randomWish } from '../wishes'
-
-const MEAL: Record<string, string> = {
-  before: 'До еды',
-  after: 'После еды',
-  with: 'Во время еды',
-  any: 'Не важно',
-}
+import { MEAL_LABELS } from '../constants'
 
 interface HeartParticle {
   id: number
@@ -174,7 +168,7 @@ function MedCard({
   const statusClass = item.status === 'skipped'
     ? ' mlist-card--skipped'
     : item.status === 'taken'
-    ? ' mlist-card--paused'
+    ? ' mlist-card--taken'
     : ''
 
   return (
@@ -189,7 +183,7 @@ function MedCard({
           )}
         </div>
         <div className="mlist-meta">
-          {item.dosage} · {MEAL[item.meal_relation] ?? item.meal_relation}
+          {item.dosage} · {MEAL_LABELS[item.meal_relation] ?? item.meal_relation}
         </div>
         <div className="mlist-schedule">{item.reminder_time}</div>
       </div>
@@ -245,6 +239,7 @@ export default function Dashboard() {
     if (!dueItems.length) return
     setTakingAll(true)
     wishRef.current?.celebrate()
+    const prev = qc.getQueryData<TodayItem[]>(['today'])
     qc.setQueryData<TodayItem[]>(['today'], (old) =>
       old?.map((item) =>
         isDuePending(item) ? { ...item, status: 'taken' as const } : item
@@ -260,6 +255,8 @@ export default function Dashboard() {
           })
         )
       )
+    } catch {
+      if (prev) qc.setQueryData(['today'], prev)
     } finally {
       await qc.invalidateQueries({ queryKey: ['today'] })
       await qc.invalidateQueries({ queryKey: ['streak'] })
@@ -347,14 +344,14 @@ export default function Dashboard() {
       )}
 
       {/* F7: read-only sections for linked dependents */}
-      {hasLinked && Object.values(linkedGroups).map((group) => (
-        <div key={group.name}>
+      {hasLinked && Object.entries(linkedGroups).map(([uid, group]) => (
+        <div key={uid}>
           <h2 className="section-title">@{group.name}</h2>
           <div className="mlist-list">
             {group.items.map((item) => (
               <div
                 key={itemKey(item)}
-                className={`mlist-card${item.status === 'skipped' ? ' mlist-card--skipped' : item.status === 'taken' ? ' mlist-card--paused' : ''}${item.is_due && item.status === 'pending' ? ' mlist-card--due' : ''}`}
+                className={`mlist-card${item.status === 'skipped' ? ' mlist-card--skipped' : item.status === 'taken' ? ' mlist-card--taken' : ''}${item.is_due && item.status === 'pending' ? ' mlist-card--due' : ''}`}
               >
                 <div className="mlist-info">
                   <div className="mlist-name">{item.name}</div>

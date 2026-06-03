@@ -4,13 +4,7 @@ import { useMedications, useDeleteMedication, usePauseMedication } from '../api/
 import { apiErrorMessage } from '../api/client'
 import type { Medication } from '../api/types'
 import { StockExpanded } from './StockPage'
-
-const MEAL: Record<string, string> = {
-  before: 'До еды',
-  after: 'После еды',
-  with: 'Во время еды',
-  any: 'Не важно',
-}
+import { MEAL_LABELS } from '../constants'
 
 const FREQ: Record<string, string> = {
   daily: 'ежедневно',
@@ -84,7 +78,7 @@ function MedCard({
             {med.rules.some((r) => r.dosage)
               ? <span className="mlist-custom-dosage">своя дозировка</span>
               : med.dosage
-            } · {MEAL[med.meal_relation] ?? med.meal_relation}
+            } · {MEAL_LABELS[med.meal_relation] ?? med.meal_relation}
             {med.stock_qty !== null && med.stock_qty !== undefined && (
               <> · 📦 {med.stock_qty} ед.</>
             )}
@@ -222,8 +216,8 @@ export default function MedicationList({ onAdd, onEdit }: Props) {
       )}
 
       {/* F7: linked dependents' sections */}
-      {Object.values(linkedGroups).map((group) => (
-        <div key={group.name}>
+      {Object.entries(linkedGroups).map(([uid, group]) => (
+        <div key={uid}>
           <h2 className="section-title">@{group.name}</h2>
           <div className="mlist-list">
             {group.meds.map((med) => (
@@ -236,10 +230,9 @@ export default function MedicationList({ onAdd, onEdit }: Props) {
               />
             ))}
           </div>
-          <div style={{ padding: '4px 16px 12px' }}>
+          <div className="mlist-linked-add">
             <button
-              className="mlist-add-btn"
-              style={{ width: '100%', borderRadius: 8, height: 36, fontSize: '0.9em' }}
+              className="mlist-add-btn mlist-add-btn--wide"
               onClick={() => onAdd(group.meds[0]?.linked_user_id)}
               title="Добавить лекарство близкому"
             >

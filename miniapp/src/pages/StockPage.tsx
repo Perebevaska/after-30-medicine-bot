@@ -50,7 +50,7 @@ export function StockExpanded({ med }: { med: Medication }) {
 
   const hasStock = data?.stock_qty !== null && data?.stock_qty !== undefined
   const daysLeft = data?.days_left
-  const threshold = data?.low_stock_days ?? 7
+  const threshold = data?.low_stock_days ?? 5
   const isSaving = mutSet.isPending || mutUnits.isPending || mutThreshold.isPending
 
   const handleSave = () => {

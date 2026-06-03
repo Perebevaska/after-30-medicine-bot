@@ -465,7 +465,8 @@
   animation: enterFromTop 0.32s ease;
 }
 
-.mlist-card--paused { opacity: 0.6; }
+.mlist-card--paused,
+.mlist-card--taken { opacity: 0.6; }
 .mlist-card--due {
   border-left: 4px solid #4caf50;
   background: rgba(76, 175, 80, 0.08);
@@ -2271,3 +2272,14 @@
   font-size: 15px;
   color: var(--hint);
 }
+
+/* FA-R3: семантические классы вместо inline-style */
+.settings-label--hint { color: var(--hint); }
+.settings-label--hint-sm { color: var(--hint); font-size: 0.85em; }
+.settings-row--divided { border-top: 1px solid var(--secondary-bg); padding-top: 10px; margin-top: 2px; }
+.settings-row--center { justify-content: center; padding-top: 4px; }
+.account-delete-warn--muted { color: var(--hint); }
+.hint-error--inline { font-size: 13px; margin: 0; }
+.dep-input-error { margin: 4px 0 0; }
+.mlist-linked-add { padding: 4px 16px 12px; }
+.mlist-add-btn--wide { width: 100%; border-radius: 8px; height: 36px; font-size: 0.9em; }

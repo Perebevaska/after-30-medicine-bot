@@ -1,21 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, getInitDataRaw } from './client'
-import type { TodayItem, IntakeIn, AdherenceResponse, StreakItem, Medication, MedicationIn, Dependent, StockInfo, UserSettings, WeekStatRow, AdminStats, CaregiverLinkInfo } from './types'
-
-export interface CaregiverLinksData {
-  as_caregiver: CaregiverLinkInfo[]
-  as_dependent: CaregiverLinkInfo[]
-  pending_for_me: CaregiverLinksData['as_dependent']
-  active_caregiver: CaregiverLinkInfo | null
-}
-
-export function useCaregiverLinks() {
-  return useQuery<CaregiverLinksData>({
-    queryKey: ['caregiver-links'],
-    queryFn: () => api.get<CaregiverLinksData>('/caregiver-links'),
-    enabled: !!getInitDataRaw(),
-  })
-}
+import type { TodayItem, IntakeIn, AdherenceResponse, StreakItem, Medication, MedicationIn, Dependent, StockInfo, UserSettings, WeekStatRow, AdminStats } from './types'
 
 export function useRequestCaregiverLink() {
   const qc = useQueryClient()
@@ -272,14 +257,6 @@ export function useSetReminderMode() {
   const qc = useQueryClient()
   return useMutation<void, Error, { mode: 'once' | 'repeat'; hours?: number; minutes?: number }>({
     mutationFn: (body) => api.put<void>('/settings/reminder-mode', body),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['settings'] }),
-  })
-}
-
-export function useSetPreset() {
-  const qc = useQueryClient()
-  return useMutation<void, Error, { slot: string; time: string }>({
-    mutationFn: ({ slot, time }) => api.put<void>(`/settings/presets/${slot}`, { time }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['settings'] }),
   })
 }

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import {
   useMedications,
   useDependents,
@@ -7,90 +7,8 @@ import {
   useSettings,
 } from '../api/hooks'
 import type { MealRelation, Frequency, ScheduleRule, RuleIn } from '../api/types'
-
-// ─── DrumPicker ──────────────────────────────────────────────────────────────
-
-const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'))
-const MINUTES = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'))
-const DRUM_ITEM_H = 44
-const DRUM_PAD = 1
-
-function DrumColumn({ items, value, onChange }: {
-  items: string[]
-  value: string
-  onChange: (v: string) => void
-}) {
-  const ref = useRef<HTMLDivElement>(null)
-  const fromScroll = useRef(false)
-  // local selected index drives the highlight — updated immediately on scroll
-  const [selIdx, setSelIdx] = useState(() => Math.max(0, items.indexOf(value)))
-
-  useEffect(() => {
-    if (fromScroll.current) { fromScroll.current = false; return }
-    const idx = items.indexOf(value)
-    if (idx < 0) return
-    setSelIdx(idx)
-    const el = ref.current
-    if (!el) return
-    const top = idx * DRUM_ITEM_H
-    const id = setTimeout(() => { el.scrollTop = top }, 0)
-    return () => clearTimeout(id)
-  }, [value, items])
-
-  const handleScroll = () => {
-    if (!ref.current) return
-    const idx = Math.max(0, Math.min(
-      items.length - 1,
-      Math.round(ref.current.scrollTop / DRUM_ITEM_H)
-    ))
-    setSelIdx(idx)
-    if (items[idx] !== value) {
-      fromScroll.current = true
-      onChange(items[idx])
-    }
-  }
-
-  return (
-    <div className="drum-col">
-      <div className="drum-col-fade drum-col-fade--top" />
-      <div className="drum-col-fade drum-col-fade--bot" />
-      <div className="drum-col-line drum-col-line--top" />
-      <div className="drum-col-line drum-col-line--bot" />
-      <div className="drum-col-scroll" ref={ref} onScroll={handleScroll}>
-        {Array.from({ length: DRUM_PAD }, (_, i) => (
-          <div key={`pre${i}`} className="drum-col-item" />
-        ))}
-        {items.map((item, i) => (
-          <div
-            key={item}
-            className={`drum-col-item${i === selIdx ? ' drum-col-item--sel' : ''}`}
-          >
-            {item}
-          </div>
-        ))}
-        {Array.from({ length: DRUM_PAD }, (_, i) => (
-          <div key={`post${i}`} className="drum-col-item" />
-        ))}
-      </div>
-    </div>
-  )
-}
-
-interface TimePickerProps {
-  value: string
-  onChange: (v: string) => void
-}
-
-function TimePicker({ value, onChange }: TimePickerProps) {
-  const [hh, mm] = value.split(':')
-  return (
-    <div className="drum-picker">
-      <DrumColumn items={HOURS} value={hh ?? '09'} onChange={(h) => onChange(`${h}:${mm ?? '00'}`)} />
-      <span className="drum-sep">:</span>
-      <DrumColumn items={MINUTES} value={mm ?? '00'} onChange={(m) => onChange(`${hh ?? '09'}:${m}`)} />
-    </div>
-  )
-}
+import TimePicker from '../components/TimePicker'
+import { MEAL_OPTIONS } from '../constants'
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -105,13 +23,6 @@ const nowHHMM = () => {
   const d = new Date()
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
-
-const MEAL_OPTIONS: { value: MealRelation; label: string }[] = [
-  { value: 'before', label: 'До еды' },
-  { value: 'after', label: 'После еды' },
-  { value: 'with', label: 'С едой' },
-  { value: 'any', label: 'Не важно' },
-]
 
 const FREQ_OPTIONS: { value: Frequency; label: string }[] = [
   { value: 'daily', label: 'Ежедневно' },
@@ -145,7 +56,7 @@ interface FormState {
 
 // ─── converters ──────────────────────────────────────────────────────────────
 
-function defaultRule(_index: number): RuleState {
+function defaultRule(): RuleState {
   return {
     reminder_time: nowHHMM(),
     frequency: 'daily',
@@ -190,7 +101,7 @@ function ruleToIn(r: RuleState): RuleIn {
 function syncRules(current: RuleState[], n: number): RuleState[] {
   if (n === current.length) return current
   if (n > current.length)
-    return [...current, ...Array.from({ length: n - current.length }, (_, i) => defaultRule(current.length + i))]
+    return [...current, ...Array.from({ length: n - current.length }, () => defaultRule())]
   return current.slice(0, n)
 }
 
@@ -432,7 +343,7 @@ export default function MedicationForm({ editId, linkedUserId, onBack }: Props) 
       meal_relation: 'any',
       times_per_day: 1,
       dependent_id: null,
-      rules: [defaultRule(0)],
+      rules: [defaultRule()],
     }
   })
 

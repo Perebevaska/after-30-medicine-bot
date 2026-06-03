@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone, timedelta, date
 from fastapi import APIRouter, Depends
 import database as db
 from api.auth import require_db_user, TelegramUser
@@ -34,11 +34,18 @@ async def stats_adherence(user: TelegramUser = Depends(require_db_user)):
     taken = await asyncio.to_thread(db.get_taken_counts, user.user_id, start_utc, end_utc)
     if not rules:
         return {"medications": [], "total_pct": None}
+    # count_due_by_medication агрегирует все правила лекарства → {mid: число положенных}
+    due_map = count_due_by_medication(
+        rules, date.fromisoformat(start_utc[:10]), date.fromisoformat(end_utc[:10])
+    )
+    # уникальные лекарства, метаданные берём из первого правила каждого mid
+    meds_meta: dict[int, dict] = {}
+    for rule in rules:
+        meds_meta.setdefault(rule["medication_id"], rule)
     result = []
     total_due = total_taken = 0
-    for rule in rules:
-        mid = rule["medication_id"]
-        due = count_due_by_medication(rule, start_utc[:10], end_utc[:10])
+    for mid, rule in meds_meta.items():
+        due = due_map.get(mid, 0)
         t = taken.get(mid, 0)
         pct = round(t / due * 100) if due else 0
         total_due += due
@@ -52,19 +59,8 @@ async def stats_adherence(user: TelegramUser = Depends(require_db_user)):
             "taken": t,
             "pct": pct,
         })
-    # Схлопываем дубли по medication_id (несколько rules на одно лекарство)
-    merged: dict[int, dict] = {}
-    for item in result:
-        mid = item["medication_id"]
-        if mid not in merged:
-            merged[mid] = {**item}
-        else:
-            merged[mid]["due"] += item["due"]
-            merged[mid]["taken"] += item["taken"]
-            d = merged[mid]["due"]
-            merged[mid]["pct"] = round(merged[mid]["taken"] / d * 100) if d else 0
     total_pct = round(total_taken / total_due * 100) if total_due else None
-    return {"medications": list(merged.values()), "total_pct": total_pct}
+    return {"medications": result, "total_pct": total_pct}
 
 
 @router.get("/hearts")

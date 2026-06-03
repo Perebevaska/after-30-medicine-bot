@@ -7,65 +7,7 @@ import {
   useDeclineCaregiverLink, useDeleteCaregiverLink, useRequestLinkBreak,
   useSetDependentReminderMode, useSetDependentStrictMode,
 } from '../api/hooks'
-
-// ─── DrumPicker ───────────────────────────────────────────────────────────────
-const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'))
-const MINUTES = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'))
-const DRUM_ITEM_H = 44
-const DRUM_PAD = 1
-
-function DrumColumn({ items, value, onChange }: {
-  items: string[]; value: string; onChange: (v: string) => void
-}) {
-  const ref = useRef<HTMLDivElement>(null)
-  const fromScroll = useRef(false)
-  const [selIdx, setSelIdx] = useState(() => Math.max(0, items.indexOf(value)))
-
-  useEffect(() => {
-    if (fromScroll.current) { fromScroll.current = false; return }
-    const idx = items.indexOf(value)
-    if (idx < 0) return
-    setSelIdx(idx)
-    const el = ref.current
-    if (!el) return
-    const id = setTimeout(() => { el.scrollTop = idx * DRUM_ITEM_H }, 0)
-    return () => clearTimeout(id)
-  }, [value, items])
-
-  const handleScroll = () => {
-    if (!ref.current) return
-    const idx = Math.max(0, Math.min(items.length - 1, Math.round(ref.current.scrollTop / DRUM_ITEM_H)))
-    setSelIdx(idx)
-    if (items[idx] !== value) { fromScroll.current = true; onChange(items[idx]) }
-  }
-
-  return (
-    <div className="drum-col">
-      <div className="drum-col-fade drum-col-fade--top" />
-      <div className="drum-col-fade drum-col-fade--bot" />
-      <div className="drum-col-line drum-col-line--top" />
-      <div className="drum-col-line drum-col-line--bot" />
-      <div className="drum-col-scroll" ref={ref} onScroll={handleScroll}>
-        {Array.from({ length: DRUM_PAD }, (_, i) => <div key={`pre${i}`} className="drum-col-item" />)}
-        {items.map((item, i) => (
-          <div key={item} className={`drum-col-item${i === selIdx ? ' drum-col-item--sel' : ''}`}>{item}</div>
-        ))}
-        {Array.from({ length: DRUM_PAD }, (_, i) => <div key={`post${i}`} className="drum-col-item" />)}
-      </div>
-    </div>
-  )
-}
-
-function TimePicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const [hh, mm] = value.split(':')
-  return (
-    <div className="drum-picker">
-      <DrumColumn items={HOURS} value={hh ?? '08'} onChange={(h) => onChange(`${h}:${mm ?? '00'}`)} />
-      <span className="drum-sep">:</span>
-      <DrumColumn items={MINUTES} value={mm ?? '00'} onChange={(m) => onChange(`${hh ?? '08'}:${m}`)} />
-    </div>
-  )
-}
+import TimePicker from '../components/TimePicker'
 
 function InfoTip({ text }: { text: string }) {
   const [open, setOpen] = useState(false)
@@ -532,7 +474,7 @@ export default function SettingsPage() {
               <span className="caregiver-locked-hint">вкл. автоматически</span>
             </div>
             {/* Мой опекун */}
-            <div className="settings-row" style={{ borderTop: '1px solid var(--secondary-bg)', paddingTop: 10, marginTop: 2 }}>
+            <div className="settings-row settings-row--divided">
               <span className="settings-label">Мой помощник</span>
               <span className="caregiver-username">
                 @{data.active_caregiver!.caregiver_username ?? `id${data.active_caregiver!.caregiver_telegram_id}`}
@@ -541,7 +483,7 @@ export default function SettingsPage() {
             {/* Кнопка отключения */}
             {data.active_caregiver!.break_requested ? (
               <div className="settings-row">
-                <span className="settings-label" style={{ color: 'var(--hint)', fontSize: '0.85em' }}>
+                <span className="settings-label settings-label--hint-sm">
                   ⏳ Запрос на отключение отправлен
                 </span>
               </div>
@@ -695,7 +637,7 @@ export default function SettingsPage() {
 
                 {data.pending_sent?.map((dep) => (
                   <div key={dep.id} className="settings-row caregiver-dep-row">
-                    <span className="settings-label" style={{ color: 'var(--hint)' }}>
+                    <span className="settings-label settings-label--hint">
                       @{dep.dependent_username ?? `id${dep.dependent_telegram_id}`}
                     </span>
                     <span className="caregiver-status-badge pending">ожидает</span>
@@ -704,7 +646,7 @@ export default function SettingsPage() {
 
                 {(!deps?.length && !data.active_dependents?.length && !data.pending_sent?.length) && (
                   <div className="settings-row">
-                    <span className="settings-label" style={{ color: 'var(--hint)' }}>Пока нет близких</span>
+                    <span className="settings-label settings-label--hint">Пока нет близких</span>
                   </div>
                 )}
 
@@ -724,7 +666,7 @@ export default function SettingsPage() {
                     Добавить
                   </button>
                 </div>
-                {depInputError && <p className="hint error" style={{ margin: '4px 0 0' }}>{depInputError}</p>}
+                {depInputError && <p className="hint error dep-input-error">{depInputError}</p>}
               </>
             )}
           </div>
@@ -791,7 +733,7 @@ export default function SettingsPage() {
           <div className="settings-block admin-panel">
             {!adminStats ? (
               <div className="settings-row">
-                <span className="settings-label" style={{ color: 'var(--hint)' }}>Загрузка…</span>
+                <span className="settings-label settings-label--hint">Загрузка…</span>
               </div>
             ) : (
               <>
@@ -879,7 +821,7 @@ export default function SettingsPage() {
                   <span className="admin-stat-val">{adminStats.active_today}</span>
                 </div>
 
-                <div className="settings-row" style={{ justifyContent: 'center', paddingTop: 4 }}>
+                <div className="settings-row settings-row--center">
                   <button className="tz-change-btn" onClick={() => refetchAdmin()}>
                     Обновить
                   </button>
@@ -899,7 +841,7 @@ export default function SettingsPage() {
           <p className="account-deleted-msg">Данные удалены. До свидания 👋</p>
         ) : deleteBlockedByCaregiver ? (
           <div className="account-delete-confirm">
-            <p className="account-delete-warn" style={{ color: 'var(--hint)' }}>
+            <p className="account-delete-warn account-delete-warn--muted">
               Удаление невозможно, пока есть связь с помощником.
               Сначала отключись от помощника в блоке «Забота» выше.
             </p>
@@ -923,7 +865,7 @@ export default function SettingsPage() {
               Лекарства, история приёмов и расписание исчезнут навсегда.
             </p>
             {deleteAccount.isError && (
-              <p className="hint error" style={{ fontSize: '13px', margin: 0 }}>
+              <p className="hint error hint-error--inline">
                 Не удалось удалить данные. Попробуй ещё раз.
               </p>
             )}

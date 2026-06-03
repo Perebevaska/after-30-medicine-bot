@@ -134,6 +134,23 @@ def test_stats_adherence_no_meds(api_client, db):
     assert r.json()["medications"] == []
 
 
+def test_stats_adherence_with_meds(api_client, db):
+    """FA-BE1: при наличии лекарств эндпоинт не падал (передавался одиночный
+    dict вместо списка + строки вместо date в count_due_by_medication)."""
+    _seed_user(db)
+    mid = _create_med(api_client, rules=[{"reminder_time": "09:00", "frequency": "daily"}])
+    r = api_client.get("/stats/adherence")
+    assert r.status_code == 200
+    body = r.json()
+    meds = body["medications"]
+    assert len(meds) == 1
+    assert meds[0]["medication_id"] == mid
+    assert isinstance(meds[0]["due"], int) and meds[0]["due"] > 0
+    assert meds[0]["taken"] == 0
+    assert meds[0]["pct"] == 0
+    assert body["total_pct"] == 0
+
+
 def test_stats_streak(api_client, db):
     _seed_user(db)
     r = api_client.get("/stats/streak")
