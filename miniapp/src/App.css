@@ -1522,12 +1522,18 @@
 /* ── F11-C: карточки сводки «Прогресс» ─────────────────────────────────── */
 .stats-card {
   margin: 10px 12px;
-  padding: 16px;
+  padding: 18px;
   background: var(--secondary-bg);
-  border-radius: 14px;
+  border-radius: 16px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 1px rgba(0, 0, 0, 0.03);
 }
 
-.streak-fire { font-size: 18px; }
+/* Ф18: метрики — таб-фигуры (не «прыгают» по ширине) */
+.load-num, .streak-big, .win-pct, .punct-pct, .weekly-bar-pct, .mlist-stock, .ach-count {
+  font-variant-numeric: tabular-nums;
+}
+
+.streak-fire { display: inline-flex; color: #f5934e; }
 
 /* Нагрузка по терапии */
 .load-card {
@@ -1706,10 +1712,37 @@
   transition: transform 0.12s, border-color 0.12s;
 }
 .ach-badge:active { transform: scale(0.94); }
-.ach-badge--locked { opacity: 0.45; filter: grayscale(0.6); }
+.ach-badge--locked .ach-name { opacity: 0.5; }
 .ach-badge--sel { border-color: var(--accent, #4caf50); }
-.ach-icon { font-size: 26px; line-height: 1; }
 .ach-name { font-size: 11px; font-weight: 500; line-height: 1.2; }
+
+/* Ф18: медальон ачивки — круг с градиентом уровня + глиф */
+.ach-medal {
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.30);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.20),
+    inset 0 1px 1.5px rgba(255, 255, 255, 0.45),
+    inset 0 -2px 4px rgba(0, 0, 0, 0.16);
+}
+.ach-medal svg { filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.30)); }
+.ach-medal--lg { width: 56px; height: 56px; }
+.ach-medal--bronze  { background: linear-gradient(145deg, #e6a972, #a85e2e); }
+.ach-medal--silver  { background: linear-gradient(145deg, #e3e9ef, #97a1ab); }
+.ach-medal--gold    { background: linear-gradient(145deg, #f7d670, #d39a23); }
+.ach-medal--diamond { background: linear-gradient(145deg, #c4ecf6, #4fb3c7); }
+.ach-medal--care    { background: linear-gradient(145deg, #5cc4d6, #2b8a9e); }
+.ach-medal--locked {
+  background: var(--secondary-bg);
+  color: var(--hint);
+  border-color: transparent;
+  box-shadow: inset 0 0 0 1px var(--separator);
+}
+.ach-medal--locked svg { filter: none; }
 
 .ach-hint {
   display: flex;
@@ -1721,7 +1754,7 @@
   background: rgba(127, 127, 127, 0.08);
   animation: ach-hint-in 0.2s ease;
 }
-.ach-hint-icon { font-size: 28px; line-height: 1; }
+.ach-hint-icon { display: inline-flex; flex-shrink: 0; }
 .ach-hint-body { display: flex; flex-direction: column; gap: 2px; }
 .ach-hint-title { font-size: 14px; font-weight: 600; }
 .ach-hint-desc { font-size: 12px; color: var(--hint); }
@@ -1749,7 +1782,7 @@
   animation: ach-toast-in 0.32s cubic-bezier(0.18, 0.9, 0.3, 1.3);
   max-width: 88vw;
 }
-.ach-toast-icon { font-size: 30px; line-height: 1; }
+.ach-toast-icon { display: inline-flex; flex-shrink: 0; }
 .ach-toast-body { display: flex; flex-direction: column; }
 .ach-toast-head { font-size: 11px; opacity: 0.85; text-transform: uppercase; letter-spacing: 0.4px; }
 .ach-toast-title { font-size: 15px; font-weight: 600; }
