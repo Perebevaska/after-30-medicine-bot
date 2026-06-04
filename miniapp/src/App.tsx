@@ -226,7 +226,7 @@ export default function App() {
               <MedicationList key={resetKeys.medications} onAdd={(uid, sid) => openForm(undefined, uid, sid)} onEdit={(id, uid, sid) => openForm(id, uid, sid)} onSchedule={(id, uid, sid) => openForm(id, uid, sid, true)} />
             )}
             {page === 'stats' && <StatsPage key={resetKeys.stats} />}
-            {page === 'settings' && <SettingsPage key={resetKeys.settings} />}
+            {page === 'settings' && <SettingsPage key={resetKeys.settings} onReplayTour={() => { setNavPage('dashboard'); setShowTour(true) }} />}
           </div>
         ))}
       </div>

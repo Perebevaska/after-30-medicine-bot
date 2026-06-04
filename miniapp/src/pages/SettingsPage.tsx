@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, type ReactNode } from 'react'
-import { Sun, Moon, User, Check, X, Clock, Copy, Bell, Link2, AlertTriangle, MapPin, Trophy, Heart, Languages, Search } from 'lucide-react'
+import { Sun, Moon, User, Check, X, Clock, Copy, Bell, Link2, AlertTriangle, MapPin, Trophy, Heart, Languages, Search, GraduationCap } from 'lucide-react'
 import {
   useSettings, useSetReminderMode, useSetDailyPlan, useSetCaregiver,
   useDependents, useCreateDependent, useDeleteDependent,
@@ -118,7 +118,7 @@ const TIMEZONES: { value: string; label: string }[] = [
   { value: 'Australia/Sydney', label: 'Сидней UTC+10/11' },
 ]
 
-export default function SettingsPage() {
+export default function SettingsPage({ onReplayTour }: { onReplayTour?: () => void } = {}) {
   const { data, isLoading } = useSettings()
   const setMode = useSetReminderMode()
   const setDailyPlan = useSetDailyPlan()
@@ -1120,6 +1120,12 @@ export default function SettingsPage() {
           </div>
         </>
       )}
+
+      <h2 className="section-title">Обучение</h2>
+      <button type="button" className="replay-tour-btn" onClick={() => onReplayTour?.()}>
+        <GraduationCap size={18} strokeWidth={2} className="ic" />
+        Пройти обучение заново
+      </button>
 
       <h2 className="section-title">В планах</h2>
       <div className="roadmap-card">
