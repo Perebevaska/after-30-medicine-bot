@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, forwardRef, useImperativeHandle } from 're
 import { createPortal } from 'react-dom'
 import { Check, X } from 'lucide-react'
 import { postEvent } from '@telegram-apps/sdk-react'
-import { useToday, useLogIntake, useHearts, useSettings } from '../api/hooks'
+import { useToday, useLogIntake, useHearts, useSettings, useMedications } from '../api/hooks'
 import { useQueryClient } from '@tanstack/react-query'
 import { api, apiErrorMessage } from '../api/client'
 import type { TodayItem } from '../api/types'
@@ -293,8 +293,9 @@ function MedCard({
   )
 }
 
-export default function Dashboard() {
+export default function Dashboard({ onNavigate }: { onNavigate?: (p: 'medications') => void }) {
   const { data, isLoading, error } = useToday()
+  const { data: meds } = useMedications()
   const { data: settings } = useSettings()
   const qc = useQueryClient()
   const [takingAll, setTakingAll] = useState(false)
@@ -394,9 +395,38 @@ export default function Dashboard() {
 
       {error && <p className="hint error">{apiErrorMessage(error)}</p>}
 
-      {data && data.length === 0 && (
-        <p className="hint">На сегодня нет приёмов</p>
-      )}
+      {data && data.length === 0 && (() => {
+        const ownMeds = (meds ?? []).filter((m) => !m.linked_user_id && !m.dep_share_id)
+        if (ownMeds.length === 0) {
+          return (
+            <div className="empty-state">
+              <div className="empty-state-emoji">💊</div>
+              <p className="empty-state-title">Пока нет лекарств</p>
+              <p className="empty-state-text">
+                Добавьте первое лекарство в Аптечке — и я начну напоминать о приёмах вовремя.
+              </p>
+              <button type="button" className="btn-primary" onClick={() => onNavigate?.('medications')}>
+                Перейти в Аптечку
+              </button>
+            </div>
+          )
+        }
+        if (ownMeds.every((m) => m.paused)) {
+          return (
+            <div className="empty-state">
+              <div className="empty-state-emoji">⏸️</div>
+              <p className="empty-state-title">Все лекарства на паузе</p>
+              <p className="empty-state-text">
+                Напоминания не приходят. Снимите паузу в Аптечке, когда будете готовы продолжить.
+              </p>
+              <button type="button" className="btn-primary" onClick={() => onNavigate?.('medications')}>
+                Открыть Аптечку
+              </button>
+            </div>
+          )
+        }
+        return <p className="hint">На сегодня нет приёмов</p>
+      })()}
 
       {data && hasAny && (
         <>

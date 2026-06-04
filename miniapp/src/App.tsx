@@ -8,6 +8,7 @@ import MedicationList from './pages/MedicationList'
 import MedicationForm from './pages/MedicationForm'
 import StatsPage from './pages/StatsPage'
 import SettingsPage from './pages/SettingsPage'
+import OnboardingTour, { shouldShowOnboarding } from './components/OnboardingTour'
 import './App.css'
 
 type NavPage = 'dashboard' | 'medications' | 'stats' | 'settings'
@@ -77,6 +78,7 @@ export default function App() {
   const [editForDepShareId, setEditForDepShareId] = useState<number | undefined>()
   const [openSchedule, setOpenSchedule] = useState(false)
   const [showForm, setShowForm] = useState(false)
+  const [showTour, setShowTour] = useState(shouldShowOnboarding)
   const touchStart = useRef<{ x: number; y: number } | null>(null)
 
   useEffect(() => {
@@ -145,7 +147,7 @@ export default function App() {
             className="tab-panel"
             style={{ transform: `translateX(${(i - activeIdx) * 100}%)` }}
           >
-            {page === 'dashboard' && <Dashboard key={resetKeys.dashboard} />}
+            {page === 'dashboard' && <Dashboard key={resetKeys.dashboard} onNavigate={setNavPage} />}
             {page === 'medications' && (
               <MedicationList key={resetKeys.medications} onAdd={(uid, sid) => openForm(undefined, uid, sid)} onEdit={(id, uid, sid) => openForm(id, uid, sid)} onSchedule={(id, uid, sid) => openForm(id, uid, sid, true)} />
             )}
@@ -164,6 +166,7 @@ export default function App() {
           }
         }}
       />
+      {showTour && !showForm && <OnboardingTour onClose={() => setShowTour(false)} />}
     </div>
   )
 }
