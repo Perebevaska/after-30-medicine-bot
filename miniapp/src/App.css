@@ -289,8 +289,8 @@
 
 .btn-take,
 .btn-skip {
-  width: 48px;
-  height: 48px;
+  width: 54px;
+  height: 54px;
   border-radius: 50%;
   border: none;
   background: var(--secondary-bg);
@@ -330,7 +330,7 @@
 .btn-undo:active { transform: scale(0.9); opacity: 1; }
 .btn-undo:disabled { opacity: 0.25; cursor: default; }
 
-/* Долгое нажатие: кольцо заполняется по часовой стрелке (take=зелёный, skip=красный) */
+/* Долгое нажатие: весь круг заливается по часовой стрелке (take=зелёный, skip=красный) */
 .hold-btn {
   position: relative;
   touch-action: none;
@@ -341,15 +341,15 @@
 .hold-btn::after {
   content: '';
   position: absolute;
-  inset: -3px;
+  inset: 0;
   border-radius: 50%;
-  background: conic-gradient(var(--hold-color) var(--hold-deg, 0deg), transparent 0deg);
-  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 3px));
-  mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 3px));
+  background: conic-gradient(var(--hold-fill) var(--hold-deg, 0deg), transparent 0deg);
   pointer-events: none;
+  z-index: 0;
 }
-.btn-take.hold-btn { --hold-color: #4caf50; }
-.btn-skip.hold-btn { --hold-color: #e0533d; }
+.hold-btn > svg { position: relative; z-index: 1; }
+.btn-take.hold-btn { --hold-fill: rgba(76, 175, 80, 0.45); }
+.btn-skip.hold-btn { --hold-fill: rgba(224, 83, 61, 0.45); }
 
 /* Короткий тап (не удержал) → встряска + подсказка «Удерживайте» */
 .hold-btn--hint { animation: hold-shake 0.4s ease; }
@@ -362,16 +362,16 @@
 }
 .hold-tip {
   position: absolute;
-  bottom: calc(100% + 6px);
+  bottom: calc(100% + 12px);
   left: 50%;
   transform: translateX(-50%);
   white-space: nowrap;
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 14px;
+  font-weight: 700;
   color: #fff;
-  background: rgba(0, 0, 0, 0.82);
-  padding: 4px 8px;
-  border-radius: 7px;
+  background: rgba(0, 0, 0, 0.85);
+  padding: 7px 13px;
+  border-radius: 9px;
   pointer-events: none;
   z-index: 5;
   animation: hold-tip-in 0.15s ease;
@@ -400,8 +400,8 @@
 
 /* Отмеченный приём — статичный кружок без действия (undo убран) */
 .med-status {
-  width: 48px;
-  height: 48px;
+  width: 54px;
+  height: 54px;
   border-radius: 50%;
   display: flex;
   align-items: center;

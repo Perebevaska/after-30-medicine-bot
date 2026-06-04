@@ -298,16 +298,16 @@ function MedCard({
       {item.status === 'pending' ? (
         <div className="med-actions">
           <HoldButton variant="take" onConfirm={() => log('taken')} disabled={isPending} title="Удерживайте, чтобы принять">
-            <Check size={20} strokeWidth={2.5} />
+            <Check size={28} strokeWidth={2.75} />
           </HoldButton>
           <HoldButton variant="skip" onConfirm={() => log('skipped')} disabled={isPending} title="Удерживайте, чтобы пропустить">
-            <X size={20} strokeWidth={2.5} />
+            <X size={28} strokeWidth={2.75} />
           </HoldButton>
         </div>
       ) : (
         <div className="med-actions">
           <span className={`med-status med-status--${item.status}`} aria-hidden="true">
-            {item.status === 'taken' ? <Check size={20} strokeWidth={2.5} /> : <X size={20} strokeWidth={2.5} />}
+            {item.status === 'taken' ? <Check size={26} strokeWidth={2.75} /> : <X size={26} strokeWidth={2.75} />}
           </span>
         </div>
       )}
