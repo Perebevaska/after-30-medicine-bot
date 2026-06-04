@@ -682,10 +682,11 @@ export default function MedicationForm({ editId, linkedUserId, forDepShareId, op
                 perDose={form.per_dose} unitLabel={form.unit_dose_label} />
             ))}
 
-            <button type="button" className="schedule-remove-btn" onClick={() => setScheduleOn(false)}>
-              🗑 Удалить расписание
-            </button>
-            <span className="field-hint">Препарат останется без напоминаний. Расписание можно добавить снова.</span>
+            <div className="schedule-remove-row">
+              <button type="button" className="schedule-remove-btn" onClick={() => setScheduleOn(false)}>
+                🗑 Удалить расписание
+              </button>
+            </div>
           </>
         ) : (
           <div className="form-section">

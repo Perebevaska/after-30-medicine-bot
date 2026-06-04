@@ -1156,19 +1156,21 @@
 }
 
 /* ── Удаление расписания (форма лекарства) ───────────────────────────────── */
-.schedule-remove-btn {
-  width: 100%;
+.schedule-remove-row {
+  display: flex;
+  justify-content: center;
   margin-top: 4px;
-  padding: 10px;
-  border: 1px dashed var(--separator);
-  border-radius: 10px;
+}
+.schedule-remove-btn {
+  padding: 7px 14px;
+  border: none;
   background: transparent;
   color: var(--destructive);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 500;
   cursor: pointer;
 }
-.schedule-remove-btn:active { background: var(--secondary-bg); }
+.schedule-remove-btn:active { opacity: 0.6; }
 
 /* ── Онбординг-тур (Фаза 14) ─────────────────────────────────────────────── */
 .tour-overlay {
