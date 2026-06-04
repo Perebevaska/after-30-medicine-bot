@@ -153,97 +153,102 @@ function haptic(style: 'heavy' | 'light' = 'heavy') {
   try { navigator.vibrate?.(style === 'light' ? 12 : 35) } catch { /* noop */ }
 }
 
-const HOLD_MS = 600
-
-// Подсказка про удержание ✓/✕ показывается, пока юзер не отметит первый приём.
-const HOLD_LEARNED_KEY = 'hold_learned'
-function holdLearned(): boolean {
-  try { return localStorage.getItem(HOLD_LEARNED_KEY) === '1' } catch { return false }
+// Подсказка-инструкция показывается, пока юзер не отметит первый приём.
+const SLIDE_LEARNED_KEY = 'slide_learned'
+function slideLearned(): boolean {
+  try { return localStorage.getItem(SLIDE_LEARNED_KEY) === '1' } catch { return false }
 }
-function markHoldLearned(): void {
-  try { localStorage.setItem(HOLD_LEARNED_KEY, '1') } catch { /* noop */ }
+function markSlideLearned(): void {
+  try { localStorage.setItem(SLIDE_LEARNED_KEY, '1') } catch { /* noop */ }
 }
 
-// Кнопка подтверждения долгим нажатием: при удержании граница заполняется
-// по часовой стрелке (зелёная take / красная skip); в конце — onConfirm + вибрация.
-// Случайный тап не срабатывает (отпустил раньше → сброс).
-function HoldButton({
-  variant, onConfirm, disabled, title, children,
-}: {
-  variant: 'take' | 'skip'
-  onConfirm: () => void
-  disabled?: boolean
-  title?: string
-  children: React.ReactNode
-}) {
-  const [deg, setDeg] = useState(0)
-  const [hint, setHint] = useState(false) // короткий тап → обучающая подсказка «Удерживайте»
-  const rafRef = useRef<number | null>(null)
-  const startRef = useRef(0)
+const KNOB = 42
+
+// Слайдер «сдвинь, чтобы принять»: тянем бегунок вправо до конца → onConfirm.
+// Осознанное действие — случайный тап не отмечает.
+function SlideToConfirm({ onConfirm, disabled }: { onConfirm: () => void; disabled?: boolean }) {
+  const trackRef = useRef<HTMLDivElement>(null)
+  const [x, setX] = useState(0)
+  const [maxW, setMaxW] = useState(0)
+  const [dragging, setDragging] = useState(false)
+  const draggingRef = useRef(false)
+  const offsetRef = useRef(0)
+  const maxRef = useRef(0)
   const doneRef = useRef(false)
-  const hintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const stop = () => {
-    if (rafRef.current) cancelAnimationFrame(rafRef.current)
-    rafRef.current = null
-    startRef.current = 0
-    setDeg(0)
-  }
+  const computeMax = () => Math.max(0, (trackRef.current?.clientWidth ?? 0) - KNOB - 6)
 
-  useEffect(() => () => {
-    if (rafRef.current) cancelAnimationFrame(rafRef.current)
-    if (hintTimerRef.current) clearTimeout(hintTimerRef.current)
-  }, [])
-
-  const tick = (t: number) => {
-    if (!startRef.current) startRef.current = t
-    const p = Math.min(1, (t - startRef.current) / HOLD_MS)
-    setDeg(p * 360)
-    if (p >= 1) {
-      doneRef.current = true
-      haptic()
-      onConfirm()
-      stop()
-      return
-    }
-    rafRef.current = requestAnimationFrame(tick)
-  }
-
-  const start = (e: React.PointerEvent) => {
+  const down = (e: React.PointerEvent) => {
     if (disabled) return
     e.preventDefault()
+    draggingRef.current = true
     doneRef.current = false
-    startRef.current = 0
-    if (rafRef.current) cancelAnimationFrame(rafRef.current)
-    rafRef.current = requestAnimationFrame(tick)
+    const m = computeMax()
+    maxRef.current = m
+    setMaxW(m)
+    offsetRef.current = e.clientX - x
+    setDragging(true)
+    e.currentTarget.setPointerCapture?.(e.pointerId)
   }
-
-  // Отпустил раньше порога → не отметили: показать подсказку, что надо держать.
-  const cancel = () => {
-    if (!doneRef.current && rafRef.current) {
-      stop()
-      haptic('light')
-      setHint(true)
-      if (hintTimerRef.current) clearTimeout(hintTimerRef.current)
-      hintTimerRef.current = setTimeout(() => setHint(false), 1600)
+  const move = (e: React.PointerEvent) => {
+    if (!draggingRef.current) return
+    const nx = Math.min(maxRef.current, Math.max(0, e.clientX - offsetRef.current))
+    setX(nx)
+    if (nx >= maxRef.current - 1 && !doneRef.current) {
+      doneRef.current = true
+      draggingRef.current = false
+      setDragging(false)
+      haptic()
+      onConfirm()
     }
   }
+  const up = () => {
+    if (!draggingRef.current) return
+    draggingRef.current = false
+    setDragging(false)
+    if (!doneRef.current) setX(0)
+  }
 
+  const pct = maxW ? x / maxW : 0
+  const tr = dragging ? 'none' : '0.22s'
   return (
-    <button
-      type="button"
-      className={`btn-${variant} hold-btn${hint ? ' hold-btn--hint' : ''}`}
-      title={title}
-      disabled={disabled}
-      style={{ '--hold-deg': `${deg}deg` } as React.CSSProperties}
-      onPointerDown={start}
-      onPointerUp={cancel}
-      onPointerLeave={cancel}
-      onPointerCancel={cancel}
-      onContextMenu={(e) => e.preventDefault()}
-    >
-      {children}
-      {hint && <span className="hold-tip">Удерживайте</span>}
+    <div className={`slide-confirm${disabled ? ' slide-confirm--disabled' : ''}`} ref={trackRef}>
+      <span className="slide-fill" style={{ width: `${x + KNOB}px`, transition: `width ${tr}` }} />
+      <span className="slide-label" style={{ opacity: Math.max(0, 1 - pct * 1.4) }}>Сдвинь, чтобы принять</span>
+      <span
+        className="slide-knob"
+        style={{ transform: `translateX(${x}px)`, transition: `transform ${tr}` }}
+        onPointerDown={down}
+        onPointerMove={move}
+        onPointerUp={up}
+        onPointerCancel={up}
+      >
+        <Check size={22} strokeWidth={2.75} />
+      </span>
+    </div>
+  )
+}
+
+// Пропуск приёма — вторичное действие: тап → «Точно пропустить?» → тап подтверждает.
+function SkipButton({ onConfirm, disabled }: { onConfirm: () => void; disabled?: boolean }) {
+  const [confirm, setConfirm] = useState(false)
+  const tRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => () => { if (tRef.current) clearTimeout(tRef.current) }, [])
+  const click = () => {
+    if (disabled) return
+    if (!confirm) {
+      setConfirm(true)
+      if (tRef.current) clearTimeout(tRef.current)
+      tRef.current = setTimeout(() => setConfirm(false), 3000)
+      return
+    }
+    if (tRef.current) clearTimeout(tRef.current)
+    haptic('light')
+    onConfirm()
+  }
+  return (
+    <button type="button" className={`skip-btn${confirm ? ' skip-btn--confirm' : ''}`} disabled={disabled} onClick={click}>
+      {confirm ? 'Точно пропустить?' : <><X size={15} strokeWidth={2.5} className="ic" /> пропустить</>}
     </button>
   )
 }
@@ -281,9 +286,10 @@ function MedCard({
     ? ' mlist-card--taken'
     : ''
 
+  const pending = item.status === 'pending'
   return (
     <div
-      className={`mlist-card${statusClass}${due ? ' mlist-card--due' : ''}${extraClass}`}
+      className={`mlist-card${statusClass}${due ? ' mlist-card--due' : ''}${extraClass}${pending ? ' mlist-card--slide' : ''}`}
     >
       <div className="mlist-info">
         <div className="mlist-name">
@@ -295,14 +301,10 @@ function MedCard({
         <div className="mlist-schedule">{item.reminder_time}</div>
       </div>
 
-      {item.status === 'pending' ? (
-        <div className="med-actions">
-          <HoldButton variant="take" onConfirm={() => log('taken')} disabled={isPending} title="Удерживайте, чтобы принять">
-            <Check size={28} strokeWidth={2.75} />
-          </HoldButton>
-          <HoldButton variant="skip" onConfirm={() => log('skipped')} disabled={isPending} title="Удерживайте, чтобы пропустить">
-            <X size={28} strokeWidth={2.75} />
-          </HoldButton>
+      {pending ? (
+        <div className="slide-row">
+          <SlideToConfirm onConfirm={() => log('taken')} disabled={isPending} />
+          <SkipButton onConfirm={() => log('skipped')} disabled={isPending} />
         </div>
       ) : (
         <div className="med-actions">
@@ -322,10 +324,10 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (p: 'medication
   const qc = useQueryClient()
   const [takingAll, setTakingAll] = useState(false)
   const [tzBannerDismissed, setTzBannerDismissed] = useState(false)
-  const [showHoldHint, setShowHoldHint] = useState(!holdLearned())
+  const [showHoldHint, setShowHoldHint] = useState(!slideLearned())
   const wishRef = useRef<WishCardHandle>(null)
 
-  const learnHold = () => { markHoldLearned(); setShowHoldHint(false) }
+  const learnHold = () => { markSlideLearned(); setShowHoldHint(false) }
 
   const allItems = data ?? []
   // F7: separate own items from linked dependents' items
@@ -455,7 +457,7 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (p: 'medication
               <h2 className="section-title">Сейчас</h2>
               {showHoldHint && (
                 <p className="hold-caption">
-                  Удерживайте <Check size={13} strokeWidth={2.5} className="ic" /> или <X size={13} strokeWidth={2.5} className="ic" />, чтобы отметить приём
+                  Сдвиньте бегунок вправо, чтобы отметить приём
                 </p>
               )}
               <div className="mlist-list">

@@ -287,108 +287,87 @@
   flex-shrink: 0;
 }
 
-.btn-take,
-.btn-skip {
-  width: 54px;
-  height: 54px;
-  border-radius: 50%;
-  border: none;
-  background: var(--secondary-bg);
-  font-size: 20px;
-  cursor: pointer;
+/* Pending-карточка на Dashboard со слайдером — вертикальная (инфо сверху, слайдер снизу) */
+.mlist-card--slide {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+}
+.mlist-card--slide .mlist-info { width: 100%; }
+
+/* ── Слайдер «сдвинь, чтобы принять» (Dashboard, pending) ─────────────────── */
+.slide-row {
   display: flex;
   align-items: center;
-  justify-content: center;
-  transition: transform 0.1s, opacity 0.1s;
+  gap: 10px;
+  width: 100%;
 }
-
-.btn-take { color: #4caf50; }
-.btn-skip { color: var(--hint); }
-
-.btn-take:active,
-.btn-skip:active { transform: scale(0.9); }
-.btn-take:disabled,
-.btn-skip:disabled { opacity: 0.4; cursor: default; }
-
-.btn-undo {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  border: none;
-  background: var(--secondary-bg);
-  font-size: 20px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--hint);
-  opacity: 0.5;
-  transition: transform 0.1s, opacity 0.2s;
-}
-
-.btn-undo:hover { opacity: 0.8; }
-.btn-undo:active { transform: scale(0.9); opacity: 1; }
-.btn-undo:disabled { opacity: 0.25; cursor: default; }
-
-/* Долгое нажатие: весь круг заливается по часовой стрелке (take=зелёный, skip=красный) */
-.hold-btn {
+.slide-confirm {
   position: relative;
-  touch-action: none;
+  flex: 1;
+  height: 48px;
+  border-radius: 24px;
+  background: var(--secondary-bg);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
   user-select: none;
   -webkit-user-select: none;
-  -webkit-touch-callout: none;
 }
-.hold-btn::after {
-  content: '';
+.slide-confirm--disabled { opacity: 0.5; pointer-events: none; }
+.slide-fill {
   position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  background: conic-gradient(var(--hold-fill) var(--hold-deg, 0deg), transparent 0deg);
-  pointer-events: none;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: linear-gradient(90deg, #4caf50, #43a047);
+  border-radius: 24px;
   z-index: 0;
 }
-.hold-btn > svg { position: relative; z-index: 1; }
-.btn-take.hold-btn { --hold-fill: rgba(76, 175, 80, 0.45); }
-.btn-skip.hold-btn { --hold-fill: rgba(224, 83, 61, 0.45); }
-
-/* Короткий тап (не удержал) → встряска + подсказка «Удерживайте» */
-.hold-btn--hint { animation: hold-shake 0.4s ease; }
-@keyframes hold-shake {
-  0%, 100% { transform: translateX(0); }
-  20% { transform: translateX(-3px); }
-  40% { transform: translateX(3px); }
-  60% { transform: translateX(-2px); }
-  80% { transform: translateX(2px); }
-}
-.hold-tip {
+.slide-label {
   position: absolute;
-  bottom: calc(100% + 12px);
-  left: 50%;
-  transform: translateX(-50%);
-  white-space: nowrap;
-  font-size: 14px;
-  font-weight: 700;
-  color: #fff;
-  background: rgba(0, 0, 0, 0.85);
-  padding: 7px 13px;
-  border-radius: 9px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--hint);
   pointer-events: none;
-  z-index: 5;
-  animation: hold-tip-in 0.15s ease;
+  z-index: 1;
 }
-.hold-tip::after {
-  content: '';
-  position: absolute;
-  top: 100%;
-  left: 50%;
-  transform: translateX(-50%);
-  border: 4px solid transparent;
-  border-top-color: rgba(0, 0, 0, 0.82);
+.slide-knob {
+  position: relative;
+  z-index: 2;
+  width: 42px;
+  height: 42px;
+  margin: 3px;
+  border-radius: 50%;
+  background: #fff;
+  color: #43a047;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.28);
+  display: grid;
+  place-items: center;
+  touch-action: none;
+  cursor: grab;
 }
-@keyframes hold-tip-in {
-  from { opacity: 0; transform: translateX(-50%) translateY(3px); }
-  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+.slide-knob:active { cursor: grabbing; }
+
+.skip-btn {
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  color: var(--hint);
+  font-size: 12px;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 8px 4px;
+  cursor: pointer;
+  white-space: nowrap;
 }
+.skip-btn--confirm { color: var(--destructive); font-weight: 700; }
+.skip-btn:disabled { opacity: 0.4; cursor: default; }
 
 /* Обучающая подпись под секцией «Сейчас» (гаснет после первой отметки) */
 .hold-caption {
