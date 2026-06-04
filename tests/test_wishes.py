@@ -168,3 +168,51 @@ def test_delete_user_data_clears_wishes(api_client, db):
     db.create_wish(me, other, "d2")
     db.delete_user_data(TEST_TELEGRAM_ID)
     assert db.get_wish_inbox(other) == []
+
+
+# ── TG-дайджест откликов ────────────────────────────────────────────────────
+
+def test_tg_notify_toggle_default_off(api_client, db):
+    _enable(TEST_TELEGRAM_ID)
+    assert api_client.get("/settings").json().get("wishes_tg_notify") == 0
+    assert api_client.put("/settings/wishes-tg", json={"enabled": True}).status_code == 204
+    assert api_client.get("/settings").json().get("wishes_tg_notify") == 1
+
+
+def test_ack_summary_and_status(api_client, db):
+    me = _enable(TEST_TELEGRAM_ID)
+    other = db.get_or_create_user(OTHER_TID)
+    w1 = db.create_wish(me, other, "d1")
+    w2 = db.create_wish(me, other, "d2")
+    db.create_wish(me, other, "d3")  # без реакции — не считается
+    db.react_to_wish(w1, other, "helped")
+    db.react_to_wish(w2, other, "supported")
+    assert db.get_wish_ack_summary(me) == {"helped": 1, "supported": 1}
+    body = api_client.get("/wishes/status").json()
+    assert body["ack_helped"] == 1
+    assert body["ack_supported"] == 1
+
+
+def test_digest_candidates_gated_by_toggle(api_client, db):
+    me = _enable(TEST_TELEGRAM_ID)
+    other = db.get_or_create_user(OTHER_TID)
+    w = db.create_wish(me, other, "d1")
+    db.react_to_wish(w, other, "helped")
+    # тогл TG выкл → не кандидат
+    assert all(c["user_id"] != me for c in db.get_wish_digest_candidates())
+    db.set_wishes_tg_notify(TEST_TELEGRAM_ID, True)
+    cands = {c["user_id"]: c for c in db.get_wish_digest_candidates()}
+    assert me in cands and cands[me]["helped"] == 1
+
+
+def test_digest_mark_dedup(api_client, db):
+    me = _enable(TEST_TELEGRAM_ID)
+    db.set_wishes_tg_notify(TEST_TELEGRAM_ID, True)
+    other = db.get_or_create_user(OTHER_TID)
+    w = db.create_wish(me, other, "d1")
+    db.react_to_wish(w, other, "helped")
+    assert any(c["user_id"] == me for c in db.get_wish_digest_candidates())
+    db.mark_wish_reactions_digested(me)
+    # после метки — больше не кандидат (дедуп), но in-app summary остаётся
+    assert all(c["user_id"] != me for c in db.get_wish_digest_candidates())
+    assert db.get_wish_ack_summary(me)["helped"] == 1

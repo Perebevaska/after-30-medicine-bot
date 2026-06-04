@@ -234,6 +234,7 @@ export interface UserSettings {
   viewing_deps: ViewingDepInfo[]
   pending_viewing_deps: PendingViewingDepInfo[]
   wishes_enabled: number
+  wishes_tg_notify: number
 }
 
 // Ф15: соцмеханика пожеланий
@@ -249,6 +250,8 @@ export interface WishesStatus {
   pool_ready: boolean
   sent_today: number
   daily_limit: number
+  ack_helped: number
+  ack_supported: number
 }
 
 export interface WishInboxItem {

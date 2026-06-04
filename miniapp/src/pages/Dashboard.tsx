@@ -369,6 +369,9 @@ function WishZone({ enabled }: { enabled: boolean }) {
 
   const incoming = inbox?.[0]
   const canSend = !!status?.pool_ready && (status?.sent_today ?? 0) < (status?.daily_limit ?? 0)
+  const ackHelped = status?.ack_helped ?? 0
+  const ackSupported = status?.ack_supported ?? 0
+  const ackTotal = ackHelped + ackSupported
 
   const onSend = async (code: string) => {
     try {
@@ -395,6 +398,13 @@ function WishZone({ enabled }: { enabled: boolean }) {
             <button className="wish-react-btn" onClick={() => onReact(incoming.id, 'helped')}>👍 Помогло</button>
             <button className="wish-react-btn wish-react-btn--love" onClick={() => onReact(incoming.id, 'supported')}>❤️ Очень поддержало</button>
           </div>
+        </div>
+      )}
+
+      {ackTotal > 0 && (
+        <div className="wish-ack">
+          <Heart size={15} strokeWidth={2} className="ic" />
+          <span>Вашу поддержку оценили {ackTotal}&nbsp;раз{ackHelped ? ` · 👍 ${ackHelped}` : ''}{ackSupported ? ` · ❤️ ${ackSupported}` : ''}</span>
         </div>
       )}
 

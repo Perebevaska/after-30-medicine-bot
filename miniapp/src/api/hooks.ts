@@ -319,6 +319,14 @@ export function useSetWishes() {
   })
 }
 
+export function useSetWishesTg() {
+  const qc = useQueryClient()
+  return useMutation<void, Error, boolean>({
+    mutationFn: (enabled) => api.put<void>('/settings/wishes-tg', { enabled }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['settings'] }),
+  })
+}
+
 export function useWishesStatus(enabled: boolean) {
   return useQuery<WishesStatus>({
     queryKey: ['wishes-status'],

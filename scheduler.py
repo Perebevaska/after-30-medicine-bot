@@ -10,7 +10,8 @@ from redis import Redis as _RedisSync
 from database import (get_active_schedule_rows, log_intake, apply_intake_stock,
                       apply_intake_hearts, get_today_intake_statuses,
                       get_schedules_by_medication, get_or_create_user, get_medication_by_id,
-                      get_caregiver_tids_for_dependent, get_dep_share_viewer_tids)
+                      get_caregiver_tids_for_dependent, get_dep_share_viewer_tids,
+                      get_wish_digest_candidates, mark_wish_reactions_digested)
 from utils import escape_html, get_tz_for_user, local_day_bounds_utc
 # _rule_fires_today живёт в schedule_utils (чистая логика, без telegram/db);
 # реэкспорт для обратной совместимости: stats/export/timezone импортируют его отсюда.
@@ -36,6 +37,11 @@ CATCHUP_MIN = 5
 _pending: dict = {}
 # (telegram_id, date_iso) — пользователи, которым план дня уже отправлен сегодня
 _daily_plan_sent: set = set()
+
+# Ф15: (telegram_id, date_iso) — кому TG-дайджест откликов уже отправлен сегодня.
+_wish_digest_sent: set = set()
+# Локальное время отправки дайджеста откликов (HH:MM в TZ юзера).
+WISH_DIGEST_TIME = "20:00"
 
 # AX6: персист состояния планировщика в Redis — переживает рестарт бота
 # (иначе после рестарта в окне догона CATCHUP_MIN once-слот отправился бы повторно).
@@ -64,6 +70,8 @@ def _load_state():
                 _pending[(tid, med, t)] = datetime.fromisoformat(iso)
             for tid, d in data.get("daily_plan_sent", []):
                 _daily_plan_sent.add((tid, d))
+            for tid, d in data.get("wish_digest_sent", []):
+                _wish_digest_sent.add((tid, d))
             logger.info("scheduler: состояние восстановлено из Redis (pending=%d)", len(_pending))
     except Exception as e:
         logger.warning("scheduler: не удалось загрузить состояние из Redis: %s", e)
@@ -75,6 +83,7 @@ def _save_state():
         data = {
             "pending": [[k[0], k[1], k[2], ts.isoformat()] for k, ts in _pending.items()],
             "daily_plan_sent": [[k[0], k[1]] for k in _daily_plan_sent],
+            "wish_digest_sent": [[k[0], k[1]] for k in _wish_digest_sent],
         }
         _redis_sync().set(_STATE_KEY, json.dumps(data), ex=7200)
     except Exception as e:
@@ -188,6 +197,8 @@ async def _send_reminders_impl(app):
     await _send_daily_plans(app, schedules)
     # G2: строгий режим — авто-пропуск просроченных приёмов со штрафом сердечком.
     await _apply_strict_autoskip(schedules)
+    # Ф15: TG-дайджест откликов на пожелания (1/день, тогл wishes_tg_notify).
+    await _send_wish_digests()
     # AX6: сохранить обновлённое состояние (отправленные слоты/планы) в Redis.
     await asyncio.to_thread(_save_state)
 
@@ -269,6 +280,61 @@ async def _send_daily_plans(app, schedules):
             logger.info("План дня поставлен в очередь: %s", tid)
         except Exception as e:
             logger.error("Ошибка постановки плана дня в очередь: %s", e)
+
+
+def _prune_wish_digest_sent():
+    """Удаляет из _wish_digest_sent записи старше 2 дней."""
+    cutoff = (datetime.now(pytz.utc).date() - timedelta(days=2)).isoformat()
+    stale = {k for k in _wish_digest_sent if k[1] < cutoff}
+    _wish_digest_sent.difference_update(stale)
+
+
+async def _send_wish_digests():
+    """Ф15: раз в день (в WISH_DIGEST_TIME local) шлёт сводку откликов на пожелания.
+
+    Только юзерам с тоглом wishes_tg_notify=1, у кого есть нерассланные реакции.
+    Дедуп: in-memory _wish_digest_sent (на день) + БД-метка sender_digest_at.
+    """
+    if _arq_pool is None:
+        return
+    _prune_wish_digest_sent()
+    try:
+        candidates = await asyncio.to_thread(get_wish_digest_candidates)
+    except Exception as e:
+        logger.error("Ошибка выборки дайджеста пожеланий: %s", e)
+        return
+    for c in candidates:
+        try:
+            tz = pytz.timezone(c["timezone"] or "UTC")
+        except Exception:
+            tz = pytz.utc
+        now_local = datetime.now(tz)
+        if now_local.strftime("%H:%M") != WISH_DIGEST_TIME:
+            continue
+        key = (c["telegram_id"], now_local.date().isoformat())
+        if key in _wish_digest_sent:
+            continue
+        helped, supported = c["helped"] or 0, c["supported"] or 0
+        total = helped + supported
+        if total <= 0:
+            continue
+        parts = []
+        if helped:
+            parts.append(f"👍 {helped}")
+        if supported:
+            parts.append(f"❤️ {supported}")
+        text = (
+            "💛 <b>Спасибо за вашу поддержку!</b>\n\n"
+            f"Сегодня ваши тёплые слова отметили {total} раз ({' · '.join(parts)}).\n"
+            "Кому-то стало чуточку легче благодаря вам."
+        )
+        try:
+            await _arq_pool.enqueue_job('send_reminder', chat_id=c["telegram_id"], text=text)
+            await asyncio.to_thread(mark_wish_reactions_digested, c["user_id"])
+            _wish_digest_sent.add(key)
+            logger.info("Дайджест пожеланий поставлен в очередь: %s", c["telegram_id"])
+        except Exception as e:
+            logger.error("Ошибка постановки дайджеста пожеланий: %s", e)
 
 
 async def _apply_strict_autoskip(schedules):

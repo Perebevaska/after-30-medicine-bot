@@ -58,6 +58,10 @@ class WishesIn(BaseModel):
     enabled: bool
 
 
+class WishesTgIn(BaseModel):
+    enabled: bool
+
+
 class StrictModeIn(BaseModel):
     enabled: bool
     hours: Optional[int] = Field(default=None, ge=0, le=23)
@@ -166,6 +170,11 @@ async def set_caregiver(body: CaregiverIn, telegram_id: int = Depends(require_te
 @router.put("/wishes", status_code=204)
 async def set_wishes(body: WishesIn, telegram_id: int = Depends(require_telegram_user)):
     await asyncio.to_thread(db.set_wishes_enabled, telegram_id, body.enabled)
+
+
+@router.put("/wishes-tg", status_code=204)
+async def set_wishes_tg(body: WishesTgIn, telegram_id: int = Depends(require_telegram_user)):
+    await asyncio.to_thread(db.set_wishes_tg_notify, telegram_id, body.enabled)
 
 
 @router.put("/strict-mode", status_code=204)

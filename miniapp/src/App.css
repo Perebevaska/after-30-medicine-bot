@@ -3339,3 +3339,22 @@
   color: var(--hint);
   padding: 8px;
 }
+
+.settings-label .settings-sublabel {
+  display: block;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--hint);
+  margin-top: 2px;
+  max-width: 240px;
+}
+.wish-ack {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(245,158,11,0.10);
+  color: var(--text);
+  font-size: 14px;
+}

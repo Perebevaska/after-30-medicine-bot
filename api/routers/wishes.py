@@ -48,6 +48,7 @@ async def wishes_status(telegram_id: int = Depends(require_telegram_user)):
     pool = await asyncio.to_thread(db.count_wish_pool)
     user = await asyncio.to_thread(db.get_or_create_user, telegram_id)
     sent_today = await asyncio.to_thread(db.count_wishes_sent_today, user)
+    acks = await asyncio.to_thread(db.get_wish_ack_summary, user)
     return {
         "enabled": enabled,
         "presets": wish_presets.presets_for_hour(hour),
@@ -55,6 +56,8 @@ async def wishes_status(telegram_id: int = Depends(require_telegram_user)):
         "pool_ready": pool >= db.WISH_MIN_POOL,
         "sent_today": sent_today,
         "daily_limit": db.WISH_DAILY_LIMIT,
+        "ack_helped": acks["helped"],
+        "ack_supported": acks["supported"],
     }
 
 
@@ -94,28 +97,11 @@ async def wish_inbox(user: TelegramUser = Depends(require_db_user)):
 async def react_wish(
     wish_id: int, body: ReactWishIn, user: TelegramUser = Depends(require_db_user)
 ):
+    # Только фиксируем реакцию. Отправитель узнаёт об отклике in-app (карточка
+    # «вашу поддержку оценили» в /wishes/status) и опц. дайджестом 1/день в TG
+    # (scheduler, тогл wishes_tg_notify) — без мгновенного пуша на каждую реакцию.
     sender_id = await asyncio.to_thread(
         db.react_to_wish, wish_id, user.user_id, body.reaction
     )
     if sender_id is None:
         raise HTTPException(404, "Пожелание не найдено")
-    # Нотификация отправителю (анонимно, best-effort через очередь).
-    await _notify_sender(sender_id, body.reaction)
-
-
-async def _notify_sender(sender_user_id: int, reaction: str):
-    try:
-        from api.main import get_arq_pool
-        pool = get_arq_pool()
-        if pool is None:
-            return
-        sender_tid = await asyncio.to_thread(db.get_telegram_id_by_user_id, sender_user_id)
-        if not sender_tid:
-            return
-        text = (
-            "💛 Ваша поддержка кому-то помогла!" if reaction == "helped"
-            else "❤️ Ваша поддержка очень тронула кого-то!"
-        )
-        await pool.enqueue_job("send_reminder", chat_id=sender_tid, text=text)
-    except Exception:
-        pass

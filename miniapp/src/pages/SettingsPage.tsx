@@ -8,7 +8,7 @@ import {
   useDeclineCaregiverLink, useDeleteCaregiverLink, useRequestLinkBreak,
   useSetDependentReminderMode, useSetDependentStrictMode,
   useEnsureDepShareCode, useJoinDepShare, useConfirmDepShare, useDeclineDepShare,
-  useRevokeDepShare, useLeaveDepShare, useSetWishes,
+  useRevokeDepShare, useLeaveDepShare, useSetWishes, useSetWishesTg,
 } from '../api/hooks'
 import TimePicker from '../components/TimePicker'
 import { getThemePref, setThemePref, type ThemePref } from '../theme'
@@ -125,6 +125,7 @@ export default function SettingsPage({ onReplayTour }: { onReplayTour?: () => vo
   const setCaregiver = useSetCaregiver()
   const setStrict = useSetStrictMode()
   const setWishes = useSetWishes()
+  const setWishesTg = useSetWishesTg()
 
   const { data: deps } = useDependents()
   const createDep = useCreateDependent()
@@ -1141,6 +1142,22 @@ export default function SettingsPage({ onReplayTour }: { onReplayTour?: () => vo
             <span className="toggle-track" />
           </label>
         </div>
+        {!!data.wishes_enabled && (
+          <div className="settings-row">
+            <span className="settings-label">
+              Уведомлять в Telegram
+              <span className="settings-sublabel">сводка откликов раз в день; в приложении видно всегда</span>
+            </span>
+            <label className="toggle-switch">
+              <input
+                type="checkbox"
+                checked={!!data.wishes_tg_notify}
+                onChange={(e) => setWishesTg.mutate(e.target.checked)}
+              />
+              <span className="toggle-track" />
+            </label>
+          </div>
+        )}
       </div>
 
       <h2 className="section-title">Обучение</h2>

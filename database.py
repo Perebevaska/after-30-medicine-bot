@@ -199,6 +199,7 @@ def migrate():
             ("reminder_repeat_hours",     "INTEGER DEFAULT 2"),
             ("reminder_repeat_minutes",   "INTEGER DEFAULT 0"),
             ("wishes_enabled",            "INTEGER DEFAULT 0"),
+            ("wishes_tg_notify",          "INTEGER DEFAULT 0"),
         ]:
             conn.execute(
                 f"ALTER TABLE IF EXISTS users ADD COLUMN IF NOT EXISTS {col} {definition}"
@@ -317,6 +318,9 @@ def migrate():
                 created_at TEXT DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS'),
                 reacted_at TEXT DEFAULT NULL
             )"""
+        )
+        conn.execute(
+            "ALTER TABLE IF EXISTS wishes_sent ADD COLUMN IF NOT EXISTS sender_digest_at TEXT DEFAULT NULL"
         )
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_wishes_recipient ON wishes_sent(recipient_id)"
@@ -1674,7 +1678,7 @@ def get_user_settings_row(telegram_id: int):
                       time_morning, time_lunch, time_evening, time_night,
                       daily_plan_enabled, daily_plan_time, caregiver_enabled,
                       hearts, strict_mode, strict_mode_hours, reminder_repeat_hours,
-                      caregiver_code, wishes_enabled
+                      caregiver_code, wishes_enabled, wishes_tg_notify
                FROM users WHERE telegram_id = %s""",
             (telegram_id,)
         ).fetchone()
@@ -1791,7 +1795,7 @@ def get_wish_inbox(recipient_user_id: int) -> list:
 def react_to_wish(wish_id: int, recipient_user_id: int, reaction: str) -> int | None:
     """Ставит реакцию на пожелание (если принадлежит получателю и без реакции).
 
-    Возвращает sender_id для нотификации, либо None если нечего обновлять.
+    Возвращает sender_id, либо None если нечего обновлять.
     """
     with get_connection() as conn:
         row = conn.execute(
@@ -1802,6 +1806,56 @@ def react_to_wish(wish_id: int, recipient_user_id: int, reaction: str) -> int | 
             (reaction, wish_id, recipient_user_id),
         ).fetchone()
         return row["sender_id"] if row else None
+
+
+def set_wishes_tg_notify(telegram_id: int, enabled: bool) -> None:
+    """Вкл/выкл TG-дайджест о реакциях (in-app показ работает независимо)."""
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE users SET wishes_tg_notify = %s WHERE telegram_id = %s",
+            (1 if enabled else 0, telegram_id),
+        )
+
+
+def get_wish_ack_summary(sender_user_id: int) -> dict:
+    """Кумулятивные отклики на пожелания отправителя (для in-app карточки)."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT "
+            "COALESCE(SUM((reaction = 'helped')::int), 0) AS helped, "
+            "COALESCE(SUM((reaction = 'supported')::int), 0) AS supported "
+            "FROM wishes_sent WHERE sender_id = %s AND reaction IS NOT NULL",
+            (sender_user_id,),
+        ).fetchone()
+        return {"helped": row["helped"], "supported": row["supported"]}
+
+
+def get_wish_digest_candidates() -> list:
+    """Юзеры с включённым TG-дайджестом, у кого есть нерассланные отклики.
+
+    Возвращает [{user_id, telegram_id, timezone, helped, supported}].
+    """
+    with get_connection() as conn:
+        return conn.execute(
+            "SELECT u.id AS user_id, u.telegram_id, u.timezone, "
+            "  SUM((w.reaction = 'helped')::int) AS helped, "
+            "  SUM((w.reaction = 'supported')::int) AS supported "
+            "FROM users u JOIN wishes_sent w ON w.sender_id = u.id "
+            "WHERE u.wishes_tg_notify = 1 AND u.wishes_enabled = 1 "
+            "  AND w.reaction IS NOT NULL AND w.sender_digest_at IS NULL "
+            "GROUP BY u.id, u.telegram_id, u.timezone"
+        ).fetchall()
+
+
+def mark_wish_reactions_digested(sender_user_id: int) -> None:
+    """Помечает отклики отправителя как вошедшие в дайджест (дедуп повторной рассылки)."""
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE wishes_sent SET sender_digest_at = "
+            "to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS') "
+            "WHERE sender_id = %s AND reaction IS NOT NULL AND sender_digest_at IS NULL",
+            (sender_user_id,),
+        )
 
 
 # ── Ачивки (F12a) ────────────────────────────────────────────────────────────
