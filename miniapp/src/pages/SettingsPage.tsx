@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, type ReactNode } from 'react'
-import { Sun, Moon, User, Check, X, Clock, Copy, Bell, Link2, AlertTriangle, MapPin } from 'lucide-react'
+import { Sun, Moon, User, Check, X, Clock, Copy, Bell, Link2, AlertTriangle, MapPin, Trophy, Heart, Languages, Search } from 'lucide-react'
 import {
   useSettings, useSetReminderMode, useSetDailyPlan, useSetCaregiver,
   useDependents, useCreateDependent, useDeleteDependent,
@@ -1120,6 +1120,38 @@ export default function SettingsPage() {
           </div>
         </>
       )}
+
+      <h2 className="section-title">В планах</h2>
+      <div className="roadmap-card">
+        <div className="roadmap-item">
+          <span className="roadmap-icon"><Trophy size={18} strokeWidth={2} /></span>
+          <div className="roadmap-body">
+            <span className="roadmap-title">Достижения по уровням</span>
+            <span className="roadmap-desc">Один бейдж растёт по ступеням с прогрессом до следующей</span>
+          </div>
+        </div>
+        <div className="roadmap-item">
+          <span className="roadmap-icon"><Heart size={18} strokeWidth={2} /></span>
+          <div className="roadmap-body">
+            <span className="roadmap-title">Слова поддержки</span>
+            <span className="roadmap-desc">Отправляй и получай тёплые пожелания от других анонимно</span>
+          </div>
+        </div>
+        <div className="roadmap-item">
+          <span className="roadmap-icon"><Languages size={18} strokeWidth={2} /></span>
+          <div className="roadmap-body">
+            <span className="roadmap-title">English / Русский</span>
+            <span className="roadmap-desc">Выбор языка приложения и напоминаний</span>
+          </div>
+        </div>
+        <div className="roadmap-item">
+          <span className="roadmap-icon"><Search size={18} strokeWidth={2} /></span>
+          <div className="roadmap-body">
+            <span className="roadmap-title">Справочник препаратов</span>
+            <span className="roadmap-desc">Подсказка названий и мягкое предупреждение о сочетаниях</span>
+          </div>
+        </div>
+      </div>
 
       <div className="account-delete-section">
         <p className="account-delete-note">

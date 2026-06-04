@@ -227,6 +227,50 @@
   flex-shrink: 0;
 }
 
+/* Блок «В планах» — превью будущих фаз */
+.roadmap-card {
+  margin: 0 12px;
+  background: var(--card-bg);
+  border-radius: 14px;
+  overflow: hidden;
+}
+.roadmap-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 13px 14px;
+}
+.roadmap-item + .roadmap-item {
+  border-top: 1px solid var(--separator);
+}
+.roadmap-icon {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+}
+.roadmap-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.roadmap-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+.roadmap-desc {
+  font-size: 12.5px;
+  line-height: 1.35;
+  color: var(--hint);
+}
+
 /* Med list */
 .med-list {
   display: flex;
