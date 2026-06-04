@@ -58,6 +58,8 @@ interface RuleState {
   month_day: number
   anchor_date: string
   dosage: string  // своя доза приёма (число; '' = наследует общую)
+  cycle: boolean        // F11-F: чередовать дозу по дням (только daily)
+  dose_cycle: string[]  // дозы цикла по дням (числа)
 }
 
 interface FormState {
@@ -87,6 +89,8 @@ function defaultRule(time?: string): RuleState {
     month_day: 1,
     anchor_date: todayStr(),
     dosage: '',
+    cycle: false,
+    dose_cycle: ['', ''],
   }
 }
 
@@ -99,11 +103,19 @@ function ruleFromData(r: ScheduleRule): RuleState {
     month_day: r.month_day ?? 1,
     anchor_date: r.anchor_date ?? todayStr(),
     dosage: r.dosage ? parseDosage(r.dosage).value : '',
+    cycle: !!r.dose_cycle,
+    dose_cycle: r.dose_cycle ? r.dose_cycle.split(',') : ['', ''],
   }
 }
 
 function ruleToIn(r: RuleState, perDose: boolean, unit: string): RuleIn {
   const base: RuleIn = { reminder_time: r.reminder_time, frequency: r.frequency }
+  // F11-F: чередование по дням — только daily, своя доза/день; перекрывает perDose.
+  if (r.cycle) {
+    const doses = r.dose_cycle.map((d) => d.trim()).filter(Boolean)
+    return { reminder_time: r.reminder_time, frequency: 'daily',
+             anchor_date: r.anchor_date, dose_cycle: doses.join(',') }
+  }
   if (perDose && r.dosage.trim()) base.dosage = `${r.dosage.trim()} ${unit}`
   switch (r.frequency) {
     case 'interval':
@@ -150,6 +162,14 @@ function validate(form: FormState, scheduleOn: boolean): Errors {
   if (scheduleOn) {
     form.rules.forEach((r, i) => {
       if (!/^\d{2}:\d{2}$/.test(r.reminder_time)) errs[`rule_${i}_time`] = 'Формат ЧЧ:ММ'
+      if (r.cycle) {
+        const doses = r.dose_cycle.map((d) => d.trim()).filter(Boolean)
+        if (doses.length < 2) errs[`rule_${i}_cycle`] = 'Минимум 2 дозы'
+        else if (doses.some((d) => !(parseFloat(d.replace(',', '.')) > 0)))
+          errs[`rule_${i}_cycle`] = 'Дозы — положительные числа'
+        if (!r.anchor_date) errs[`rule_${i}_anchor`] = 'Укажите дату начала'
+        return  // цикл = daily, частотные проверки ниже не нужны
+      }
       if (r.frequency === 'interval') {
         if (!r.interval_days || r.interval_days < 1) errs[`rule_${i}_interval`] = 'Кол-во дней > 0'
         if (!r.anchor_date) errs[`rule_${i}_anchor`] = 'Укажите дату начала'
@@ -236,6 +256,76 @@ function RuleSection({ rule, index, errors, onChange, onRemove, canRemove, perDo
         <span className="field-error">{errors[`rule_${index}_time`]}</span>
       )}
 
+      {!perDose && (
+        <label className="form-switch-row rule-cycle-toggle">
+          <span className="form-switch-label">Чередовать дозы по дням</span>
+          <input
+            type="checkbox"
+            className="form-switch"
+            checked={rule.cycle}
+            onChange={(e) => set({ cycle: e.target.checked, frequency: 'daily' })}
+          />
+        </label>
+      )}
+
+      {rule.cycle && (
+        <div className="freq-extra">
+          <span className="field-hint">Доза за приём на каждый день (по кругу). Единица — {unitLabel}.</span>
+          {rule.dose_cycle.map((d, di) => (
+            <div className="form-field form-field--row" key={di}>
+              <label className="field-label">День {di + 1}</label>
+              <input
+                type="number"
+                inputMode="decimal"
+                min="0"
+                className="field-input field-input--short"
+                placeholder="доза"
+                value={d}
+                onChange={(e) => {
+                  const nx = [...rule.dose_cycle]
+                  nx[di] = e.target.value
+                  set({ dose_cycle: nx })
+                }}
+              />
+              <span className="field-unit">{unitLabel}</span>
+              {rule.dose_cycle.length > 2 && (
+                <button
+                  type="button"
+                  className="rule-remove-btn"
+                  onClick={() => set({ dose_cycle: rule.dose_cycle.filter((_, k) => k !== di) })}
+                  aria-label="Удалить дозу"
+                >
+                  <X size={16} strokeWidth={2.2} />
+                </button>
+              )}
+            </div>
+          ))}
+          <button
+            type="button"
+            className="schedule-add-toggle"
+            onClick={() => set({ dose_cycle: [...rule.dose_cycle, ''] })}
+          >
+            + Добавить день
+          </button>
+          {errors[`rule_${index}_cycle`] && (
+            <span className="field-error">{errors[`rule_${index}_cycle`]}</span>
+          )}
+          <div className="form-field">
+            <label className="field-label">Начиная с</label>
+            <input
+              type="date"
+              className="field-input"
+              value={rule.anchor_date}
+              onChange={(e) => set({ anchor_date: e.target.value })}
+            />
+            {errors[`rule_${index}_anchor`] && (
+              <span className="field-error">{errors[`rule_${index}_anchor`]}</span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {!rule.cycle && (<>
       <div className="form-field">
         <label className="field-label">Частота</label>
         <div className="seg-ctrl seg-ctrl--freq">
@@ -325,6 +415,7 @@ function RuleSection({ rule, index, errors, onChange, onRemove, canRemove, perDo
           )}
         </div>
       )}
+      </>)}
     </div>
   )
 }
@@ -438,6 +529,8 @@ export default function MedicationForm({ editId, linkedUserId, forDepShareId, op
   const udv = parseFloat(form.unit_dose_value)
   const dpi = parseFloat(form.dose_per_intake)
   const unitsPerDose = udv > 0 && dpi > 0 ? dpi / udv : null
+  // F11-F: при чередовании доза задаётся в цикле — «назначено за приём» дублирует
+  const anyCycle = scheduleOn && form.rules.some((r) => r.cycle)
 
   const handleSubmit = async () => {
     const errs = validate(form, scheduleOn)
@@ -612,26 +705,30 @@ export default function MedicationForm({ editId, linkedUserId, forDepShareId, op
               <div className="form-grid2">
                 <div className="form-field">
                   <label className="field-label">Назначено за приём</label>
-                  <div className="dose-row">
-                    <input
-                      type="number"
-                      inputMode="decimal"
-                      min="0"
-                      className="field-input field-input--short"
-                      placeholder={form.unit_dose_value || '250'}
-                      value={form.dose_per_intake}
-                      onChange={(e) => setForm((f) => ({ ...f, dose_per_intake: e.target.value }))}
-                    />
-                    <span className="field-unit">{form.unit_dose_label}</span>
-                  </div>
-                  {unitsPerDose != null ? (
-                    <span className="field-hint">
-                      ≈ {fmtNum(unitsPerDose)} ед.
-                      {unitsPerDose === 0.5 ? ' (½)' : unitsPerDose === 0.25 ? ' (¼)' : ''} · списывается
-                    </span>
-                  ) : (
-                    <span className="field-hint">Пусто = 1 ед. целиком.</span>
-                  )}
+                  {anyCycle ? (
+                    <span className="field-hint">Задано в чередовании ниже (своя доза на каждый день).</span>
+                  ) : (<>
+                    <div className="dose-row">
+                      <input
+                        type="number"
+                        inputMode="decimal"
+                        min="0"
+                        className="field-input field-input--short"
+                        placeholder={form.unit_dose_value || '250'}
+                        value={form.dose_per_intake}
+                        onChange={(e) => setForm((f) => ({ ...f, dose_per_intake: e.target.value }))}
+                      />
+                      <span className="field-unit">{form.unit_dose_label}</span>
+                    </div>
+                    {unitsPerDose != null ? (
+                      <span className="field-hint">
+                        ≈ {fmtNum(unitsPerDose)} ед.
+                        {unitsPerDose === 0.5 ? ' (½)' : unitsPerDose === 0.25 ? ' (¼)' : ''} · списывается
+                      </span>
+                    ) : (
+                      <span className="field-hint">Пусто = 1 ед. целиком.</span>
+                    )}
+                  </>)}
                 </div>
 
                 <div className="form-field">
@@ -658,11 +755,20 @@ export default function MedicationForm({ editId, linkedUserId, forDepShareId, op
                   type="checkbox"
                   className="form-switch"
                   checked={form.per_dose}
-                  onChange={(e) => setForm((f) => ({ ...f, per_dose: e.target.checked }))}
+                  disabled={anyCycle}
+                  onChange={(e) => setForm((f) => ({
+                    ...f,
+                    per_dose: e.target.checked,
+                    // F11-F: режимы доз взаимоисключающие — сбрасываем цикл у правил
+                    rules: e.target.checked ? f.rules.map((r) => ({ ...r, cycle: false })) : f.rules,
+                  }))}
                 />
               </label>
               {form.per_dose && (
                 <span className="field-hint">У каждого приёма своя доза ниже. Пусто в приёме = общая.</span>
+              )}
+              {anyCycle && (
+                <span className="field-hint">Недоступно при чередовании доз по дням.</span>
               )}
             </div>
 

@@ -79,6 +79,25 @@ def test_apply_intake_per_rule_dose(db):
     assert r["stock_qty"] == 8.5
 
 
+def test_apply_intake_dose_cycle_by_day(db):
+    # F11-F: правило с dose_cycle "50,75" при дозировке 1 ед=100 →
+    # день0 списывает 50/100=0.5, день1 — 75/100=0.75 (по дате приёма).
+    from datetime import date
+    d = db
+    uid = d.get_or_create_user(555098, "cycle")
+    mid = d.add_medication(uid, "Преднизолон", "50 мг", "after", 1,
+                           unit_dose_value=100, pack_size=10)
+    d.add_schedule_rule(mid, "09:00", "daily",
+                        anchor_date="2026-06-01", dose_cycle="50,75")
+    r = d.apply_intake_stock(mid, "taken", None, "09:00", date(2026, 6, 1))
+    assert r["changed"] and r["stock_qty"] == 9.5
+    r = d.apply_intake_stock(mid, "taken", None, "09:00", date(2026, 6, 2))
+    assert r["stock_qty"] == 8.75
+    # без day цикл не применяется → fallback на общую units_per_dose (тут 1)
+    r = d.apply_intake_stock(mid, "taken", None, "09:00")
+    assert r["stock_qty"] == 7.75
+
+
 def test_apply_intake_clamps_at_zero(db):
     d, uid, mid = _med(db)
     d.set_medication_stock(mid, uid, 1)

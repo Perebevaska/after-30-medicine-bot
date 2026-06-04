@@ -4,7 +4,7 @@ from pydantic import BaseModel
 import database as db
 from api.auth import require_telegram_user, require_db_user, TelegramUser
 from utils import get_tz_for_user, local_day_bounds_utc
-from schedule_utils import _rule_fires_today
+from schedule_utils import _rule_fires_today, cycle_dose_for_day
 from datetime import datetime
 
 router = APIRouter(prefix="/today", tags=["today"])
@@ -33,10 +33,13 @@ def _build_today_items(
             is_due = now_min >= int(rh) * 60 + int(rm)
         except (ValueError, AttributeError):
             is_due = False
+        ct = cycle_dose_for_day(row.get("dose_cycle"), row.get("anchor_date"), today)
+        dosage = (f"{ct} {row.get('unit_dose_label') or 'мг'}" if ct
+                  else (row.get("rule_dosage") or row["med_dosage"]))
         item = {
             "medication_id": mid,
             "name": row["name"],
-            "dosage": row.get("rule_dosage") or row["med_dosage"],
+            "dosage": dosage,
             "meal_relation": row["meal_relation"],
             "reminder_time": t,
             "status": status,
@@ -134,7 +137,7 @@ async def log_intake(body: IntakeIn, user: TelegramUser = Depends(require_db_use
     )
     await asyncio.to_thread(
         db.apply_intake_stock, body.medication_id, body.status, old_status,
-        body.scheduled_time,
+        body.scheduled_time, now_local.date(),
     )
     # G1: сердечки начисляются ВСЕМ в связке — владельцу + всем активным
     # помощникам локального близкого (общая забота = общая награда).

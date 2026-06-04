@@ -125,3 +125,40 @@ def test_dependent_long_name_rejected(api_client, db):
     db.get_or_create_user(77001)
     r = api_client.post("/dependents", json={"name": "Я" * 100})
     assert r.status_code == 422
+
+
+# ── F11-F: чередование доз по дням (dose_cycle) ──────────────────────────────
+
+def test_med_dose_cycle_roundtrip(api_client, db):
+    db.get_or_create_user(77001)
+    rule = {"reminder_time": "09:00", "frequency": "daily",
+            "anchor_date": "2026-06-01", "dose_cycle": "50,75"}
+    r = api_client.post("/medications", json=_med_body(rules=[rule]))
+    assert r.status_code == 201
+    meds = api_client.get("/medications").json()
+    rules = meds[0]["rules"]
+    assert rules[0]["dose_cycle"] == "50,75"
+
+
+def test_med_dose_cycle_non_daily_rejected(api_client, db):
+    db.get_or_create_user(77001)
+    rule = {"reminder_time": "09:00", "frequency": "weekdays", "weekdays": "1,3",
+            "dose_cycle": "50,75", "anchor_date": "2026-06-01"}
+    r = api_client.post("/medications", json=_med_body(rules=[rule]))
+    assert r.status_code == 422
+
+
+def test_med_dose_cycle_needs_two_doses(api_client, db):
+    db.get_or_create_user(77001)
+    rule = {"reminder_time": "09:00", "frequency": "daily",
+            "anchor_date": "2026-06-01", "dose_cycle": "50"}
+    r = api_client.post("/medications", json=_med_body(rules=[rule]))
+    assert r.status_code == 422
+
+
+def test_med_dose_cycle_excludes_dosage(api_client, db):
+    db.get_or_create_user(77001)
+    rule = {"reminder_time": "09:00", "frequency": "daily", "anchor_date": "2026-06-01",
+            "dose_cycle": "50,75", "dosage": "50 мг"}
+    r = api_client.post("/medications", json=_med_body(rules=[rule]))
+    assert r.status_code == 422

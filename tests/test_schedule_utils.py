@@ -7,7 +7,7 @@ from datetime import date
 from schedule_utils import (
     _rule_fires_today, due_intakes_on, iter_due_by_day,
     count_due_by_medication, count_due_total, days_of_stock_left,
-    due_by_med_day,
+    due_by_med_day, cycle_dose_for_day,
 )
 
 MON = date(2026, 6, 1)   # понедельник, isoweekday()==1
@@ -177,3 +177,30 @@ def test_stock_weekly_spans_calendar_days():
     # 1 таблетка: today(пн) приём покрыт; следующий пн (через 7 дн) не покрыть.
     # покрыты дни: пн..вс (7 дней), на 8-й (след. пн) расход 1 > 0 → стоп
     assert days_of_stock_left(rules, 1, 1, MON) == 7
+
+
+# ── cycle_dose_for_day (F11-F: чередование доз по дням) ──────────────────────
+
+def test_cycle_dose_rotates_by_day():
+    anchor = "2026-06-01"
+    assert cycle_dose_for_day("50,75", anchor, date(2026, 6, 1)) == "50"   # idx0
+    assert cycle_dose_for_day("50,75", anchor, date(2026, 6, 2)) == "75"   # idx1
+    assert cycle_dose_for_day("50,75", anchor, date(2026, 6, 3)) == "50"   # wrap
+
+
+def test_cycle_dose_three_doses():
+    anchor = "2026-06-01"
+    seq = [cycle_dose_for_day("1,2,3", anchor, date(2026, 6, 1 + i)) for i in range(4)]
+    assert seq == ["1", "2", "3", "1"]
+
+
+def test_cycle_dose_before_anchor_wraps_nonneg():
+    # день раньше anchor: Python % всегда неотрицателен → валидный индекс
+    assert cycle_dose_for_day("50,75", "2026-06-10", date(2026, 6, 9)) == "75"
+
+
+def test_cycle_dose_none_on_empty_or_bad():
+    assert cycle_dose_for_day(None, "2026-06-01", date(2026, 6, 1)) is None
+    assert cycle_dose_for_day("", "2026-06-01", date(2026, 6, 1)) is None
+    assert cycle_dose_for_day("50,75", None, date(2026, 6, 1)) is None
+    assert cycle_dose_for_day("50,75", "плохо", date(2026, 6, 1)) is None

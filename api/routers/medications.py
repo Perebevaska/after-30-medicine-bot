@@ -26,6 +26,8 @@ class RuleIn(BaseModel):
     month_day: Optional[int] = None
     anchor_date: Optional[str] = None
     dosage: Optional[str] = Field(default=None, max_length=DOSAGE_MAX_LEN)
+    # F11-F: чередование доз по дням — CSV чисел ("50,75"); единица общая.
+    dose_cycle: Optional[str] = Field(default=None, max_length=200)
 
     # B5: серверная валидация полей правила (бот валидирует свои пути сам;
     # тут защищаем API/Mini App от некорректных правил, которые ломают аналитику).
@@ -75,6 +77,22 @@ class RuleIn(BaseModel):
             raise ValueError("anchor_date: формат YYYY-MM-DD")
         return v
 
+    @field_validator("dose_cycle")
+    @classmethod
+    def _v_dose_cycle(cls, v):
+        if v is None:
+            return v
+        parts = [p.strip() for p in v.split(",") if p.strip()]
+        if len(parts) < 2:
+            raise ValueError("dose_cycle: минимум 2 дозы через запятую")
+        for p in parts:
+            try:
+                if float(p.replace(",", ".")) <= 0:
+                    raise ValueError
+            except ValueError:
+                raise ValueError("dose_cycle: положительные числа через запятую")
+        return ",".join(parts)
+
     @model_validator(mode="after")
     def _v_freq_fields(self):
         if self.frequency == "interval" and (not self.interval_days or not self.anchor_date):
@@ -83,6 +101,14 @@ class RuleIn(BaseModel):
             raise ValueError("frequency=weekdays требует поле weekdays")
         if self.frequency == "monthly" and not self.month_day:
             raise ValueError("frequency=monthly требует month_day")
+        # F11-F: цикл — только daily, требует anchor_date (старт), несовместим с dosage
+        if self.dose_cycle:
+            if self.frequency != "daily":
+                raise ValueError("dose_cycle поддерживается только при frequency=daily")
+            if not self.anchor_date:
+                raise ValueError("dose_cycle требует anchor_date (старт цикла)")
+            if self.dosage:
+                raise ValueError("dose_cycle несовместим с dosage на одном правиле")
         return self
 
 
@@ -223,7 +249,7 @@ async def create_medication(body: MedicationIn, user: TelegramUser = Depends(req
         await asyncio.to_thread(
             db.add_schedule_rule, med_id, rule.reminder_time, rule.frequency,
             rule.interval_days, rule.weekdays, rule.month_day,
-            rule.anchor_date, rule.dosage,
+            rule.anchor_date, rule.dosage, rule.dose_cycle,
         )
     return {"id": med_id}
 

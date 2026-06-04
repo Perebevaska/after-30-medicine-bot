@@ -92,6 +92,7 @@ export interface ScheduleRule {
   month_day: number | null
   anchor_date: string | null
   dosage: string | null
+  dose_cycle?: string | null
 }
 
 export interface RuleIn {
@@ -102,6 +103,7 @@ export interface RuleIn {
   month_day?: number
   anchor_date?: string
   dosage?: string
+  dose_cycle?: string
 }
 
 export interface Medication {

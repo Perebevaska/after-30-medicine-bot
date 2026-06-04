@@ -14,7 +14,7 @@ from database import (get_active_schedule_rows, log_intake, apply_intake_stock,
 from utils import escape_html, get_tz_for_user, local_day_bounds_utc
 # _rule_fires_today живёт в schedule_utils (чистая логика, без telegram/db);
 # реэкспорт для обратной совместимости: stats/export/timezone импортируют его отсюда.
-from schedule_utils import _rule_fires_today, days_of_stock_left
+from schedule_utils import _rule_fires_today, days_of_stock_left, cycle_dose_for_day
 
 logger = logging.getLogger(__name__)
 
@@ -155,7 +155,8 @@ async def _send_reminders_impl(app):
         if not should_send:
             continue
 
-        dosage = row["rule_dosage"] or row["med_dosage"]
+        _ct = cycle_dose_for_day(row.get("dose_cycle"), row.get("anchor_date"), now_local.date())
+        dosage = f"{_ct} {row.get('unit_dose_label') or 'мг'}" if _ct else (row["rule_dosage"] or row["med_dosage"])
         dep_suffix = f" <i>({escape_html(row['dependent_name'])})</i>" if row["dependent_name"] else ""
         buttons = [[
             {"text": "✅ Принял",    "callback_data": f"taken:{row['medication_id']}:{row['reminder_time']}"},
@@ -232,7 +233,9 @@ async def _send_daily_plans(app, schedules):
                 "name": row["name"], "meal_relation": row["meal_relation"],
                 "dep_name": row["dependent_name"], "times": [],
             }
-        dosage = row["rule_dosage"] or row["med_dosage"]
+        _ct = cycle_dose_for_day(row.get("dose_cycle"), row.get("anchor_date"),
+                                 users[tid]["now_local"].date())
+        dosage = f"{_ct} {row.get('unit_dose_label') or 'мг'}" if _ct else (row["rule_dosage"] or row["med_dosage"])
         users[tid]["meds"][mid]["times"].append((row["reminder_time"], dosage))
 
     for tid, data in users.items():

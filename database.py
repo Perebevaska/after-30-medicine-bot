@@ -159,6 +159,7 @@ def init_db():
             month_day     INTEGER,
             anchor_date   TEXT,
             dosage        TEXT,
+            dose_cycle    TEXT,
             FOREIGN KEY (medication_id) REFERENCES medications(id)
         )
         """,
@@ -204,6 +205,10 @@ def migrate():
 
         conn.execute(
             "ALTER TABLE IF EXISTS schedule_rules ADD COLUMN IF NOT EXISTS dosage TEXT DEFAULT NULL"
+        )
+        # F11-F: чередование доз по дням (CSV чисел; индекс=(день−anchor)%len)
+        conn.execute(
+            "ALTER TABLE IF EXISTS schedule_rules ADD COLUMN IF NOT EXISTS dose_cycle TEXT DEFAULT NULL"
         )
 
         for col, definition in [
@@ -1052,7 +1057,7 @@ def get_rules_grouped_for_dep(dep_id: int) -> dict:
     with get_connection() as conn:
         rows = conn.execute(
             """SELECT sr.medication_id, sr.reminder_time, sr.frequency,
-                      sr.interval_days, sr.weekdays, sr.month_day, sr.anchor_date, sr.dosage
+                      sr.interval_days, sr.weekdays, sr.month_day, sr.anchor_date, sr.dosage, sr.dose_cycle
                FROM schedule_rules sr
                JOIN medications m ON m.id = sr.medication_id
                WHERE m.dependent_id = %s AND m.active = 1
@@ -1143,8 +1148,9 @@ def get_schedules_for_dependent(dep_id: int) -> list:
         return conn.execute(
             """SELECT u.telegram_id, u.timezone,
                       m.id AS medication_id, m.name, m.dosage AS med_dosage, m.meal_relation,
+                      m.unit_dose_value, m.unit_dose_label,
                       sr.reminder_time, sr.frequency, sr.interval_days,
-                      sr.weekdays, sr.month_day, sr.anchor_date, sr.dosage AS rule_dosage,
+                      sr.weekdays, sr.month_day, sr.anchor_date, sr.dosage AS rule_dosage, sr.dose_cycle,
                       d.name AS dependent_name
                FROM dependents d
                JOIN users u ON u.id = d.user_id
@@ -1311,14 +1317,15 @@ def add_schedule(medication_id: int, reminder_time: str):
 
 def add_schedule_rule(medication_id: int, reminder_time: str, frequency: str,
                       interval_days: int = None, weekdays: str = None,
-                      month_day: int = None, anchor_date: str = None, dosage: str = None):
+                      month_day: int = None, anchor_date: str = None, dosage: str = None,
+                      dose_cycle: str = None):
     """Добавляет правило напоминания в schedule_rules."""
     with get_connection() as conn:
         conn.execute(
             """INSERT INTO schedule_rules
-               (medication_id, reminder_time, frequency, interval_days, weekdays, month_day, anchor_date, dosage)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
-            (medication_id, reminder_time, frequency, interval_days, weekdays, month_day, anchor_date, dosage)
+               (medication_id, reminder_time, frequency, interval_days, weekdays, month_day, anchor_date, dosage, dose_cycle)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+            (medication_id, reminder_time, frequency, interval_days, weekdays, month_day, anchor_date, dosage, dose_cycle)
         )
 
 
@@ -1340,7 +1347,7 @@ def get_user_medications(user_id: int) -> list:
 # читают по ключам, но держим единый источник истины).
 _RULE_COLS = (
     "sr.reminder_time, sr.frequency, sr.interval_days, "
-    "sr.weekdays, sr.month_day, sr.anchor_date"
+    "sr.weekdays, sr.month_day, sr.anchor_date, sr.dose_cycle"
 )
 # Ядро per-user выборок (adherence F3 / streak F2): идентичный JOIN, фильтр, ORDER.
 _USER_RULES_FROM = (
@@ -1367,7 +1374,7 @@ def get_active_schedule_rows() -> list:
                       u.daily_plan_enabled, u.daily_plan_time,
                       u.strict_mode, u.strict_mode_hours, u.reminder_repeat_hours,
                       m.id AS medication_id, m.name, m.dosage AS med_dosage, m.meal_relation,
-                      m.dependent_id AS dependent_id,
+                      m.dependent_id AS dependent_id, m.unit_dose_value, m.unit_dose_label,
                       {_RULE_COLS}, sr.dosage AS rule_dosage,
                       d.name AS dependent_name
                FROM schedule_rules sr
@@ -1484,7 +1491,7 @@ def get_schedules_by_medication(medication_id: int) -> list:
     """Возвращает правила расписания для лекарства."""
     with get_connection() as conn:
         return conn.execute(
-            """SELECT reminder_time, frequency, interval_days, weekdays, month_day, anchor_date, dosage
+            """SELECT reminder_time, frequency, interval_days, weekdays, month_day, anchor_date, dosage, dose_cycle
                FROM schedule_rules WHERE medication_id = %s""",
             (medication_id,)
         ).fetchall()
@@ -1495,7 +1502,7 @@ def get_rules_grouped_for_user(user_id: int) -> dict:
     with get_connection() as conn:
         rows = conn.execute(
             """SELECT sr.medication_id, sr.reminder_time, sr.frequency,
-                      sr.interval_days, sr.weekdays, sr.month_day, sr.anchor_date, sr.dosage
+                      sr.interval_days, sr.weekdays, sr.month_day, sr.anchor_date, sr.dosage, sr.dose_cycle
                FROM schedule_rules sr
                JOIN medications m ON m.id = sr.medication_id
                WHERE m.user_id = %s AND m.active = 1
@@ -1625,11 +1632,12 @@ def update_medication(medication_id: int, user_id: int, name: str, dosage: str,
         for rule in new_rules:
             conn.execute(
                 """INSERT INTO schedule_rules
-                   (medication_id, reminder_time, frequency, interval_days, weekdays, month_day, anchor_date, dosage)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+                   (medication_id, reminder_time, frequency, interval_days, weekdays, month_day, anchor_date, dosage, dose_cycle)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                 (medication_id, rule["reminder_time"], rule.get("frequency", "daily"),
                  rule.get("interval_days"), rule.get("weekdays"),
-                 rule.get("month_day"), rule.get("anchor_date"), rule.get("dosage"))
+                 rule.get("month_day"), rule.get("anchor_date"), rule.get("dosage"),
+                 rule.get("dose_cycle"))
             )
 
 
@@ -1785,9 +1793,9 @@ def get_schedules_for_user(telegram_id: int) -> list:
         return conn.execute(
             """SELECT u.telegram_id, u.timezone,
                       m.id AS medication_id, m.name, m.dosage AS med_dosage, m.meal_relation,
-                      m.dependent_id AS dependent_id,
+                      m.dependent_id AS dependent_id, m.unit_dose_value, m.unit_dose_label,
                       sr.reminder_time, sr.frequency, sr.interval_days,
-                      sr.weekdays, sr.month_day, sr.anchor_date, sr.dosage AS rule_dosage,
+                      sr.weekdays, sr.month_day, sr.anchor_date, sr.dosage AS rule_dosage, sr.dose_cycle,
                       d.name AS dependent_name
                FROM users u
                JOIN medications m ON m.user_id = u.id AND m.active = 1
@@ -1807,8 +1815,9 @@ def get_own_schedules_for_user(telegram_id: int) -> list:
         return conn.execute(
             """SELECT u.telegram_id, u.timezone,
                       m.id AS medication_id, m.name, m.dosage AS med_dosage, m.meal_relation,
+                      m.unit_dose_value, m.unit_dose_label,
                       sr.reminder_time, sr.frequency, sr.interval_days,
-                      sr.weekdays, sr.month_day, sr.anchor_date, sr.dosage AS rule_dosage,
+                      sr.weekdays, sr.month_day, sr.anchor_date, sr.dosage AS rule_dosage, sr.dose_cycle,
                       NULL AS dependent_name
                FROM users u
                JOIN medications m ON m.user_id = u.id AND m.active = 1
@@ -1977,7 +1986,7 @@ def disable_stock_tracking(medication_id: int, user_id: int):
         )
 
 
-def apply_intake_stock(medication_id: int, new_status: str, old_status, scheduled_time=None):
+def apply_intake_stock(medication_id: int, new_status: str, old_status, scheduled_time=None, day=None):
     """Корректирует остаток при отметке приёма. Возвращает dict состояния после или None.
 
     Идемпотентно: списывает units_per_dose только при переходе в `taken`,
@@ -1999,16 +2008,24 @@ def apply_intake_stock(medication_id: int, new_status: str, old_status, schedule
         if row is None or row["stock_qty"] is None:
             return None
         units = row["units_per_dose"] or 1
-        # Поприёмное списание: своя доза конкретного приёма перекрывает общую.
+        # Поприёмная (F11-E) / цикловая (F11-F) доза перекрывает общую.
+        # Цикл (dose_cycle, по дате `day`) приоритетнее фикс-дозы правила.
         if scheduled_time is not None and row["unit_dose_value"]:
             r = conn.execute(
-                "SELECT dosage FROM schedule_rules "
-                "WHERE medication_id = %s AND reminder_time = %s AND dosage IS NOT NULL "
-                "LIMIT 1",
+                "SELECT dosage, dose_cycle, anchor_date FROM schedule_rules "
+                "WHERE medication_id = %s AND reminder_time = %s "
+                "ORDER BY (dose_cycle IS NOT NULL) DESC, (dosage IS NOT NULL) DESC LIMIT 1",
                 (medication_id, scheduled_time)
             ).fetchone()
-            if r and r["dosage"]:
-                dv = _parse_dose_number(r["dosage"])
+            dose_token = None
+            if r:
+                if r["dose_cycle"] and day is not None:
+                    from schedule_utils import cycle_dose_for_day
+                    dose_token = cycle_dose_for_day(r["dose_cycle"], r["anchor_date"], day)
+                elif r["dosage"]:
+                    dose_token = r["dosage"]
+            if dose_token:
+                dv = _parse_dose_number(dose_token)
                 if dv:
                     units = dv / row["unit_dose_value"]
         qty = row["stock_qty"]
