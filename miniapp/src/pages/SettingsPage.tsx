@@ -877,7 +877,7 @@ export default function SettingsPage() {
                     />
                     <p className="caregiver-input-hint caregiver-input-hint--codes">
                       <span><b>XXXX-XXXX</b> — стать помощником пользователя</span>
-                      <span><b>XXXX-XXXX-XXXX</b> — помогать с конкретным близким</span>
+                      <span><b>XXXX-XXXX-XXXX</b> — подключиться к профилю близкого с другого устройства</span>
                     </p>
                     {addError && <p className="hint error dep-input-error">{addError}</p>}
                     <div className="caregiver-add-btn-row">

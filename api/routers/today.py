@@ -144,3 +144,38 @@ async def log_intake(body: IntakeIn, user: TelegramUser = Depends(require_db_use
         heart_user_ids.update(viewers)
     for uid in heart_user_ids:
         await asyncio.to_thread(db.apply_intake_hearts, uid, body.status, old_status)
+
+    # Отметка в Mini App → синхронизируем TG-напоминание владельца: убираем кнопки
+    # ✓/✕ и дописываем статус (иначе в чате остаётся «активное» сообщение для уже
+    # отмеченного приёма). Best-effort: любая ошибка не должна ронять отметку.
+    await _sync_reminder_message(med, owner_tid, now_local, body)
+
+
+async def _sync_reminder_message(med, owner_tid, now_local, body):
+    import json
+    try:
+        from api.main import get_arq_pool, _get_redis
+        pool = get_arq_pool()
+        if pool is None:
+            return
+        from worker import reminder_msg_key
+        day = now_local.date().isoformat()
+        track_key = f"{body.medication_id}:{body.scheduled_time}:{day}"
+        raw = await _get_redis().get(reminder_msg_key(track_key))
+        if not raw:
+            return
+        data = json.loads(raw)
+        status_line = (
+            "✅ Принято (через приложение)" if body.status == "taken"
+            else "❌ Пропущено (через приложение)"
+        )
+        new_text = f"{data['text']}\n\n{status_line}"
+        await pool.enqueue_job(
+            "edit_reminder",
+            chat_id=data["chat_id"],
+            message_id=data["message_id"],
+            text=new_text,
+        )
+        await _get_redis().delete(reminder_msg_key(track_key))
+    except Exception:
+        pass

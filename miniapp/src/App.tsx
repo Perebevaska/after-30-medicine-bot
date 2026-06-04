@@ -2,6 +2,7 @@ import { themeParams, viewport } from '@telegram-apps/sdk-react'
 import { useEffect, useRef, useState } from 'react'
 import { CalendarHeart, Pill, ChartNoAxesColumnIncreasing, Settings } from 'lucide-react'
 import { inTelegram } from './main'
+import { useQueryClient } from '@tanstack/react-query'
 import { useToday, useMedications, useStatsOverview, useSettings } from './api/hooks'
 import { markAchievementsSeen, useSeenAchievements } from './notifications'
 import Dashboard from './pages/Dashboard'
@@ -123,7 +124,20 @@ export default function App() {
   const [showForm, setShowForm] = useState(false)
   const [showTour, setShowTour] = useState(shouldShowOnboarding)
   const touchStart = useRef<{ x: number; y: number } | null>(null)
+  const qc = useQueryClient()
   const { data: overview } = useStatsOverview()
+
+  // Возврат в приложение (свернул → отметил в TG-чате → вернулся) или показ
+  // вкладки после фона: Telegram webview не шлёт надёжный window-focus, поэтому
+  // принудительно обновляем server-state по visibilitychange. Закрывает: stale
+  // «Приёмы» и непоявившийся pending «Забота» в «Настройках».
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void qc.invalidateQueries()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [qc])
 
   // Открытие «Прогресс» → ачивки считаются увиденными (гасит бейдж)
   useEffect(() => {

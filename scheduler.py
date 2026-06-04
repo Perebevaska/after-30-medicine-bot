@@ -167,11 +167,13 @@ async def _send_reminders_impl(app):
             f"🍽 Принимать {_MEAL_LABELS.get(row['meal_relation'], row['meal_relation'])}"
         )
         try:
+            track_key = f"{row['medication_id']}:{row['reminder_time']}:{now_local.date().isoformat()}"
             await _arq_pool.enqueue_job(
                 'send_reminder',
                 chat_id=row["telegram_id"],
                 text=text,
                 buttons=buttons,
+                track_key=track_key,
             )
             _pending[key] = now_utc
             sent += 1

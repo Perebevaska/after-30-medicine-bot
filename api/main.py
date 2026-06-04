@@ -52,6 +52,15 @@ def _get_redis():
     return _redis_rl
 
 
+# ARQ-пул для постановки задач воркеру (edit_reminder при отметке через app).
+_arq_pool = None
+
+
+def get_arq_pool():
+    """Возвращает ARQ-пул или None (если lifespan не поднял — напр. в части тестов)."""
+    return _arq_pool
+
+
 def _client_ip(request: Request) -> str:
     if _TRUST_PROXY:
         fwd = request.headers.get("x-forwarded-for")
@@ -117,7 +126,22 @@ async def lifespan(app: FastAPI):
         await asyncio.to_thread(migrate)
     except Exception as e:
         logger.warning("migrate в API lifespan не выполнен: %s", e)
+    # ARQ-пул: ставим задачу edit_reminder воркеру при отметке приёма в Mini App.
+    global _arq_pool
+    try:
+        from arq import create_pool
+        from arq.connections import RedisSettings
+        _arq_pool = await create_pool(RedisSettings.from_dsn(_REDIS_URL))
+    except Exception as e:
+        logger.warning("ARQ-пул в API lifespan не создан: %s", e)
+        _arq_pool = None
     yield
+    if _arq_pool is not None:
+        try:
+            await _arq_pool.aclose()
+        except Exception:
+            pass
+        _arq_pool = None
     if owned:
         close_pool()
 
