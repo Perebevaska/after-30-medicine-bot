@@ -165,7 +165,7 @@ def test_stats_overview_shape(api_client, db):
     r = api_client.get("/stats/overview")
     assert r.status_code == 200
     body = r.json()
-    assert set(body) == {"streak", "adherence", "punctuality", "load"}
+    assert set(body) == {"streak", "adherence", "punctuality", "load", "achievements"}
     assert set(body["streak"]) == {"current", "best"}
     assert set(body["adherence"]["windows"]) == {"7", "30", "90"}
     assert isinstance(body["adherence"]["weekly"], list)

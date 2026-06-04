@@ -65,6 +65,20 @@ export interface StatsOverview {
     worst_hour_skip_pct: number | null
   }
   load: { meds: number; intakes_per_day: number; units_per_week: number }
+  achievements: AchievementsBlock
+}
+
+export interface Achievement {
+  code: string
+  icon: string
+  title: string
+  desc: string
+}
+
+export interface AchievementsBlock {
+  catalog: Achievement[]
+  unlocked: string[]
+  newly: string[]
 }
 
 export type MealRelation = 'before' | 'after' | 'with' | 'any'

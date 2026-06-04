@@ -4,6 +4,7 @@ import pytz
 from fastapi import APIRouter, Depends
 import database as db
 import analytics
+import achievements
 from api.auth import require_db_user, TelegramUser
 from schedule_utils import count_due_by_medication
 from streak import streaks_by_subject, compute_streak
@@ -12,6 +13,11 @@ from utils import get_tz_for_user
 router = APIRouter(prefix="/stats", tags=["stats"])
 
 _ADHERENCE_DAYS = 30
+
+
+def _sum_due(daily: list, n: int) -> int:
+    """Сумма положенных приёмов за последние n дней окна (для гейта ачивок)."""
+    return sum(d["due"] for d in daily[-n:])
 
 
 def _adherence_window():
@@ -114,21 +120,40 @@ async def stats_overview(user: TelegramUser = Depends(require_db_user)):
 
     cd = created or None
     daily = analytics.daily_adherence(own_rules, taken_by_day, created, start_day, today)
+    best = analytics.best_streak(own_rules, status_by_day, today, cd)
+    adh30, adh90 = analytics.window_pct(daily, 30), analytics.window_pct(daily, 90)
+
+    # F12a: ачивки — ленивый анлок при просмотре «Прогресс»
+    total_taken = await asyncio.to_thread(db.count_total_taken, user.user_id)
+    has_link = await asyncio.to_thread(db.has_any_care_link, user.user_id)
+    earned = achievements.evaluate(
+        best_streak=best, adh30=adh30, due30=_sum_due(daily, 30),
+        adh90=adh90, due90=_sum_due(daily, 90),
+        total_taken=total_taken, has_care_link=has_link,
+    )
+    newly = await asyncio.to_thread(db.unlock_achievements, user.user_id, sorted(earned))
+    unlocked = await asyncio.to_thread(db.get_achievements, user.user_id)
+
     return {
         "streak": {
             "current": compute_streak(own_rules, status_by_day, today, cd),
-            "best": analytics.best_streak(own_rules, status_by_day, today, cd),
+            "best": best,
         },
         "adherence": {
             "windows": {
                 "7": analytics.window_pct(daily, 7),
-                "30": analytics.window_pct(daily, 30),
-                "90": analytics.window_pct(daily, 90),
+                "30": adh30,
+                "90": adh90,
             },
             "weekly": analytics.weekly_adherence(daily),
         },
         "punctuality": analytics.punctuality(intakes, user_tz),
         "load": analytics.therapy_load(own_rules, units, today),
+        "achievements": {
+            "catalog": achievements.CATALOG,
+            "unlocked": unlocked,
+            "newly": newly,
+        },
     }
 
 

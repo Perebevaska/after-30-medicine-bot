@@ -2,7 +2,8 @@ import { themeParams, viewport } from '@telegram-apps/sdk-react'
 import { useEffect, useRef, useState } from 'react'
 import { CalendarHeart, Pill, ChartNoAxesColumnIncreasing, Settings } from 'lucide-react'
 import { inTelegram } from './main'
-import { useToday } from './api/hooks'
+import { useToday, useMedications, useStatsOverview, useSettings } from './api/hooks'
+import { markAchievementsSeen, useSeenAchievements } from './notifications'
 import Dashboard from './pages/Dashboard'
 import MedicationList from './pages/MedicationList'
 import MedicationForm from './pages/MedicationForm'
@@ -13,6 +14,11 @@ import './App.css'
 
 type NavPage = 'dashboard' | 'medications' | 'stats' | 'settings'
 
+function NavBadge({ count }: { count: number }) {
+  if (count <= 0) return null
+  return <span className="nav-badge">{count > 9 ? '9+' : count}</span>
+}
+
 function TodayIcon() {
   const { data } = useToday()
   // AX5: is_due — серверный флаг (TZ аккаунта)
@@ -20,7 +26,44 @@ function TodayIcon() {
   return (
     <span className="nav-icon-wrap">
       <CalendarHeart size={22} strokeWidth={1.75} />
-      {pending > 0 && <span className="nav-badge">{pending > 9 ? '9+' : pending}</span>}
+      <NavBadge count={pending} />
+    </span>
+  )
+}
+
+function MedsIcon() {
+  const { data } = useMedications()
+  // завершённые курсы (course_done) — ждут «Продолжить/Удалить»
+  const done = data?.filter((m) => m.course_done).length ?? 0
+  return (
+    <span className="nav-icon-wrap">
+      <Pill size={22} strokeWidth={1.75} />
+      <NavBadge count={done} />
+    </span>
+  )
+}
+
+function StatsIcon() {
+  const { data } = useStatsOverview()
+  const seen = useSeenAchievements()
+  const unlocked = data?.achievements?.unlocked ?? []
+  const fresh = unlocked.filter((c) => !seen.includes(c)).length
+  return (
+    <span className="nav-icon-wrap">
+      <ChartNoAxesColumnIncreasing size={22} strokeWidth={1.75} />
+      <NavBadge count={fresh} />
+    </span>
+  )
+}
+
+function SettingsIcon() {
+  const { data } = useSettings()
+  // pending-запросы «Забота»: входящие F7 + входящие F8
+  const n = (data?.pending_requests?.length ?? 0) + (data?.pending_viewing_deps?.length ?? 0)
+  return (
+    <span className="nav-icon-wrap">
+      <Settings size={22} strokeWidth={1.75} />
+      <NavBadge count={n} />
     </span>
   )
 }
@@ -41,7 +84,7 @@ function BottomNav({ active, onChange }: { active: NavPage; onChange: (p: NavPag
         className={`nav-item${active === 'medications' ? ' nav-item--active' : ''}`}
         onClick={() => onChange('medications')}
       >
-        <Pill size={22} strokeWidth={1.75} />
+        <MedsIcon />
         <span className="nav-label">Аптечка</span>
       </button>
       <button
@@ -49,7 +92,7 @@ function BottomNav({ active, onChange }: { active: NavPage; onChange: (p: NavPag
         className={`nav-item${active === 'stats' ? ' nav-item--active' : ''}`}
         onClick={() => onChange('stats')}
       >
-        <ChartNoAxesColumnIncreasing size={22} strokeWidth={1.75} />
+        <StatsIcon />
         <span className="nav-label">Прогресс</span>
       </button>
       <button
@@ -57,7 +100,7 @@ function BottomNav({ active, onChange }: { active: NavPage; onChange: (p: NavPag
         className={`nav-item${active === 'settings' ? ' nav-item--active' : ''}`}
         onClick={() => onChange('settings')}
       >
-        <Settings size={22} strokeWidth={1.75} />
+        <SettingsIcon />
         <span className="nav-label">Настройки</span>
       </button>
     </nav>
@@ -80,6 +123,14 @@ export default function App() {
   const [showForm, setShowForm] = useState(false)
   const [showTour, setShowTour] = useState(shouldShowOnboarding)
   const touchStart = useRef<{ x: number; y: number } | null>(null)
+  const { data: overview } = useStatsOverview()
+
+  // Открытие «Прогресс» → ачивки считаются увиденными (гасит бейдж)
+  useEffect(() => {
+    if (navPage === 'stats' && overview?.achievements) {
+      markAchievementsSeen(overview.achievements.unlocked)
+    }
+  }, [navPage, overview?.achievements])
 
   useEffect(() => {
     if (!inTelegram) return

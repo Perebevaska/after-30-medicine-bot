@@ -1,7 +1,11 @@
 import { useState, useRef, useEffect } from 'react'
 import { Send } from 'lucide-react'
 import { useAdherence, useStreak, useSendExport, useStatsOverview, useSettings } from '../api/hooks'
-import type { StreakItem, StatsOverview, WeeklyAdherence } from '../api/types'
+import type { StreakItem, StatsOverview, WeeklyAdherence, AchievementsBlock } from '../api/types'
+
+// Коды, по которым тост уже показан в этой сессии — защита от повтора при
+// ремаунте вкладки с кэш-ответом (newly остаётся в кэше React Query).
+const _toasted = new Set<string>()
 
 function pctColor(pct: number): string {
   if (pct >= 80) return '#4caf50'
@@ -178,6 +182,82 @@ function PunctualityCard({ punct }: { punct: StatsOverview['punctuality'] }) {
   )
 }
 
+// ─── Достижения (F12a) ────────────────────────────────────────────────────
+
+function AchievementsCard({ block }: { block: AchievementsBlock }) {
+  const [selected, setSelected] = useState<string | null>(null)
+  const unlocked = new Set(block.unlocked)
+  const got = unlocked.size
+  const total = block.catalog.length
+  const sel = selected ? block.catalog.find((a) => a.code === selected) : null
+  const selOn = sel ? unlocked.has(sel.code) : false
+  return (
+    <div className="stats-card ach-card">
+      <h3 className="ach-title">Достижения <span className="ach-count">{got} / {total}</span></h3>
+      <div className="ach-grid">
+        {block.catalog.map((a) => {
+          const on = unlocked.has(a.code)
+          return (
+            <button
+              key={a.code}
+              type="button"
+              className={`ach-badge${on ? '' : ' ach-badge--locked'}${selected === a.code ? ' ach-badge--sel' : ''}`}
+              onClick={() => setSelected((c) => (c === a.code ? null : a.code))}
+            >
+              <span className="ach-icon">{on ? a.icon : '🔒'}</span>
+              <span className="ach-name">{a.title}</span>
+            </button>
+          )
+        })}
+      </div>
+      {sel && (
+        <div className="ach-hint">
+          <span className="ach-hint-icon">{selOn ? sel.icon : '🔒'}</span>
+          <div className="ach-hint-body">
+            <span className="ach-hint-title">{sel.title}</span>
+            <span className="ach-hint-desc">{sel.desc}</span>
+            <span className={`ach-hint-state${selOn ? ' ach-hint-state--on' : ''}`}>
+              {selOn ? '✓ Получено' : 'Ещё не получено'}
+            </span>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function AchievementToast({ block }: { block: AchievementsBlock }) {
+  const [shown, setShown] = useState<{ icon: string; title: string; extra: number } | null>(null)
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    const fresh = block.newly.filter((c) => !_toasted.has(c))
+    if (fresh.length === 0) return
+    fresh.forEach((c) => _toasted.add(c))
+    const first = block.catalog.find((a) => a.code === fresh[0])
+    if (!first) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setShown({ icon: first.icon, title: first.title, extra: fresh.length - 1 })
+    if (timerRef.current) clearTimeout(timerRef.current)
+    timerRef.current = setTimeout(() => setShown(null), 4500)
+  }, [block.newly, block.catalog])
+
+  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current) }, [])
+
+  if (!shown) return null
+  return (
+    <div className="ach-toast" role="status">
+      <span className="ach-toast-icon">{shown.icon}</span>
+      <div className="ach-toast-body">
+        <span className="ach-toast-head">Новое достижение!</span>
+        <span className="ach-toast-title">
+          {shown.title}{shown.extra > 0 && ` +${shown.extra}`}
+        </span>
+      </div>
+    </div>
+  )
+}
+
 // ─── Report row ───────────────────────────────────────────────────────────
 
 type ReportDef = { slot: string; icon: string; title: string }
@@ -252,6 +332,12 @@ export default function StatsPage() {
           <LoadCard load={overview.load} />
           <AdherenceCard adherence={overview.adherence} />
           <PunctualityCard punct={overview.punctuality} />
+          {overview.achievements && (
+            <>
+              <AchievementsCard block={overview.achievements} />
+              <AchievementToast block={overview.achievements} />
+            </>
+          )}
         </>
       )}
 
