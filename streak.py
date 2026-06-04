@@ -117,3 +117,25 @@ def streaks_by_subject(streak_rows, intake_rows, user_tz, today: date) -> list:
         result.append({"dependent_id": dep_id, "name": dep_name, "streak": streak})
     result.sort(key=lambda x: (x["dependent_id"] is not None, x["dependent_id"] or 0))
     return result
+
+
+def _plural_days(n: int) -> str:
+    """Русское склонение слова «день» для числа n."""
+    n10, n100 = n % 10, n % 100
+    if n10 == 1 and n100 != 11:
+        return "день"
+    if 2 <= n10 <= 4 and not 12 <= n100 <= 14:
+        return "дня"
+    return "дней"
+
+
+def _streak_phrase(n: int) -> str:
+    """Мотивирующая фраза о серии: 🔥 N дней подряд + майлстоун-значок (7→⭐, 30→🏆)."""
+    if n <= 0:
+        return "пока нет серии — начни сегодня!"
+    phrase = f"🔥 {n} {_plural_days(n)} подряд"
+    if n >= 30:
+        phrase += " 🏆"
+    elif n >= 7:
+        phrase += " ⭐"
+    return phrase

@@ -16,17 +16,12 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def _geo_keyboard(with_back: bool = False) -> ReplyKeyboardMarkup:
-    """Клавиатура запроса геолокации или ручного ввода города.
-
-    with_back=True добавляет кнопку «◀️ Назад» (для входа из /settings и /timezone).
-    """
+def _geo_keyboard() -> ReplyKeyboardMarkup:
+    """Клавиатура запроса геолокации или ручного ввода города."""
     rows = [
         [KeyboardButton("📍 Отправить геолокацию", request_location=True)],
         [KeyboardButton("✍️ Ввести город вручную")],
     ]
-    if with_back:
-        rows.append([KeyboardButton("◀️ Назад в настройки")])
     return ReplyKeyboardMarkup(rows, resize_keyboard=True, one_time_keyboard=True)
 
 
@@ -34,13 +29,13 @@ MINIAPP_URL = "https://medbot.isgood.host"
 
 
 def _main_menu_keyboard():
-    """Inline-клавиатура главного меню."""
+    """Inline-клавиатура главного меню (F10-D: бот = напоминания + быстрая отметка).
+
+    Управление лекарствами, статистика, настройки и забота — в приложении.
+    """
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📱 Приложение", web_app=WebAppInfo(url=MINIAPP_URL))],
-        [InlineKeyboardButton("📋 Лекарства на сегодня", callback_data="menu:today")],
-        [InlineKeyboardButton("💊 Мои лекарства", callback_data="menu:meds")],
-        [InlineKeyboardButton("📊 Статистика", callback_data="menu:stats")],
-        [InlineKeyboardButton("⚙️ Настройки", callback_data="menu:settings")],
+        [InlineKeyboardButton("📱 Открыть приложение", web_app=WebAppInfo(url=MINIAPP_URL))],
+        [InlineKeyboardButton("📋 Препараты на сегодня", callback_data="menu:today")],
         [InlineKeyboardButton("ℹ️ О проекте", callback_data="menu:about")],
     ])
 
@@ -52,7 +47,12 @@ def back_menu_kb() -> InlineKeyboardMarkup:
 
 def _main_menu_text(first_name: str, hint: str = "") -> str:
     """Текст приветствия главного меню."""
-    text = f"Привет, {first_name}! 💊\n\nЯ помогу тебе не забывать принимать лекарства."
+    text = (
+        f"Привет, {first_name}! 💊\n\n"
+        "Напоминаю вовремя принять препараты и отмечаю приёмы одним касанием.\n"
+        "Добавление препаратов, статистика, настройки и «Забота» — "
+        "в приложении 📱 (кнопка ниже)."
+    )
     if hint:
         text += f"\n\n{hint}"
     return text
@@ -71,7 +71,7 @@ def _owner_streak_hint(telegram_id: int, user_id: int) -> str:
     try:
         from database import get_streak_rows, get_intake_statuses_window
         from streak import streak_window, streaks_by_subject
-        from handlers.stats import _streak_phrase
+        from streak import _streak_phrase
         rows = get_streak_rows(user_id)
         if not rows:
             return ""
@@ -98,7 +98,8 @@ def _today_keyboard(has_pending: bool) -> InlineKeyboardMarkup:
 
 async def _render_today_screen(query, user):
     """Рендерит экран «Лекарства на сегодня» (edit-in-place)."""
-    from scheduler import _rule_fires_today, _MEAL_LABELS
+    from schedule_utils import _rule_fires_today
+    from constants import MEAL_LABELS_TEXT as _MEAL_LABELS
     rows = get_schedules_for_user(user.id)
     user_tz = get_tz_for_user(user.id)
     now_local = datetime.now(user_tz)
@@ -115,13 +116,13 @@ async def _render_today_screen(query, user):
         meds[mid]["times"].append((row["reminder_time"], mid, dosage))
     if not meds:
         await query.edit_message_text(
-            "💊 Сегодня нет запланированных лекарств.",
+            "💊 Сегодня нет запланированных препаратов.",
             reply_markup=back_menu_kb()
         )
         return
     start_utc, end_utc = local_day_bounds_utc(user_tz, now_local)
     statuses = get_today_intake_statuses(user.id, start_utc, end_utc)
-    lines = ["📋 <b>Лекарства на сегодня:</b>\n"]
+    lines = ["📋 <b>Препараты на сегодня:</b>\n"]
     pending_list = []
     for med in meds.values():
         meal = _MEAL_LABELS.get(med["meal_relation"], "")
@@ -191,23 +192,6 @@ async def handle_menu_callback(update, context):
                 logger.error("take_all: ошибка для лекарства %s: %s", mid, e)
         await _render_today_screen(query, user)
 
-    elif action == "meds":
-        from handlers.meds import show_meds_list
-        await show_meds_list(msg, user)
-
-    elif action == "stats":
-        from handlers.stats import _stats_period_keyboard
-        await query.edit_message_text("Выбери период:", reply_markup=_stats_period_keyboard())
-
-    elif action == "settings":
-        from handlers.settings import _settings_text, _settings_keyboard, fetch_settings_data
-        tz, mode_label, presets, dp, cg = fetch_settings_data(user.id)
-        await query.edit_message_text(
-            _settings_text(tz, mode_label, presets, dp, cg),
-            parse_mode="HTML",
-            reply_markup=_settings_keyboard(mode_label, dp, cg, user.id)
-        )
-
     elif action == "about":
         await query.edit_message_text(
             ABOUT_TEXT,
@@ -241,42 +225,14 @@ async def timezone_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик /timezone: запускает флоу смены часового пояса."""
     await update.message.reply_text(
         "Отправь геолокацию или введи город:",
-        reply_markup=_geo_keyboard(with_back=True)
+        reply_markup=_geo_keyboard()
     )
     return SETUP_TZ
-
-
-async def handle_settings_timezone(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Entry point смены TZ из меню настроек (кнопка «Изменить часовой пояс»)."""
-    query = update.callback_query
-    await query.answer()
-    await query.message.reply_text(
-        "Отправь геолокацию или введи город:",
-        reply_markup=_geo_keyboard(with_back=True)
-    )
-    return SETUP_TZ
-
-
-async def _back_to_settings_from_tz(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Закрывает флоу TZ и возвращает пользователя на страницу /settings."""
-    from handlers.settings import fetch_settings_data, _settings_text, _settings_keyboard
-    user = update.effective_user
-    tz, mode_label, presets, dp, cg = fetch_settings_data(user.id)
-    # Сначала убираем reply-клавиатуру отдельным сообщением, затем рисуем настройки.
-    await update.message.reply_text("⚙️ Возврат в настройки", reply_markup=ReplyKeyboardRemove())
-    await update.message.reply_text(
-        _settings_text(tz, mode_label, presets, dp, cg),
-        parse_mode="HTML",
-        reply_markup=_settings_keyboard(mode_label, dp, cg, user.id)
-    )
-    return ConversationHandler.END
 
 
 async def handle_tz_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Маршрутизирует текстовый ввод: «Назад» → /settings, «Ввести город» → SETUP_CITY, иначе → геокодинг."""
+    """Маршрутизирует текстовый ввод: «Ввести город» → SETUP_CITY, иначе → геокодинг."""
     text = update.message.text
-    if text == "◀️ Назад в настройки":
-        return await _back_to_settings_from_tz(update, context)
     if text == "✍️ Ввести город вручную":
         await update.message.reply_text(
             "Введи название города (можно на русском):",
@@ -305,7 +261,7 @@ async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=ReplyKeyboardRemove()
         )
         await show_main_menu(update, update.effective_user.first_name,
-                             hint="Нажми 💊 <b>Мои лекарства</b>, чтобы добавить первое лекарство.")
+                             hint="Открой 📱 <b>приложение</b> (кнопка ниже), чтобы добавить первый препарат.")
         return ConversationHandler.END
     await update.message.reply_text(
         "Не удалось определить часовой пояс. Введи город:",
@@ -333,7 +289,7 @@ async def handle_city_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=ReplyKeyboardRemove()
             )
             await show_main_menu(update, update.effective_user.first_name,
-                                 hint="Нажми 💊 <b>Мои лекарства</b>, чтобы добавить первое лекарство.")
+                                 hint="Открой 📱 <b>приложение</b> (кнопка ниже), чтобы добавить первый препарат.")
             return ConversationHandler.END
     await update.message.reply_text("Город не найден. Попробуй ещё раз:")
     return SETUP_CITY

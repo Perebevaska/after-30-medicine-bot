@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from urllib.parse import parse_qsl
 
 import database as db
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials
 from fastapi.security.http import HTTPBase
 
@@ -29,6 +29,9 @@ def verify_init_data(init_data: str, bot_token: str, max_age: int = MAX_AGE) -> 
     Поднимает ValueError с описанием причины отказа.
     telegram_id извлекается только из проверенной подписи — не принимается от клиента напрямую.
     """
+    # SEC-1: пустой токен → пустой HMAC-ключ → подделываемая подпись. Отказ.
+    if not bot_token:
+        raise ValueError("bot token not configured")
     params = dict(parse_qsl(init_data, keep_blank_values=True))
     received_hash = params.pop("hash", "")
     if not received_hash:
@@ -50,7 +53,7 @@ def verify_init_data(init_data: str, bot_token: str, max_age: int = MAX_AGE) -> 
     if not telegram_id:
         raise ValueError("user.id missing")
 
-    return int(telegram_id)
+    return int(telegram_id), user.get("username")
 
 
 @dataclass
@@ -66,24 +69,42 @@ _bearer = HTTPBase(scheme="bearer", scheme_name="Telegram Mini App")
 async def require_telegram_user(
     credentials: HTTPAuthorizationCredentials = Depends(_bearer),
 ) -> int:
-    """FastAPI dependency: проверяет initData, возвращает telegram_id.
-
-    Клиент передаёт: Authorization: tma <url-encoded initData>
-    """
+    """FastAPI dependency: проверяет initData, возвращает telegram_id."""
     if credentials.scheme.lower() != "tma":
         raise HTTPException(status_code=401, detail="Expected scheme 'tma'")
     bot_token = os.environ.get("BOT_TOKEN", "")
+    if not bot_token:
+        raise HTTPException(status_code=503, detail="Сервис временно недоступен")
     try:
-        return verify_init_data(credentials.credentials, bot_token)
+        telegram_id, _username = verify_init_data(credentials.credentials, bot_token)
+        return telegram_id
     except ValueError as e:
         raise HTTPException(status_code=401, detail=str(e))
 
 
-async def require_db_user(telegram_id: int = Depends(require_telegram_user)) -> TelegramUser:
+async def _tg_username(request: Request) -> str | None:
+    """Мягко извлекает username из initData без повторной валидации подписи."""
+    try:
+        auth = request.headers.get("Authorization", "")
+        prefix = "tma "
+        if not auth.lower().startswith(prefix):
+            return None
+        init_data = auth[len(prefix):]
+        params = dict(parse_qsl(init_data, keep_blank_values=True))
+        params.pop("hash", None)
+        user = json.loads(params.get("user", "{}"))
+        return user.get("username")
+    except Exception:
+        return None
+
+
+async def require_db_user(
+    telegram_id: int = Depends(require_telegram_user),
+    username: str | None = Depends(_tg_username),
+) -> TelegramUser:
     """FastAPI dependency: валидирует initData, возвращает (telegram_id, user_id из БД).
 
-    Создаёт запись пользователя в БД если её ещё нет (идемпотентно).
-    Используется вместо require_telegram_user в эндпоинтах, которым нужен INTEGER PK.
+    Обновляет username при каждом вызове — чтобы никнейм всегда был актуальным.
     """
-    user_id = await asyncio.to_thread(db.get_or_create_user, telegram_id)
+    user_id = await asyncio.to_thread(db.get_or_create_user, telegram_id, username)
     return TelegramUser(telegram_id=telegram_id, user_id=user_id)

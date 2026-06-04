@@ -2,29 +2,69 @@ import { themeParams, viewport } from '@telegram-apps/sdk-react'
 import { useEffect, useRef, useState } from 'react'
 import { CalendarHeart, Pill, ChartNoAxesColumnIncreasing, Settings } from 'lucide-react'
 import { inTelegram } from './main'
-import { useToday } from './api/hooks'
+import { useQueryClient } from '@tanstack/react-query'
+import { useToday, useMedications, useStatsOverview, useSettings } from './api/hooks'
+import { markAchievementsSeen, useSeenAchievements } from './notifications'
 import Dashboard from './pages/Dashboard'
 import MedicationList from './pages/MedicationList'
 import MedicationForm from './pages/MedicationForm'
 import StatsPage from './pages/StatsPage'
 import SettingsPage from './pages/SettingsPage'
+import OnboardingTour, { shouldShowOnboarding } from './components/OnboardingTour'
 import './App.css'
 
 type NavPage = 'dashboard' | 'medications' | 'stats' | 'settings'
 
-function isDue(reminderTime: string): boolean {
-  const now = new Date()
-  const [h, m] = reminderTime.split(':').map(Number)
-  return now.getHours() * 60 + now.getMinutes() >= h * 60 + m
+function NavBadge({ count }: { count: number }) {
+  if (count <= 0) return null
+  return <span className="nav-badge">{count > 9 ? '9+' : count}</span>
 }
 
 function TodayIcon() {
   const { data } = useToday()
-  const pending = data?.filter((i) => i.status === 'pending' && isDue(i.reminder_time)).length ?? 0
+  // AX5: is_due — серверный флаг (TZ аккаунта)
+  const pending = data?.filter((i) => i.status === 'pending' && i.is_due).length ?? 0
   return (
     <span className="nav-icon-wrap">
       <CalendarHeart size={22} strokeWidth={1.75} />
-      {pending > 0 && <span className="nav-badge">{pending > 9 ? '9+' : pending}</span>}
+      <NavBadge count={pending} />
+    </span>
+  )
+}
+
+function MedsIcon() {
+  const { data } = useMedications()
+  // завершённые курсы (course_done) — ждут «Продолжить/Удалить»
+  const done = data?.filter((m) => m.course_done).length ?? 0
+  return (
+    <span className="nav-icon-wrap">
+      <Pill size={22} strokeWidth={1.75} />
+      <NavBadge count={done} />
+    </span>
+  )
+}
+
+function StatsIcon() {
+  const { data } = useStatsOverview()
+  const seen = useSeenAchievements()
+  const unlocked = data?.achievements?.unlocked ?? []
+  const fresh = unlocked.filter((c) => !seen.includes(c)).length
+  return (
+    <span className="nav-icon-wrap">
+      <ChartNoAxesColumnIncreasing size={22} strokeWidth={1.75} />
+      <NavBadge count={fresh} />
+    </span>
+  )
+}
+
+function SettingsIcon() {
+  const { data } = useSettings()
+  // pending-запросы «Забота»: входящие F7 + входящие F8
+  const n = (data?.pending_requests?.length ?? 0) + (data?.pending_viewing_deps?.length ?? 0)
+  return (
+    <span className="nav-icon-wrap">
+      <Settings size={22} strokeWidth={1.75} />
+      <NavBadge count={n} />
     </span>
   )
 }
@@ -38,30 +78,30 @@ function BottomNav({ active, onChange }: { active: NavPage; onChange: (p: NavPag
         onClick={() => onChange('dashboard')}
       >
         <TodayIcon />
-        <span className="nav-label">Сегодня</span>
+        <span className="nav-label">Приёмы</span>
       </button>
       <button
         type="button"
         className={`nav-item${active === 'medications' ? ' nav-item--active' : ''}`}
         onClick={() => onChange('medications')}
       >
-        <Pill size={22} strokeWidth={1.75} />
-        <span className="nav-label">Лекарства</span>
+        <MedsIcon />
+        <span className="nav-label">Аптечка</span>
       </button>
       <button
         type="button"
         className={`nav-item${active === 'stats' ? ' nav-item--active' : ''}`}
         onClick={() => onChange('stats')}
       >
-        <ChartNoAxesColumnIncreasing size={22} strokeWidth={1.75} />
-        <span className="nav-label">Статистика</span>
+        <StatsIcon />
+        <span className="nav-label">Прогресс</span>
       </button>
       <button
         type="button"
         className={`nav-item${active === 'settings' ? ' nav-item--active' : ''}`}
         onClick={() => onChange('settings')}
       >
-        <Settings size={22} strokeWidth={1.75} />
+        <SettingsIcon />
         <span className="nav-label">Настройки</span>
       </button>
     </nav>
@@ -78,8 +118,42 @@ export default function App() {
   const [navPage, setNavPage] = useState<NavPage>('dashboard')
   const [resetKeys, setResetKeys] = useState<ResetKeys>({ dashboard: 0, medications: 0, stats: 0, settings: 0 })
   const [editMedId, setEditMedId] = useState<number | undefined>()
+  const [editLinkedUserId, setEditLinkedUserId] = useState<number | undefined>()
+  const [editForDepShareId, setEditForDepShareId] = useState<number | undefined>()
+  const [openSchedule, setOpenSchedule] = useState(false)
   const [showForm, setShowForm] = useState(false)
+  const [showTour, setShowTour] = useState(shouldShowOnboarding)
   const touchStart = useRef<{ x: number; y: number } | null>(null)
+  const qc = useQueryClient()
+  const { data: overview } = useStatsOverview()
+
+  // Возврат в приложение (свернул → отметил в TG-чате → вернулся) или показ
+  // вкладки после фона: Telegram webview не шлёт надёжный window-focus, поэтому
+  // принудительно обновляем server-state по visibilitychange. Закрывает: stale
+  // «Приёмы» и непоявившийся pending «Забота» в «Настройках».
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void qc.invalidateQueries()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [qc])
+
+  // Открытие «Прогресс» → ачивки считаются увиденными (гасит бейдж)
+  useEffect(() => {
+    if (navPage === 'stats' && overview?.achievements) {
+      markAchievementsSeen(overview.achievements.unlocked)
+    }
+  }, [navPage, overview?.achievements])
+
+  // Тяжёлая статистика помечается stale без рефетча при отметке (чтобы не тормозил
+  // слайдер). Освежаем её при фактическом открытии вкладки «Прогресс».
+  useEffect(() => {
+    if (navPage !== 'stats') return
+    qc.invalidateQueries({ queryKey: ['stats-overview'] })
+    qc.invalidateQueries({ queryKey: ['streak'] })
+    qc.invalidateQueries({ queryKey: ['adherence'] })
+  }, [navPage, qc])
 
   useEffect(() => {
     if (!inTelegram) return
@@ -116,18 +190,24 @@ export default function App() {
     if (dx > 0 && idx > 0) setNavPage(NAV_PAGES[idx - 1])
   }
 
-  const openForm = (editId?: number) => {
+  const openForm = (editId?: number, linkedUserId?: number, forDepShareId?: number, openSchedule?: boolean) => {
     setEditMedId(editId)
+    setEditLinkedUserId(linkedUserId)
+    setEditForDepShareId(forDepShareId)
+    setOpenSchedule(!!openSchedule)
     setShowForm(true)
   }
 
   const closeForm = () => {
     setShowForm(false)
     setEditMedId(undefined)
+    setEditLinkedUserId(undefined)
+    setEditForDepShareId(undefined)
+    setOpenSchedule(false)
   }
 
   if (showForm) {
-    return <MedicationForm editId={editMedId} onBack={closeForm} />
+    return <MedicationForm editId={editMedId} linkedUserId={editLinkedUserId} forDepShareId={editForDepShareId} openSchedule={openSchedule} onBack={closeForm} />
   }
 
   const activeIdx = NAV_PAGES.indexOf(navPage)
@@ -141,12 +221,12 @@ export default function App() {
             className="tab-panel"
             style={{ transform: `translateX(${(i - activeIdx) * 100}%)` }}
           >
-            {page === 'dashboard' && <Dashboard key={resetKeys.dashboard} />}
+            {page === 'dashboard' && <Dashboard key={resetKeys.dashboard} onNavigate={setNavPage} />}
             {page === 'medications' && (
-              <MedicationList key={resetKeys.medications} onAdd={() => openForm()} onEdit={(id) => openForm(id)} />
+              <MedicationList key={resetKeys.medications} onAdd={(uid, sid) => openForm(undefined, uid, sid)} onEdit={(id, uid, sid) => openForm(id, uid, sid)} onSchedule={(id, uid, sid) => openForm(id, uid, sid, true)} />
             )}
             {page === 'stats' && <StatsPage key={resetKeys.stats} />}
-            {page === 'settings' && <SettingsPage key={resetKeys.settings} />}
+            {page === 'settings' && <SettingsPage key={resetKeys.settings} onReplayTour={() => { setNavPage('dashboard'); setShowTour(true) }} />}
           </div>
         ))}
       </div>
@@ -160,6 +240,7 @@ export default function App() {
           }
         }}
       />
+      {showTour && !showForm && <OnboardingTour onClose={() => setShowTour(false)} />}
     </div>
   )
 }

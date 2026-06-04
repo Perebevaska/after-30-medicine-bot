@@ -1,19 +1,14 @@
 import { useState, useRef, useEffect, forwardRef, useImperativeHandle } from 'react'
 import { createPortal } from 'react-dom'
-import { Check, X } from 'lucide-react'
-import { useToday, useLogIntake } from '../api/hooks'
+import { Check, X, Globe, Pill, Pause, ArrowRight } from 'lucide-react'
+import { postEvent } from '@telegram-apps/sdk-react'
+import { useToday, useLogIntake, useHearts, useSettings, useMedications } from '../api/hooks'
 import { useQueryClient } from '@tanstack/react-query'
-import { api } from '../api/client'
+import { api, apiErrorMessage } from '../api/client'
 import type { TodayItem } from '../api/types'
 import { randomWish } from '../wishes'
-
-const MEAL: Record<string, string> = {
-  before: 'До еды',
-  after: 'После еды',
-  with: 'Во время еды',
-  any: 'Не важно',
-  no_meal: 'Не зависит',
-}
+import { MEAL_LABELS } from '../constants'
+import DepSectionTitle from '../components/DepSectionTitle'
 
 interface HeartParticle {
   id: number
@@ -26,32 +21,27 @@ interface HeartParticle {
   emoji?: string
 }
 
-// ── Health bar persistence ─────────────────────────────────────────────────
-// health bar — оставлено для будущего
-// const HP_KEY = 'wish_hp'
-// const HP_TS_KEY = 'wish_hp_ts'
-// const DEPLETE_PER_MS = 200 / (11 * 1000) // Шкала 0–200: 0–100 = рамка, 100–200 = текст; полный разряд за 11 с
-// const loadHp = (): number => { try { const h = parseFloat(localStorage.getItem(HP_KEY) ?? '0'); const ts = parseInt(localStorage.getItem(HP_TS_KEY) ?? '0', 10); if (!ts) return Math.max(0, h); return Math.max(0, h - (Date.now() - ts) * DEPLETE_PER_MS) } catch { return 0 } }
-// const saveHp = (h: number): void => { localStorage.setItem(HP_KEY, String(h)); localStorage.setItem(HP_TS_KEY, String(Date.now())) }
-// ──────────────────────────────────────────────────────────────────────────
-
 let _pid = 0
 
 export type WishCardHandle = { celebrate: () => void; skipped: () => void }
 
 const WishCard = forwardRef<WishCardHandle>(function WishCard(_, ref) {
   const [wish, setWish] = useState(randomWish)
-  // hp и setHp отключены (заливка/рамка), оставлены для будущего
-  // const [hp, setHp] = useState(loadHp)
   const [particles, setParticles] = useState<HeartParticle[]>([])
   const [shaking, setShaking] = useState(false)
   const heartRef = useRef<HTMLSpanElement>(null)
+  const timersRef = useRef<ReturnType<typeof setTimeout>[]>([])
 
-  // Обновляем hp каждые 200 мс — нужно для быстрого drain (11 с)
-  // useEffect(() => {
-  //   const id = setInterval(() => setHp(loadHp), 200)
-  //   return () => clearInterval(id)
-  // }, [])
+  useEffect(() => () => { timersRef.current.forEach(clearTimeout) }, [])
+
+  const addTimer = (fn: () => void, ms: number) => {
+    const id = setTimeout(fn, ms)
+    timersRef.current.push(id)
+    return id
+  }
+  // G1: счётчик сердечек рядом с ❤️
+  const { data: heartsData } = useHearts()
+  const hearts = heartsData?.hearts ?? 0
 
   const spawnHearts = () => {
     const rect = heartRef.current?.getBoundingClientRect()
@@ -75,7 +65,7 @@ const WishCard = forwardRef<WishCardHandle>(function WishCard(_, ref) {
     setParticles((p) => [...p, ...batch])
     const maxDur = Math.max(...batch.map((p) => p.dur)) + 60
     const ids = new Set(batch.map((p) => p.id))
-    setTimeout(() => setParticles((p) => p.filter((pt) => !ids.has(pt.id))), maxDur)
+    addTimer(() => setParticles((p) => p.filter((pt) => !ids.has(pt.id))), maxDur)
   }
 
   const celebrate = () => {
@@ -101,45 +91,27 @@ const WishCard = forwardRef<WishCardHandle>(function WishCard(_, ref) {
     setParticles((p) => [...p, ...batch])
     const maxDur = Math.max(...batch.map((p) => p.dur)) + 60
     const ids = new Set(batch.map((p) => p.id))
-    setTimeout(() => setParticles((p) => p.filter((pt) => !ids.has(pt.id))), maxDur)
+    addTimer(() => setParticles((p) => p.filter((pt) => !ids.has(pt.id))), maxDur)
   }
 
   const skipped = () => {
     setShaking(true)
-    setTimeout(() => setShaking(false), 580)
+    addTimer(() => setShaking(false), 580)
     spawnBrokenHearts()
   }
 
   useImperativeHandle(ref, () => ({ celebrate, skipped }))
 
-  // next (смена пожелания + hp через кнопку) — отключено; оставлено для будущего
-  // const next = () => {
-  //   celebrate()
-  //   setHp(() => { ... })
-  // }
-
-  // Фаза 1 (0–100): рамка. Фаза 2 (100–200): текст
-  // const borderPct = Math.min(hp, 100)   // отключено, оставлено для будущего
-  // const textPct   = Math.max(0, hp - 100) // отключено, оставлено для будущего
-
   return (
     <>
       <div className="wish-card">
-        {/* <span className="wish-border-top"    style={{ width: `${borderPct}%` }} /> */}
-        {/* <span className="wish-border-bottom" style={{ width: `${borderPct}%` }} /> */}
         <div className="wish-text-wrap">
           <span className="wish-text">{wish}</span>
-          {/* wish-text-hp (заливка текста) — отключено, оставлено для будущего
-          <span
-            className="wish-text wish-text-hp"
-            aria-hidden="true"
-            style={{ clipPath: `inset(0 ${(100 - textPct).toFixed(1)}% 0 0)` }}
-          >
-            {wish}
-          </span>
-          */}
         </div>
-        <span ref={heartRef} className={`wish-heart${shaking ? ' wish-heart--shake' : ''}`} aria-hidden="true">❤️</span>
+        <span className="wish-heart-wrap">
+          <span ref={heartRef} className={`wish-heart${shaking ? ' wish-heart--shake' : ''}`} aria-hidden="true">❤️</span>
+          <span className="wish-heart-count">{hearts}</span>
+        </span>
       </div>
       {createPortal(
         <div className="hearts-overlay" aria-hidden="true">
@@ -166,31 +138,175 @@ const WishCard = forwardRef<WishCardHandle>(function WishCard(_, ref) {
   )
 })
 
-function isDue(reminderTime: string): boolean {
-  const now = new Date()
-  const [h, m] = reminderTime.split(':').map(Number)
-  return now.getHours() * 60 + now.getMinutes() >= h * 60 + m
+const itemKey = (i: TodayItem) => `${i.medication_id}-${i.reminder_time}`
+// AX5: is_due приходит с сервера (TZ аккаунта), не считаем по времени браузера.
+const isDuePending = (i: TodayItem) => i.status === 'pending' && i.is_due
+
+// Вибрация в конце удержания: нативный Telegram haptic (impact heavy).
+// Требует web_app_ready при старте (main.tsx), иначе Android-клиент игнорит событие.
+function haptic(style: 'heavy' | 'light' = 'heavy') {
+  try {
+    postEvent('web_app_trigger_haptic_feedback', { type: 'impact', impact_style: style })
+    return
+  } catch { /* noop */ }
+  // Веб-фоллбэк (вне Telegram)
+  try { navigator.vibrate?.(style === 'light' ? 12 : 35) } catch { /* noop */ }
 }
 
-const itemKey = (i: TodayItem) => `${i.medication_id}-${i.reminder_time}`
-const isDuePending = (i: TodayItem) => i.status === 'pending' && isDue(i.reminder_time)
+// Подсказка-инструкция показывается, пока юзер не отметит первый приём.
+const SLIDE_LEARNED_KEY = 'slide_learned'
+function slideLearned(): boolean {
+  try { return localStorage.getItem(SLIDE_LEARNED_KEY) === '1' } catch { return false }
+}
+function markSlideLearned(): void {
+  try { localStorage.setItem(SLIDE_LEARNED_KEY, '1') } catch { /* noop */ }
+}
+
+const KNOB = 42
+const KNOB_MARGIN = 3 // .slide-knob margin в CSS — синхронизировать при изменении
+
+// Слайдер «сдвинь, чтобы принять»: тянем бегунок вправо до конца → onConfirm.
+// Осознанное действие — случайный тап не отмечает.
+function SlideToConfirm({ onConfirm, disabled }: { onConfirm: () => void; disabled?: boolean }) {
+  // Позиция кружка двигается напрямую через DOM (без React-state) — иначе ре-рендер
+  // на каждый pointermove не успевает за пальцем в Telegram-webview.
+  const trackRef = useRef<HTMLDivElement>(null)
+  const knobRef = useRef<HTMLSpanElement>(null)
+  const fillRef = useRef<HTMLSpanElement>(null)
+  const labelRef = useRef<HTMLSpanElement>(null)
+  const draggingRef = useRef(false)
+  const offsetRef = useRef(0)
+  const maxRef = useRef(0)
+  const doneRef = useRef(false)
+
+  const computeMax = () => Math.max(0, (trackRef.current?.clientWidth ?? 0) - KNOB - 2 * KNOB_MARGIN)
+
+  // Стартовая позиция через DOM, НЕ через inline-style в JSX: иначе любой ре-рендер
+  // родителя (фоновый refetch ['today'] после отметки) сбрасывал бы кружок на 0 во время тяги.
+  useEffect(() => {
+    if (knobRef.current) knobRef.current.style.transform = 'translateX(0px)'
+    if (fillRef.current) fillRef.current.style.width = `${KNOB + 2 * KNOB_MARGIN}px`
+  }, [])
+
+  // Прямая отрисовка позиции x по DOM. withTr — плавный переход (только возврат/завершение).
+  const render = (x: number, withTr: boolean) => {
+    // ВАЖНО: для отключения перехода нужно валидное `none`, НЕ `transform none`
+    // (последнее — невалидный CSS, игнорится → старый 0.2s залипает → лаг за пальцем).
+    if (knobRef.current) {
+      knobRef.current.style.transition = withTr ? 'transform 0.2s' : 'none'
+      knobRef.current.style.transform = `translateX(${x}px)`
+    }
+    if (fillRef.current) {
+      fillRef.current.style.transition = withTr ? 'width 0.2s' : 'none'
+      fillRef.current.style.width = `${x + KNOB + 2 * KNOB_MARGIN}px`
+    }
+    if (labelRef.current) {
+      const pct = maxRef.current ? x / maxRef.current : 0
+      labelRef.current.style.opacity = `${Math.max(0, 1 - pct * 1.4)}`
+    }
+  }
+
+  const down = (e: React.PointerEvent) => {
+    if (disabled) return
+    e.preventDefault()
+    draggingRef.current = true
+    doneRef.current = false
+    maxRef.current = computeMax()
+    const cur = knobRef.current
+      ? new DOMMatrixReadOnly(getComputedStyle(knobRef.current).transform).m41 : 0
+    offsetRef.current = e.clientX - cur
+    e.currentTarget.setPointerCapture?.(e.pointerId)
+  }
+  const move = (e: React.PointerEvent) => {
+    if (!draggingRef.current) return
+    const nx = Math.min(maxRef.current, Math.max(0, e.clientX - offsetRef.current))
+    render(nx, false)
+    if (nx >= maxRef.current - 1 && !doneRef.current) {
+      doneRef.current = true
+      draggingRef.current = false
+      haptic()
+      render(maxRef.current, false) // полная зелёная заливка видна
+      requestAnimationFrame(() => onConfirm()) // кадр на отрисовку заливки
+    }
+  }
+  const up = () => {
+    if (!draggingRef.current) return
+    draggingRef.current = false
+    if (!doneRef.current) render(0, true) // плавный возврат
+  }
+
+  return (
+    <div className={`slide-confirm${disabled ? ' slide-confirm--disabled' : ''}`} ref={trackRef}>
+      <span className="slide-fill" ref={fillRef} />
+      <span className="slide-label" ref={labelRef}>Сдвинь, чтобы принять</span>
+      <span
+        className="slide-knob"
+        ref={knobRef}
+        onPointerDown={down}
+        onPointerMove={move}
+        onPointerUp={up}
+        onPointerCancel={up}
+      >
+        <Check size={22} strokeWidth={2.75} />
+      </span>
+    </div>
+  )
+}
+
+// Пропуск приёма — вторичное действие: тап → «Точно пропустить?» → тап подтверждает.
+// Круглая кнопка «пропустить»: тап1 взводит (красная заливка + пульс + подпись),
+// тап2 подтверждает. Авто-сброс через 3с. Случайный одиночный тап не пропустит.
+function SkipButton({ onConfirm, disabled }: { onConfirm: () => void; disabled?: boolean }) {
+  const [armed, setArmed] = useState(false) // взведено — ждём подтверждающий тап
+  const tRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => () => { if (tRef.current) clearTimeout(tRef.current) }, [])
+
+  const click = () => {
+    if (disabled) return
+    if (!armed) {
+      setArmed(true)
+      haptic('light')
+      if (tRef.current) clearTimeout(tRef.current)
+      tRef.current = setTimeout(() => setArmed(false), 3000)
+      return
+    }
+    if (tRef.current) clearTimeout(tRef.current)
+    haptic('light')
+    onConfirm()
+  }
+
+  return (
+    <div className="skip-wrap">
+      {armed && <span className="skip-tip">Тап — пропустить</span>}
+      <button
+        type="button"
+        className={`skip-circle${armed ? ' skip-circle--armed' : ''}`}
+        disabled={disabled}
+        aria-label={armed ? 'Подтвердить пропуск' : 'Пропустить приём'}
+        onClick={click}
+      >
+        <X size={26} strokeWidth={2.75} />
+      </button>
+    </div>
+  )
+}
 
 function MedCard({
   item,
-  exiting,
   entering,
   onTaken,
   onSkipped,
 }: {
   item: TodayItem
-  exiting?: boolean
   entering?: boolean
   onTaken?: () => void
   onSkipped?: () => void
 }) {
   const { mutate, isPending } = useLogIntake()
 
-  const log = (status: 'taken' | 'skipped' | 'pending') => {
+  // Undo убран намеренно: отмена приёма ломала «курс завершён» (COUNT taken).
+  // Приём подтверждается долгим нажатием — случайный тап не отметит.
+  const log = (status: 'taken' | 'skipped') => {
     if (status === 'taken') onTaken?.()
     if (status === 'skipped') onSkipped?.()
     mutate({
@@ -201,118 +317,116 @@ function MedCard({
   }
 
   const due = isDuePending(item)
-  const extraClass = exiting ? ' mlist-card--exit' : entering ? ' mlist-card--enter' : ''
+  const extraClass = entering ? ' mlist-card--enter' : ''
+  const statusClass = item.status === 'skipped'
+    ? ' mlist-card--skipped'
+    : item.status === 'taken'
+    ? ' mlist-card--taken'
+    : ''
 
+  const pending = item.status === 'pending'
   return (
     <div
-      className={`mlist-card${item.status !== 'pending' ? ' mlist-card--paused' : ''}${due ? ' mlist-card--due' : ''}${extraClass}`}
+      className={`mlist-card${statusClass}${due ? ' mlist-card--due' : ''}${extraClass}${pending ? ' mlist-card--slide' : ''}`}
     >
       <div className="mlist-info">
         <div className="mlist-name">
           {item.name}
-          {item.dependent_name && (
-            <span className="mlist-dep"> · {item.dependent_name}</span>
-          )}
         </div>
         <div className="mlist-meta">
-          {item.dosage} · {MEAL[item.meal_relation] ?? item.meal_relation}
+          {item.dosage} · {MEAL_LABELS[item.meal_relation] ?? item.meal_relation}
         </div>
         <div className="mlist-schedule">{item.reminder_time}</div>
       </div>
 
-      {item.status === 'pending' ? (
-        <div className="med-actions">
-          <button className="btn-take" onClick={() => log('taken')} disabled={isPending}><Check size={18} strokeWidth={2.5} /></button>
-          <button className="btn-skip" onClick={() => log('skipped')} disabled={isPending}><X size={18} strokeWidth={2.5} /></button>
+      {pending ? (
+        <div className="slide-row">
+          <SlideToConfirm onConfirm={() => log('taken')} disabled={isPending} />
+          <SkipButton onConfirm={() => log('skipped')} disabled={isPending} />
         </div>
       ) : (
         <div className="med-actions">
-          <button
-            className="btn-undo"
-            onClick={() => log('pending')}
-            disabled={isPending}
-            title="Отменить отметку"
-          >
-            {item.status === 'taken' ? <Check size={18} strokeWidth={2.5} /> : <X size={18} strokeWidth={2.5} />}
-          </button>
+          <span className={`med-status med-status--${item.status}`} aria-hidden="true">
+            {item.status === 'taken' ? <Check size={26} strokeWidth={2.75} /> : <X size={26} strokeWidth={2.75} />}
+          </span>
         </div>
       )}
     </div>
   )
 }
 
-export default function Dashboard() {
+export default function Dashboard({ onNavigate }: { onNavigate?: (p: 'medications') => void }) {
   const { data, isLoading, error } = useToday()
+  const { data: meds } = useMedications()
+  const { data: settings } = useSettings()
   const qc = useQueryClient()
   const [takingAll, setTakingAll] = useState(false)
+  const [takeAllArmed, setTakeAllArmed] = useState(false) // двойной тап: 1й взводит, 2й принимает
+  const takeAllTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => () => { if (takeAllTimer.current) clearTimeout(takeAllTimer.current) }, [])
+  const [tzBannerDismissed, setTzBannerDismissed] = useState(false)
+  const [showHoldHint, setShowHoldHint] = useState(!slideLearned())
   const wishRef = useRef<WishCardHandle>(null)
 
-  // exitingMap: снапшоты due-pending элементов, пока играет exit-анимация
-  const [exitingMap, setExitingMap] = useState<Map<string, TodayItem>>(new Map())
-  // enteringIds: ключи элементов, только что появившихся в секции others
-  const [enteringIds, setEnteringIds] = useState<Set<string>>(new Set())
-  const prevDataRef = useRef<TodayItem[]>([])
-
-  useEffect(() => {
-    if (!data) return
-    const prevData = prevDataRef.current
-    const prevDueKeys = new Set(prevData.filter(isDuePending).map(itemKey))
-    const currentDueKeys = new Set(data.filter(isDuePending).map(itemKey))
-
-    // Элементы, которые только что покинули due-pending группу
-    const justLeft = prevData.filter(
-      (i) => prevDueKeys.has(itemKey(i)) && !currentDueKeys.has(itemKey(i))
-    )
-
-    if (justLeft.length > 0) {
-      // Кладём снапшоты (со статусом pending и green-подсветкой)
-      setExitingMap((prev) => {
-        const next = new Map(prev)
-        justLeft.forEach((i) => next.set(itemKey(i), i))
-        return next
-      })
-      const leftKeys = justLeft.map(itemKey)
-      // После exit-анимации (250ms) убираем из due-секции и добавляем enter в others
-      setTimeout(() => {
-        setExitingMap((prev) => {
-          const next = new Map(prev)
-          leftKeys.forEach((k) => next.delete(k))
-          return next
-        })
-        setEnteringIds((prev) => new Set([...prev, ...leftKeys]))
-        setTimeout(() => {
-          setEnteringIds((prev) => {
-            const next = new Set(prev)
-            leftKeys.forEach((k) => next.delete(k))
-            return next
-          })
-        }, 320)
-      }, 260)
-    }
-
-    prevDataRef.current = data
-  }, [data])
+  const learnHold = () => { markSlideLearned(); setShowHoldHint(false) }
 
   const allItems = data ?? []
+  // F7: separate own items from linked dependents' items
+  const ownItems = allItems.filter((i) => !i.linked_user_id && !i.dep_share_id && !i.dependent_id)
+  // Свои локальные близкие — отдельным блоком (как F7/F8)
+  const localDepItems = allItems.filter((i) => !i.linked_user_id && !i.dep_share_id && !!i.dependent_id)
+  const linkedItems = allItems.filter((i) => !!i.linked_user_id)
+  const sharedDepItems = allItems.filter((i) => !!i.dep_share_id)
 
-  // Due-секция: реально due-pending + снапшоты exiting, сортировка по времени desc
-  const dueItems = [
-    ...allItems.filter(isDuePending),
-    ...[...exitingMap.values()],
-  ].sort((a, b) => b.reminder_time.localeCompare(a.reminder_time))
+  // Группировка своих локальных близких по dependent_id
+  const localDepGroups = localDepItems.reduce<Record<number, { name: string; items: TodayItem[] }>>((acc, item) => {
+    const did = item.dependent_id!
+    if (!acc[did]) acc[did] = { name: item.dependent_name ?? `№${did}`, items: [] }
+    acc[did].items.push(item)
+    return acc
+  }, {})
 
-  // Others-секция: не-due + не-exiting
-  const otherItems = allItems.filter(
-    (i) => !isDuePending(i) && !exitingMap.has(itemKey(i))
-  )
+  // Group linked items by linked_user_id
+  const linkedGroups = linkedItems.reduce<Record<number, { name: string; items: TodayItem[] }>>((acc, item) => {
+    const uid = item.linked_user_id!
+    if (!acc[uid]) acc[uid] = { name: item.linked_user_name ?? `id${uid}`, items: [] }
+    acc[uid].items.push(item)
+    return acc
+  }, {})
 
-  // Реальные due-pending (без снапшотов) — для кнопки и handleTakeAll
-  const trueDuePending = allItems.filter(isDuePending)
+  // F8: group shared dep items by dep_share_id
+  const sharedDepGroups = sharedDepItems.reduce<Record<number, { name: string; items: TodayItem[] }>>((acc, item) => {
+    const did = item.dep_share_id!
+    if (!acc[did]) acc[did] = { name: item.dep_share_name ?? `dep${did}`, items: [] }
+    acc[did].items.push(item)
+    return acc
+  }, {})
+
+  const dueItems = ownItems
+    .filter(isDuePending)
+    .sort((a, b) => b.reminder_time.localeCompare(a.reminder_time))
+  const otherItems = ownItems.filter((i) => !isDuePending(i))
+
+  const clickTakeAll = () => {
+    if (takingAll || !dueItems.length) return
+    if (!takeAllArmed) {
+      setTakeAllArmed(true)
+      haptic('light')
+      if (takeAllTimer.current) clearTimeout(takeAllTimer.current)
+      takeAllTimer.current = setTimeout(() => setTakeAllArmed(false), 3000)
+      return
+    }
+    if (takeAllTimer.current) clearTimeout(takeAllTimer.current)
+    setTakeAllArmed(false)
+    handleTakeAll()
+  }
 
   const handleTakeAll = async () => {
-    if (!trueDuePending.length) return
+    if (!dueItems.length) return
     setTakingAll(true)
+    learnHold()
     wishRef.current?.celebrate()
+    const prev = qc.getQueryData<TodayItem[]>(['today'])
     qc.setQueryData<TodayItem[]>(['today'], (old) =>
       old?.map((item) =>
         isDuePending(item) ? { ...item, status: 'taken' as const } : item
@@ -320,7 +434,7 @@ export default function Dashboard() {
     )
     try {
       await Promise.all(
-        trueDuePending.map((item) =>
+        dueItems.map((item) =>
           api.post('/today/intake', {
             medication_id: item.medication_id,
             scheduled_time: item.reminder_time,
@@ -328,61 +442,101 @@ export default function Dashboard() {
           })
         )
       )
+    } catch {
+      if (prev) qc.setQueryData(['today'], prev)
     } finally {
       await qc.invalidateQueries({ queryKey: ['today'] })
-      await qc.invalidateQueries({ queryKey: ['streak'] })
-      await qc.invalidateQueries({ queryKey: ['adherence'] })
+      await qc.invalidateQueries({ queryKey: ['hearts'] })
+      qc.invalidateQueries({ queryKey: ['streak'], refetchType: 'none' })
+      qc.invalidateQueries({ queryKey: ['adherence'], refetchType: 'none' })
+      qc.invalidateQueries({ queryKey: ['stats-overview'], refetchType: 'none' })
       setTakingAll(false)
     }
   }
 
   const hasAny = dueItems.length > 0 || otherItems.length > 0
+  const hasLinked = linkedItems.length > 0
+  const hasSharedDeps = sharedDepItems.length > 0
+
+  const showTzBanner = !tzBannerDismissed && settings?.timezone === 'UTC'
 
   return (
     <div className="page">
+      {showTzBanner && (
+        <div className="tz-banner">
+          <span className="tz-banner-text">
+            <Globe size={15} strokeWidth={2} className="ic" /> Похоже, часовой пояс не задан — напоминания могут приходить не вовремя.
+            Зайди в <b>Настройки</b> и выбери свой город.
+          </span>
+          <button className="tz-banner-close" onClick={() => setTzBannerDismissed(true)} aria-label="Закрыть">
+            <X size={16} strokeWidth={2.5} />
+          </button>
+        </div>
+      )}
       <WishCard ref={wishRef} />
 
       {isLoading && <p className="hint">Загрузка…</p>}
 
-      {error && (
-        <p className="hint error">
-          {error.message.includes('401')
-            ? 'Откройте приложение через Telegram'
-            : error.message}
-        </p>
-      )}
+      {error && <p className="hint error">{apiErrorMessage(error)}</p>}
 
-      {data && data.length === 0 && (
-        <p className="hint">На сегодня нет приёмов</p>
-      )}
+      {data && data.length === 0 && (() => {
+        const ownMeds = (meds ?? []).filter((m) => !m.linked_user_id && !m.dep_share_id)
+        if (ownMeds.length === 0) {
+          return (
+            <div className="empty-state">
+              <p className="empty-state-title"><Pill size={17} strokeWidth={2} className="ic" /> Пока нет препаратов</p>
+              <p className="empty-state-text">Добавьте первый — и я напомню о приёмах вовремя.</p>
+              <button type="button" className="empty-state-link" onClick={() => onNavigate?.('medications')}>
+                В Аптечку <ArrowRight size={14} strokeWidth={2} className="ic" />
+              </button>
+            </div>
+          )
+        }
+        if (ownMeds.every((m) => m.paused)) {
+          return (
+            <div className="empty-state">
+              <p className="empty-state-title"><Pause size={17} strokeWidth={2} className="ic" /> Все препараты на паузе</p>
+              <p className="empty-state-text">Напоминания не приходят. Снимите паузу, когда будете готовы.</p>
+              <button type="button" className="empty-state-link" onClick={() => onNavigate?.('medications')}>
+                В Аптечку <ArrowRight size={14} strokeWidth={2} className="ic" />
+              </button>
+            </div>
+          )
+        }
+        return <p className="hint">На сегодня нет приёмов</p>
+      })()}
 
       {data && hasAny && (
         <>
           {dueItems.length > 0 && (
             <>
               <h2 className="section-title">Сейчас</h2>
+              {showHoldHint && (
+                <p className="hold-caption">
+                  Сдвиньте бегунок вправо, чтобы отметить приём
+                </p>
+              )}
               <div className="mlist-list">
                 {dueItems.map((item) => (
                   <MedCard
                     key={itemKey(item)}
                     item={item}
-                    exiting={exitingMap.has(itemKey(item))}
-                    onTaken={() => wishRef.current?.celebrate()}
-                    onSkipped={() => wishRef.current?.skipped()}
+                    onTaken={() => { wishRef.current?.celebrate(); learnHold() }}
+                    onSkipped={() => { wishRef.current?.skipped(); learnHold() }}
                   />
                 ))}
               </div>
             </>
           )}
 
-          {trueDuePending.length >= 2 && (
+          {dueItems.length >= 2 && (
             <div className="take-all-row">
               <button
-                className="btn-take-all"
-                onClick={handleTakeAll}
+                className={`btn-take-all${takeAllArmed ? ' btn-take-all--armed' : ''}`}
+                onClick={clickTakeAll}
                 disabled={takingAll}
               >
-                💊 Выпил всё
+                {takeAllArmed ? 'Тап — принять всё' : 'Принять всё'}
               </button>
             </div>
           )}
@@ -395,7 +549,7 @@ export default function Dashboard() {
                   <MedCard
                     key={itemKey(item)}
                     item={item}
-                    entering={enteringIds.has(itemKey(item))}
+                    entering
                     onTaken={() => wishRef.current?.celebrate()}
                     onSkipped={() => wishRef.current?.skipped()}
                   />
@@ -405,6 +559,75 @@ export default function Dashboard() {
           )}
         </>
       )}
+
+      {/* Свои локальные близкие — активные карточки (владелец отмечает приём) */}
+      {Object.entries(localDepGroups).map(([did, group]) => (
+        <div key={did}>
+          <DepSectionTitle name={group.name} />
+          <div className="mlist-list">
+            {group.items.map((item) => (
+              <MedCard
+                key={itemKey(item)}
+                item={item}
+                onTaken={() => wishRef.current?.celebrate()}
+                onSkipped={() => wishRef.current?.skipped()}
+              />
+            ))}
+          </div>
+        </div>
+      ))}
+
+      {/* F7: read-only sections for linked dependents */}
+      {hasLinked && Object.entries(linkedGroups).map(([uid, group]) => (
+        <div key={uid}>
+          <DepSectionTitle name={group.name} account />
+          <div className="mlist-list">
+            {group.items.map((item) => (
+              <div
+                key={itemKey(item)}
+                className={`mlist-card${item.status === 'skipped' ? ' mlist-card--skipped' : item.status === 'taken' ? ' mlist-card--taken' : ''}${item.is_due && item.status === 'pending' ? ' mlist-card--due' : ''}`}
+              >
+                <div className="mlist-info">
+                  <div className="mlist-name">{item.name}</div>
+                  <div className="mlist-meta">
+                    {item.dosage}
+                  </div>
+                  <div className="mlist-schedule">{item.reminder_time}</div>
+                </div>
+                <div className="med-actions">
+                  {item.status === 'pending' ? (
+                    <>
+                      <button className="btn-take" disabled><Check size={18} strokeWidth={2.5} /></button>
+                      <button className="btn-skip" disabled><X size={18} strokeWidth={2.5} /></button>
+                    </>
+                  ) : (
+                    <button className="btn-undo" disabled>
+                      {item.status === 'taken' ? <Check size={18} strokeWidth={2.5} /> : <X size={18} strokeWidth={2.5} />}
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+
+      {/* F8: shared local dependents — помощник №2 отмечает приёмы (CRUD-доступ) */}
+      {hasSharedDeps && Object.entries(sharedDepGroups).map(([did, group]) => (
+        <div key={did}>
+          <DepSectionTitle name={group.name} />
+          <div className="mlist-list">
+            {group.items.map((item) => (
+              <MedCard
+                key={itemKey(item)}
+                item={item}
+                onTaken={() => wishRef.current?.celebrate()}
+                onSkipped={() => wishRef.current?.skipped()}
+              />
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   )
 }

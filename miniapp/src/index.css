@@ -4,25 +4,37 @@
   padding: 0;
 }
 
+/*
+ * Палитра инъектируется из JS (theme.ts → applyTheme) в <html>.
+ * Значения ниже — фоллбэк до инициализации JS (режим «как в Telegram»), без FOUC.
+ */
 :root {
   --bg: var(--tg-theme-bg-color, #ffffff);
+  --card: var(--tg-theme-bg-color, #ffffff);
+  --secondary-bg: var(--tg-theme-secondary-bg-color, #f1f3f5);
   --text: var(--tg-theme-text-color, #000000);
-  --hint: var(--tg-theme-hint-color, #999999);
-  --link: var(--tg-theme-link-color, #2678b6);
-  --button-bg: var(--tg-theme-button-color, #2678b6);
-  --button-text: var(--tg-theme-button-text-color, #ffffff);
-  --secondary-bg: var(--tg-theme-secondary-bg-color, #f1f1f1);
+  --hint: var(--tg-theme-hint-color, #8e8e93);
+  --separator: var(--tg-theme-section-separator-color, rgba(0,0,0,0.08));
+  --destructive: #d64c3c;
+  --accent: var(--tg-theme-button-color, #3390ec);
+  --button-bg: var(--accent);
+  --button-color: var(--accent);
+  --button-text: #ffffff;
+  --button-text-color: #ffffff;
+  --link: var(--accent);
+  --link-color: var(--accent);
 
   font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
   font-size: 16px;
   line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
   color: var(--text);
   background: var(--bg);
-  -webkit-font-smoothing: antialiased;
 }
 
 body {
   background: var(--bg);
+  color: var(--text);
   min-height: 100vh;
 }
 

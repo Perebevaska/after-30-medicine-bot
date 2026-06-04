@@ -1,15 +1,23 @@
 import asyncio
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone, timedelta, date
+import pytz
 from fastapi import APIRouter, Depends
 import database as db
+import analytics
+import achievements
 from api.auth import require_db_user, TelegramUser
 from schedule_utils import count_due_by_medication
-from streak import streaks_by_subject
+from streak import streaks_by_subject, compute_streak
 from utils import get_tz_for_user
 
 router = APIRouter(prefix="/stats", tags=["stats"])
 
 _ADHERENCE_DAYS = 30
+
+
+def _sum_due(daily: list, n: int) -> int:
+    """Сумма положенных приёмов за последние n дней окна (для гейта ачивок)."""
+    return sum(d["due"] for d in daily[-n:])
 
 
 def _adherence_window():
@@ -34,11 +42,18 @@ async def stats_adherence(user: TelegramUser = Depends(require_db_user)):
     taken = await asyncio.to_thread(db.get_taken_counts, user.user_id, start_utc, end_utc)
     if not rules:
         return {"medications": [], "total_pct": None}
+    # count_due_by_medication агрегирует все правила лекарства → {mid: число положенных}
+    due_map = count_due_by_medication(
+        rules, date.fromisoformat(start_utc[:10]), date.fromisoformat(end_utc[:10])
+    )
+    # уникальные лекарства, метаданные берём из первого правила каждого mid
+    meds_meta: dict[int, dict] = {}
+    for rule in rules:
+        meds_meta.setdefault(rule["medication_id"], rule)
     result = []
     total_due = total_taken = 0
-    for rule in rules:
-        mid = rule["medication_id"]
-        due = count_due_by_medication(rule, start_utc[:10], end_utc[:10])
+    for mid, rule in meds_meta.items():
+        due = due_map.get(mid, 0)
         t = taken.get(mid, 0)
         pct = round(t / due * 100) if due else 0
         total_due += due
@@ -52,19 +67,102 @@ async def stats_adherence(user: TelegramUser = Depends(require_db_user)):
             "taken": t,
             "pct": pct,
         })
-    # Схлопываем дубли по medication_id (несколько rules на одно лекарство)
-    merged: dict[int, dict] = {}
-    for item in result:
-        mid = item["medication_id"]
-        if mid not in merged:
-            merged[mid] = {**item}
-        else:
-            merged[mid]["due"] += item["due"]
-            merged[mid]["taken"] += item["taken"]
-            d = merged[mid]["due"]
-            merged[mid]["pct"] = round(merged[mid]["taken"] / d * 100) if d else 0
     total_pct = round(total_taken / total_due * 100) if total_due else None
-    return {"medications": list(merged.values()), "total_pct": total_pct}
+    return {"medications": result, "total_pct": total_pct}
+
+
+@router.get("/overview")
+async def stats_overview(user: TelegramUser = Depends(require_db_user)):
+    """F11-C (Фаза C-1): сводка по СОБСТВЕННОЙ терапии — серии (текущая+лучшая),
+    соблюдение 7/30/90 + график по дням, пунктуальность отметок, нагрузка."""
+    user_tz = await asyncio.to_thread(get_tz_for_user, user.telegram_id)
+    today = datetime.now(user_tz).date()
+    start_day = today - timedelta(days=89)
+    start_local = user_tz.localize(datetime(start_day.year, start_day.month, start_day.day))
+    end_local = user_tz.localize(datetime(today.year, today.month, today.day)) + timedelta(days=1)
+    start_utc = start_local.astimezone(pytz.utc).strftime("%Y-%m-%d %H:%M:%S")
+    end_utc = end_local.astimezone(pytz.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+    rules = await asyncio.to_thread(db.get_streak_rows, user.user_id)
+    own_rules = [r for r in rules if r["dependent_id"] is None]
+    own_mids = {r["medication_id"] for r in own_rules}
+    intakes_all = await asyncio.to_thread(
+        db.get_intake_statuses_window, user.user_id, start_utc, end_utc
+    )
+    intakes = [i for i in intakes_all if i["medication_id"] in own_mids]
+    units = await asyncio.to_thread(db.get_own_meds_units, user.user_id)
+
+    # created_dates (локальная дата) по own-лекарствам — кламп знаменателя
+    created: dict = {}
+    for r in own_rules:
+        mid = r["medication_id"]
+        if mid in created:
+            continue
+        try:
+            created[mid] = (datetime.strptime(r["created_at"], "%Y-%m-%d %H:%M:%S")
+                            .replace(tzinfo=pytz.utc).astimezone(user_tz).date())
+        except (ValueError, TypeError):
+            created[mid] = None
+    created = {m: d for m, d in created.items() if d}
+
+    # status_by_day {date: {(mid, time): status}} + taken_by_day {date: count}
+    status_by_day: dict = {}
+    taken_by_day: dict = {}
+    for i in intakes:
+        try:
+            d = (datetime.strptime(i["taken_at"], "%Y-%m-%d %H:%M:%S")
+                 .replace(tzinfo=pytz.utc).astimezone(user_tz).date())
+        except (ValueError, TypeError):
+            continue
+        status_by_day.setdefault(d, {})[(i["medication_id"], i["scheduled_time"])] = i["status"]
+        if i["status"] == "taken":
+            taken_by_day[d] = taken_by_day.get(d, 0) + 1
+
+    cd = created or None
+    daily = analytics.daily_adherence(own_rules, taken_by_day, created, start_day, today)
+    best = analytics.best_streak(own_rules, status_by_day, today, cd)
+    adh30, adh90 = analytics.window_pct(daily, 30), analytics.window_pct(daily, 90)
+
+    # F12a: ачивки — ленивый анлок при просмотре «Прогресс»
+    total_taken = await asyncio.to_thread(db.count_total_taken, user.user_id)
+    has_link = await asyncio.to_thread(db.has_any_care_link, user.user_id)
+    earned = achievements.evaluate(
+        best_streak=best, adh30=adh30, due30=_sum_due(daily, 30),
+        adh90=adh90, due90=_sum_due(daily, 90),
+        total_taken=total_taken, has_care_link=has_link,
+    )
+    newly = await asyncio.to_thread(db.unlock_achievements, user.user_id, sorted(earned))
+    unlocked = await asyncio.to_thread(db.get_achievements, user.user_id)
+
+    return {
+        "streak": {
+            "current": compute_streak(own_rules, status_by_day, today, cd),
+            "best": best,
+        },
+        "adherence": {
+            "windows": {
+                "7": analytics.window_pct(daily, 7),
+                "30": adh30,
+                "90": adh90,
+            },
+            "weekly": analytics.weekly_adherence(daily),
+        },
+        "punctuality": analytics.punctuality(intakes, user_tz),
+        "risk": analytics.risk_signals(daily, intakes, user_tz, today),
+        "load": analytics.therapy_load(own_rules, units, today),
+        "achievements": {
+            "catalog": achievements.CATALOG,
+            "unlocked": unlocked,
+            "newly": newly,
+        },
+    }
+
+
+@router.get("/hearts")
+async def stats_hearts(user: TelegramUser = Depends(require_db_user)):
+    """G1: счётчик сердечек пользователя."""
+    hearts = await asyncio.to_thread(db.get_hearts, user.telegram_id)
+    return {"hearts": hearts}
 
 
 @router.get("/streak")

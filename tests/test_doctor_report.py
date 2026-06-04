@@ -1,51 +1,17 @@
-"""F1 — PDF «Отчёт для врача» (календарь приверженности): рендер и пустые случаи."""
-import asyncio
+"""F1 — PDF «Отчёт для врача» (календарь приверженности): рендер и пустые случаи.
+
+После F10-D рендер живёт в reports.build_doctor_pdf (builder возвращает BytesIO|None);
+бот-хендлер удалён.
+"""
 from datetime import datetime, timedelta, timezone
 
 import pytest
 
 
-def run(coro):
-    return asyncio.run(coro)
-
-
-class FakeMessage:
-    def __init__(self):
-        self.replies = []
-        self.documents = []
-
-    async def reply_text(self, text, **kw):
-        self.replies.append(text)
-
-    async def reply_document(self, document=None, filename=None, caption=None, **kw):
-        self.documents.append((filename, document.getvalue() if document else b"", caption))
-
-
-class FakeQuery:
-    def __init__(self, data="export:doctor"):
-        self.data = data
-        self.message = FakeMessage()
-
-    async def answer(self, *a, **kw):
-        pass
-
-
-class FakeUser:
-    def __init__(self, uid):
-        self.id = uid
-        self.username = "patient"
-
-
-class FakeUpdate:
-    def __init__(self, uid):
-        self.callback_query = FakeQuery()
-        self.effective_user = FakeUser(uid)
-
-
 @pytest.fixture
 def env(db):
-    import handlers.export as export
-    return db, export
+    import reports
+    return db, reports
 
 
 def _log(d, mid, days_ago, status):
@@ -58,7 +24,7 @@ def _log(d, mid, days_ago, status):
 
 
 def test_doctor_report_pdf_generated(env):
-    d, export = env
+    d, reports = env
     uid = d.get_or_create_user(6001, "patient")
     m1 = d.add_medication(uid, "Аспирин", "100мг", "after", 1)
     d.add_schedule_rule(m1, "09:00", "daily")
@@ -69,35 +35,25 @@ def test_doctor_report_pdf_generated(env):
         _log(d, m1, da, "taken" if da % 2 == 0 else "skipped")
         _log(d, m2, da, "taken")
 
-    upd = FakeUpdate(6001)
-    run(export.export_doctor_report(upd, None))
-
-    docs = upd.callback_query.message.documents
-    assert len(docs) == 1
-    filename, content, caption = docs[0]
-    assert filename.startswith("doctor_report_") and filename.endswith(".pdf")
+    buf = reports.build_doctor_pdf(6001, "@patient")
+    assert buf is not None
+    content = buf.getvalue()
     assert content[:4] == b"%PDF"
     assert len(content) > 1500           # непустой календарь
-    assert "врача" in caption
 
 
 def test_doctor_report_no_meds(env):
-    d, export = env
+    d, reports = env
     d.get_or_create_user(6002, "patient")
-    upd = FakeUpdate(6002)
-    run(export.export_doctor_report(upd, None))
-    assert upd.callback_query.message.documents == []
-    assert any("Нет активных лекарств" in r for r in upd.callback_query.message.replies)
+    assert reports.build_doctor_pdf(6002, "@patient") is None
 
 
 def test_doctor_report_paused_excluded(env):
     """Лекарство на паузе не попадает в отчёт (как и в adherence)."""
-    d, export = env
+    d, reports = env
     uid = d.get_or_create_user(6003, "patient")
     mid = d.add_medication(uid, "Магний", "1", "any", 1)
     d.add_schedule_rule(mid, "09:00", "daily")
     d.set_medication_paused(mid, uid, True)
-    upd = FakeUpdate(6003)
-    run(export.export_doctor_report(upd, None))
     # единственное лекарство на паузе → нечего показывать
-    assert upd.callback_query.message.documents == []
+    assert reports.build_doctor_pdf(6003, "@patient") is None

@@ -34,6 +34,26 @@ def _rule_fires_today(row, today_local: date) -> bool:
     return False
 
 
+def cycle_dose_for_day(dose_cycle, anchor_date, day: date):
+    """F11-F: токен дозы цикла на дату `day` или None.
+
+    dose_cycle — CSV чисел ("50,75"), anchor_date — ISO-строка старта цикла.
+    Индекс = (day − anchor) % len(cycle). Возвращает строку-токен ("50"),
+    потребитель приклеивает единицу (display) либо парсит число (списание).
+    None — если цикл/anchor пустые или невалидны.
+    """
+    if not dose_cycle or not anchor_date:
+        return None
+    parts = [p.strip() for p in str(dose_cycle).split(",") if p.strip()]
+    if not parts:
+        return None
+    try:
+        anchor = date.fromisoformat(anchor_date)
+    except (ValueError, TypeError):
+        return None
+    return parts[(day - anchor).days % len(parts)]
+
+
 def due_intakes_on(rows, day: date) -> list:
     """Положенные приёмы на дату `day`: список (medication_id, reminder_time)."""
     return [

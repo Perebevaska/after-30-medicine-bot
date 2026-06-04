@@ -1,0 +1,15 @@
+# Шаблон конфигурации Caddy (reverse-proxy + раздача Mini App).
+# Единый источник: setup.sh рендерит при первой установке, CI ресинкает при деплое.
+# Плейсхолдеры подставляются через envsubst: ${DOMAIN}, ${APP_DIR}.
+${DOMAIN} {
+    handle /api/* {
+        uri strip_prefix /api
+        reverse_proxy 127.0.0.1:8000
+    }
+
+    handle {
+        root * ${APP_DIR}/miniapp/dist
+        try_files {path} /index.html
+        file_server
+    }
+}

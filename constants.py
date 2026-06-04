@@ -4,48 +4,25 @@ MAX_MEDICATIONS_PER_USER = 10
 MAX_DEPENDENTS = 2
 DEPENDENT_NAME_MAX_LEN = 30
 
-# Состояния диалогов
-NAME, DOSAGE, MEAL, TIMES, SCHEDULE = range(5)
-EDIT_NAME, EDIT_DOSAGE, EDIT_MEAL, EDIT_TIMES, EDIT_SCHEDULE = range(5, 10)
+# Состояния диалогов. F10-D: единственный оставшийся в боте флоу — tz-онбординг.
 SETUP_TZ, SETUP_CITY = range(10, 12)
-FREQ_TYPE, FREQ_INTERVAL, FREQ_WEEKDAYS, FREQ_MONTHDAY, FREQ_TIME = range(12, 17)
-EDIT_FREQ_TYPE, EDIT_FREQ_INTERVAL, EDIT_FREQ_WEEKDAYS, EDIT_FREQ_MONTHDAY, EDIT_FREQ_TIME = range(17, 22)
-PRESET_TIME = 22       # состояние ввода времени пресета в настройках
-DAILY_PLAN_TIME = 23   # состояние ввода времени плана дня
-
-# Добавление лекарства с разными дозировками
-DOSAGE_B = 29
-TIMES_B = 30
-FREQ_TYPE_B = 31
-FREQ_INTERVAL_B = 32
-FREQ_WEEKDAYS_B = 33
-FREQ_MONTHDAY_B = 34
-EDIT_DOSAGE_B = 35
-
-SELECT_DEPENDENT = 36       # выбор «для кого» в начале add-флоу (caregiver)
-ADD_DEPENDENT_NAME = 37     # ввод имени нового подопечного (caregiver settings + add-флоу)
-
-STOCK_INPUT = 38            # ввод числа в экране «Запас» (F5): остаток/пополнение/единицы/порог
-
-CANCEL_TIP = "<i>(/cancel для отмены)</i>"
 
 ABOUT_TEXT = (
     "ℹ️ <b>О проекте</b>\n\n"
-    "After 30 Med Bot — вайб-кодинг проект: написан в паре с AI (Claude).\n"
-    "Код живой, рабочий, итерируем дальше 🚀\n\n"
+    "After 30 Med Bot — забота о приёме препаратов: вовремя напомнить и помочь "
+    "не сбиться. Вайб-кодинг проект, написан в паре с AI (Claude) — живой, "
+    "рабочий, развиваем дальше 🚀\n\n"
     "<b>Что умею:</b>\n"
     "💊 Напоминания по гибкому расписанию (каждый день / через N / по дням / раз в месяц)\n"
-    "⏰ Свои пресеты времени, режим повтора, план на день\n"
-    "📦 Учёт запаса таблеток с прогнозом и предупреждением\n"
-    "⏸ Пауза лекарства без удаления\n"
+    "📱 Telegram Mini App — управление препаратами, статистика и настройки\n"
+    "📦 Учёт запаса с прогнозом и предупреждением, когда пора докупить\n"
+    "⏸ Пауза препарата без удаления\n"
     "📊 Статистика, соблюдение за 30 дней и серия идеальных дней 🔥\n"
     "🩺 PDF-отчёт для врача и экспорт истории/плана\n"
-    "👨‍👩‍👧 Caregiver-режим — следить за приёмами близких\n\n"
-    '📦 <a href="https://github.com/Perebevaska/after-30-medicine-bot">GitHub</a>\n\n'
+    "👨‍👩‍👧 «Забота» — следить за приёмами близких и помогать им\n\n"
     "<b>В планах:</b>\n"
-    "✅ Быстрое подтверждение всех лекарств одной кнопкой\n"
-    "🔔 Уведомления опекуну о пропусках подопечного\n"
-    "📱 Telegram Mini App"
+    "💉 Курсы лечения с авто-расчётом дозы и завершением\n"
+    "🔔 Больше заботы о близких"
 )
 
 SLOT_ORDER = ["morning", "lunch", "evening", "night"]
@@ -56,11 +33,12 @@ SLOT_LABELS = {
     "night":   "🌙 Ночь",
 }
 
-MEAL_LABELS = {
-    "before": "До еды",
-    "after": "После еды",
-    "with": "Во время еды",
-    "any": "Независимо",
+# Текст meal-relation для напоминаний/PDF (бывш. scheduler._MEAL_LABELS).
+MEAL_LABELS_TEXT = {
+    "before": "до еды",
+    "after": "после еды",
+    "with": "во время еды",
+    "any": "независимо",
 }
 
 MONTHS_GEN = {

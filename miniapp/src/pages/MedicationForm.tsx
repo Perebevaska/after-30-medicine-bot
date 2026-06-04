@@ -1,111 +1,29 @@
 import { useState, useEffect, useRef } from 'react'
+import { Clock, Package, Pill, AlertTriangle, Trash2, CalendarPlus, ArrowLeft, Plus, X } from 'lucide-react'
 import {
   useMedications,
   useDependents,
   useCreateMedication,
   useUpdateMedication,
+  useSettings,
 } from '../api/hooks'
 import type { MealRelation, Frequency, ScheduleRule, RuleIn } from '../api/types'
-
-// ─── DrumPicker ──────────────────────────────────────────────────────────────
-
-const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'))
-const MINUTES = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'))
-const DRUM_ITEM_H = 44
-const DRUM_PAD = 1
-
-function DrumColumn({ items, value, onChange }: {
-  items: string[]
-  value: string
-  onChange: (v: string) => void
-}) {
-  const ref = useRef<HTMLDivElement>(null)
-  const fromScroll = useRef(false)
-  // local selected index drives the highlight — updated immediately on scroll
-  const [selIdx, setSelIdx] = useState(() => Math.max(0, items.indexOf(value)))
-
-  useEffect(() => {
-    if (fromScroll.current) { fromScroll.current = false; return }
-    const idx = items.indexOf(value)
-    if (idx < 0) return
-    setSelIdx(idx)
-    const el = ref.current
-    if (!el) return
-    const top = idx * DRUM_ITEM_H
-    const id = setTimeout(() => { el.scrollTop = top }, 0)
-    return () => clearTimeout(id)
-  }, [value, items])
-
-  const handleScroll = () => {
-    if (!ref.current) return
-    const idx = Math.max(0, Math.min(
-      items.length - 1,
-      Math.round(ref.current.scrollTop / DRUM_ITEM_H)
-    ))
-    setSelIdx(idx)
-    if (items[idx] !== value) {
-      fromScroll.current = true
-      onChange(items[idx])
-    }
-  }
-
-  return (
-    <div className="drum-col">
-      <div className="drum-col-fade drum-col-fade--top" />
-      <div className="drum-col-fade drum-col-fade--bot" />
-      <div className="drum-col-line drum-col-line--top" />
-      <div className="drum-col-line drum-col-line--bot" />
-      <div className="drum-col-scroll" ref={ref} onScroll={handleScroll}>
-        {Array.from({ length: DRUM_PAD }, (_, i) => (
-          <div key={`pre${i}`} className="drum-col-item" />
-        ))}
-        {items.map((item, i) => (
-          <div
-            key={item}
-            className={`drum-col-item${i === selIdx ? ' drum-col-item--sel' : ''}`}
-          >
-            {item}
-          </div>
-        ))}
-        {Array.from({ length: DRUM_PAD }, (_, i) => (
-          <div key={`post${i}`} className="drum-col-item" />
-        ))}
-      </div>
-    </div>
-  )
-}
-
-interface TimePickerProps {
-  value: string
-  onChange: (v: string) => void
-}
-
-function TimePicker({ value, onChange }: TimePickerProps) {
-  const [hh, mm] = value.split(':')
-  return (
-    <div className="drum-picker">
-      <DrumColumn items={HOURS} value={hh ?? '09'} onChange={(h) => onChange(`${h}:${mm ?? '00'}`)} />
-      <span className="drum-sep">:</span>
-      <DrumColumn items={MINUTES} value={mm ?? '00'} onChange={(m) => onChange(`${hh ?? '09'}:${m}`)} />
-    </div>
-  )
-}
+import TimePicker, { NumberDrum } from '../components/TimePicker'
+import { MEAL_OPTIONS } from '../constants'
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
-const todayStr = () => new Date().toISOString().slice(0, 10)
+// MF4: локальная дата, не UTC — иначе anchor_date для interval-правил смещается
+// на дальних поясах (toISOString даёт UTC-день).
+const todayStr = () => {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
 
 const nowHHMM = () => {
   const d = new Date()
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
-
-const MEAL_OPTIONS: { value: MealRelation; label: string }[] = [
-  { value: 'before', label: 'До еды' },
-  { value: 'after', label: 'После еды' },
-  { value: 'with', label: 'С едой' },
-  { value: 'any', label: 'Не важно' },
-]
 
 const FREQ_OPTIONS: { value: Frequency; label: string }[] = [
   { value: 'daily', label: 'Ежедневно' },
@@ -116,6 +34,20 @@ const FREQ_OPTIONS: { value: Frequency; label: string }[] = [
 
 const WEEKDAY_LABELS = ['ПН', 'ВТ', 'СР', 'ЧТ', 'ПТ', 'СБ', 'ВС']
 
+// Единицы дозировки (та же единица у «дозировки 1 ед.» и у «назначено за приём»).
+const DOSE_UNITS = ['мг', 'мкг', 'г', 'мл', 'ЕД', 'таб', 'капля', 'доза']
+
+const fmtNum = (n: number) => (Number.isInteger(n) ? String(n) : String(Number(n.toFixed(3))))
+
+// Старые лекарства хранят дозировку строкой ("100 мг"). Разбираем её на число+единицу,
+// чтобы при редактировании не заставлять вводить заново.
+function parseDosage(s: string): { value: string; label: string } {
+  const m = (s || '').trim().match(/^([\d.,]+)\s*(.*)$/)
+  if (!m) return { value: '', label: 'мг' }
+  const unit = m[2].trim()
+  return { value: m[1].replace(',', '.'), label: DOSE_UNITS.includes(unit) ? unit : 'мг' }
+}
+
 // ─── form state types ─────────────────────────────────────────────────────────
 
 interface RuleState {
@@ -125,29 +57,40 @@ interface RuleState {
   weekdays: number[]
   month_day: number
   anchor_date: string
-  custom_dosage: string
+  dosage: string  // своя доза приёма (число; '' = наследует общую)
+  cycle: boolean        // F11-F: чередовать дозу по дням (только daily)
+  dose_cycle: string[]  // дозы цикла по дням (числа)
 }
 
 interface FormState {
   name: string
-  dosage: string
+  // упаковка
+  unit_dose_value: string  // дозировка 1 ед. (500)
+  unit_dose_label: string  // единица (мг)
+  pack_size: number        // ед. в упаковке (10)
+  // приём / курс
+  dose_per_intake: string  // назначено за приём (250), та же единица
+  course_total: string     // приёмов по назначению (опц.)
+  per_dose: boolean        // разная доза по приёмам (своя dosage у каждого правила)
   meal_relation: MealRelation
   times_per_day: number
-  dependent_id: number | null
   rules: RuleState[]
+  dependent_id: number | null
 }
 
 // ─── converters ──────────────────────────────────────────────────────────────
 
-function defaultRule(_index: number): RuleState {
+function defaultRule(time?: string): RuleState {
   return {
-    reminder_time: nowHHMM(),
+    reminder_time: time ?? nowHHMM(),
     frequency: 'daily',
     interval_days: 2,
     weekdays: [1, 2, 3, 4, 5],
     month_day: 1,
     anchor_date: todayStr(),
-    custom_dosage: '',
+    dosage: '',
+    cycle: false,
+    dose_cycle: ['', ''],
   }
 }
 
@@ -159,16 +102,21 @@ function ruleFromData(r: ScheduleRule): RuleState {
     weekdays: r.weekdays ? r.weekdays.split(',').map(Number) : [1, 2, 3, 4, 5],
     month_day: r.month_day ?? 1,
     anchor_date: r.anchor_date ?? todayStr(),
-    custom_dosage: r.dosage ?? '',
+    dosage: r.dosage ? parseDosage(r.dosage).value : '',
+    cycle: !!r.dose_cycle,
+    dose_cycle: r.dose_cycle ? r.dose_cycle.split(',') : ['', ''],
   }
 }
 
-function ruleToIn(r: RuleState): RuleIn {
-  const base: RuleIn = {
-    reminder_time: r.reminder_time,
-    frequency: r.frequency,
-    ...(r.custom_dosage.trim() ? { dosage: r.custom_dosage.trim() } : {}),
+function ruleToIn(r: RuleState, perDose: boolean, unit: string): RuleIn {
+  const base: RuleIn = { reminder_time: r.reminder_time, frequency: r.frequency }
+  // F11-F: чередование по дням — только daily, своя доза/день; перекрывает perDose.
+  if (r.cycle) {
+    const doses = r.dose_cycle.map((d) => d.trim()).filter(Boolean)
+    return { reminder_time: r.reminder_time, frequency: 'daily',
+             anchor_date: r.anchor_date, dose_cycle: doses.join(',') }
   }
+  if (perDose && r.dosage.trim()) base.dosage = `${r.dosage.trim()} ${unit}`
   switch (r.frequency) {
     case 'interval':
       return { ...base, interval_days: r.interval_days, anchor_date: r.anchor_date }
@@ -183,35 +131,62 @@ function ruleToIn(r: RuleState): RuleIn {
 
 function syncRules(current: RuleState[], n: number): RuleState[] {
   if (n === current.length) return current
-  if (n > current.length)
-    return [...current, ...Array.from({ length: n - current.length }, (_, i) => defaultRule(current.length + i))]
+  if (n > current.length) {
+    // Стаггерим время новых приёмов (+1ч от последнего), иначе несколько приёмов
+    // на одно время = дубль слота (backend отклонит).
+    const lastH = parseInt((current[current.length - 1]?.reminder_time ?? nowHHMM()).slice(0, 2), 10)
+    const add = Array.from({ length: n - current.length }, (_, i) => {
+      const h = Math.min(23, (Number.isNaN(lastH) ? 8 : lastH) + i + 1)
+      return defaultRule(`${String(h).padStart(2, '0')}:00`)
+    })
+    return [...current, ...add]
+  }
   return current.slice(0, n)
+}
+
+function buildDosage(f: FormState): string {
+  const unit = f.unit_dose_label
+  if (f.dose_per_intake.trim()) return `${f.dose_per_intake.trim()} ${unit}`
+  if (f.unit_dose_value.trim()) return `${f.unit_dose_value.trim()} ${unit}`
+  return ''
 }
 
 // ─── validation ───────────────────────────────────────────────────────────────
 
 type Errors = Record<string, string>
 
-function validate(form: FormState): Errors {
+function validate(form: FormState, scheduleOn: boolean): Errors {
   const errs: Errors = {}
   if (!form.name.trim()) errs.name = 'Введите название'
-  const hasAnyDosage = form.dosage.trim() || form.rules.some((r) => r.custom_dosage.trim())
-  if (!hasAnyDosage) errs.dosage = 'Введите дозировку или свою дозировку для каждого приёма'
-  form.rules.forEach((r, i) => {
-    if (!/^\d{2}:\d{2}$/.test(r.reminder_time)) {
-      errs[`rule_${i}_time`] = 'Формат ЧЧ:ММ'
-    }
-    if (r.frequency === 'interval') {
-      if (!r.interval_days || r.interval_days < 1)
-        errs[`rule_${i}_interval`] = 'Кол-во дней > 0'
-      if (!r.anchor_date)
-        errs[`rule_${i}_anchor`] = 'Укажите дату начала'
-    }
-    if (r.frequency === 'weekdays' && r.weekdays.length === 0)
-      errs[`rule_${i}_weekdays`] = 'Выберите хотя бы один день'
-    if (r.frequency === 'monthly' && (!r.month_day || r.month_day < 1 || r.month_day > 31))
-      errs[`rule_${i}_monthday`] = 'День 1–31'
-  })
+  if (!form.unit_dose_value.trim()) errs.unit_dose_value = 'Укажите дозировку 1 ед.'
+  if (scheduleOn) {
+    form.rules.forEach((r, i) => {
+      if (!/^\d{2}:\d{2}$/.test(r.reminder_time)) errs[`rule_${i}_time`] = 'Формат ЧЧ:ММ'
+      if (r.cycle) {
+        const doses = r.dose_cycle.map((d) => d.trim()).filter(Boolean)
+        if (doses.length < 2) errs[`rule_${i}_cycle`] = 'Минимум 2 дозы'
+        else if (doses.some((d) => !(parseFloat(d.replace(',', '.')) > 0)))
+          errs[`rule_${i}_cycle`] = 'Дозы — положительные числа'
+        if (!r.anchor_date) errs[`rule_${i}_anchor`] = 'Укажите дату начала'
+        return  // цикл = daily, частотные проверки ниже не нужны
+      }
+      if (r.frequency === 'interval') {
+        if (!r.interval_days || r.interval_days < 1) errs[`rule_${i}_interval`] = 'Кол-во дней > 0'
+        if (!r.anchor_date) errs[`rule_${i}_anchor`] = 'Укажите дату начала'
+      }
+      if (r.frequency === 'weekdays' && r.weekdays.length === 0)
+        errs[`rule_${i}_weekdays`] = 'Выберите хотя бы один день'
+      if (r.frequency === 'monthly' && (!r.month_day || r.month_day < 1 || r.month_day > 31))
+        errs[`rule_${i}_monthday`] = 'День 1–31'
+    })
+    // Дубли приёмов (одинаковое время + частота) запрещены: схлопнутся в один слот.
+    const seen = new Set<string>()
+    form.rules.forEach((r, i) => {
+      const key = `${r.reminder_time}|${r.frequency}`
+      if (seen.has(key)) errs[`rule_${i}_time`] = 'Уже есть приём на это время — измените'
+      seen.add(key)
+    })
+  }
   return errs
 }
 
@@ -222,11 +197,15 @@ interface RuleSectionProps {
   index: number
   errors: Errors
   onChange: (index: number, patch: Partial<RuleState>) => void
+  onRemove?: () => void
+  canRemove: boolean
+  perDose: boolean
+  unitLabel: string
 }
 
-function RuleSection({ rule, index, errors, onChange }: RuleSectionProps) {
+function RuleSection({ rule, index, errors, onChange, onRemove, canRemove, perDose, unitLabel }: RuleSectionProps) {
   const set = (patch: Partial<RuleState>) => onChange(index, patch)
-  const [showDosage, setShowDosage] = useState(!!rule.custom_dosage)
+  const [drumOpen, setDrumOpen] = useState(false)
 
   const toggleWeekday = (day: number) => {
     const days = rule.weekdays.includes(day)
@@ -236,20 +215,117 @@ function RuleSection({ rule, index, errors, onChange }: RuleSectionProps) {
   }
 
   return (
-    <div className="rule-section">
-      <div className="rule-label">Приём {index + 1}</div>
-
-      <div className="form-field">
-        <label className="field-label">Время</label>
-        <TimePicker
-          value={rule.reminder_time}
-          onChange={(v) => set({ reminder_time: v })}
-        />
-        {errors[`rule_${index}_time`] && (
-          <span className="field-error">{errors[`rule_${index}_time`]}</span>
+    <div className="form-section rule-card">
+      <div className="rule-card-head">
+        <span className="rule-num">{index + 1}</span>
+        <span
+          className={`settings-time-chip rule-time-chip${drumOpen ? ' settings-time-chip--active' : ''}`}
+          onClick={() => setDrumOpen((v) => !v)}
+        >
+          <Clock size={14} strokeWidth={2} className="ic" /> {rule.reminder_time}
+          <span className="settings-time-chip-chevron">{drumOpen ? '‹' : '›'}</span>
+        </span>
+        {perDose && (
+          <span className="rule-dose">
+            <input
+              type="number"
+              inputMode="decimal"
+              min="0"
+              className="field-input rule-dose-input"
+              placeholder="доза"
+              value={rule.dosage}
+              onChange={(e) => set({ dosage: e.target.value })}
+            />
+            <span className="field-unit">{unitLabel}</span>
+          </span>
+        )}
+        {canRemove && (
+          <button type="button" className="rule-remove-btn" onClick={onRemove} aria-label="Удалить приём">
+            <X size={16} strokeWidth={2.2} />
+          </button>
         )}
       </div>
 
+      {drumOpen && (
+        <div className="plan-time-expand">
+          <TimePicker value={rule.reminder_time} onChange={(v) => set({ reminder_time: v })} />
+          <button type="button" className="plan-time-done-btn" onClick={() => setDrumOpen(false)}>Готово</button>
+        </div>
+      )}
+      {errors[`rule_${index}_time`] && (
+        <span className="field-error">{errors[`rule_${index}_time`]}</span>
+      )}
+
+      {!perDose && (
+        <label className="form-switch-row rule-cycle-toggle">
+          <span className="form-switch-label">Чередовать дозы по дням</span>
+          <input
+            type="checkbox"
+            className="form-switch"
+            checked={rule.cycle}
+            onChange={(e) => set({ cycle: e.target.checked, frequency: 'daily' })}
+          />
+        </label>
+      )}
+
+      {rule.cycle && (
+        <div className="freq-extra">
+          <span className="field-hint">Доза за приём на каждый день (по кругу). Единица — {unitLabel}.</span>
+          {rule.dose_cycle.map((d, di) => (
+            <div className="form-field form-field--row" key={di}>
+              <label className="field-label">День {di + 1}</label>
+              <input
+                type="number"
+                inputMode="decimal"
+                min="0"
+                className="field-input field-input--short"
+                placeholder="доза"
+                value={d}
+                onChange={(e) => {
+                  const nx = [...rule.dose_cycle]
+                  nx[di] = e.target.value
+                  set({ dose_cycle: nx })
+                }}
+              />
+              <span className="field-unit">{unitLabel}</span>
+              {rule.dose_cycle.length > 2 && (
+                <button
+                  type="button"
+                  className="rule-remove-btn"
+                  onClick={() => set({ dose_cycle: rule.dose_cycle.filter((_, k) => k !== di) })}
+                  aria-label="Удалить дозу"
+                >
+                  <X size={16} strokeWidth={2.2} />
+                </button>
+              )}
+            </div>
+          ))}
+          <button
+            type="button"
+            className="schedule-add-toggle"
+            onClick={() => set({ dose_cycle: [...rule.dose_cycle, ''] })}
+          >
+            + Добавить день
+          </button>
+          {errors[`rule_${index}_cycle`] && (
+            <span className="field-error">{errors[`rule_${index}_cycle`]}</span>
+          )}
+          <div className="form-field">
+            <label className="field-label">Начиная с</label>
+            <input
+              type="date"
+              className="field-input"
+              value={rule.anchor_date}
+              onChange={(e) => set({ anchor_date: e.target.value })}
+            />
+            {errors[`rule_${index}_anchor`] && (
+              <span className="field-error">{errors[`rule_${index}_anchor`]}</span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {!rule.cycle && (<>
       <div className="form-field">
         <label className="field-label">Частота</label>
         <div className="seg-ctrl seg-ctrl--freq">
@@ -339,36 +415,7 @@ function RuleSection({ rule, index, errors, onChange }: RuleSectionProps) {
           )}
         </div>
       )}
-
-      {showDosage ? (
-        <div className="form-field">
-          <div className="custom-dosage-header">
-            <label className="field-label">Своя дозировка</label>
-            <button
-              type="button"
-              className="custom-dosage-remove"
-              onClick={() => { setShowDosage(false); set({ custom_dosage: '' }) }}
-            >
-              убрать
-            </button>
-          </div>
-          <input
-            type="text"
-            className="field-input"
-            placeholder="Например: 200 мг"
-            value={rule.custom_dosage}
-            onChange={(e) => set({ custom_dosage: e.target.value })}
-          />
-        </div>
-      ) : (
-        <button
-          type="button"
-          className="custom-dosage-toggle"
-          onClick={() => setShowDosage(true)}
-        >
-          + своя дозировка для этого приёма
-        </button>
-      )}
+      </>)}
     </div>
   )
 }
@@ -377,87 +424,148 @@ function RuleSection({ rule, index, errors, onChange }: RuleSectionProps) {
 
 interface Props {
   editId?: number
+  linkedUserId?: number  // F7: create/edit for linked dependent (their user_id)
+  forDepShareId?: number // F8: create/edit for shared dep (share_id)
+  openSchedule?: boolean // открыть форму сразу на блоке расписания (из «+ расписание»)
   onBack: () => void
 }
 
-export default function MedicationForm({ editId, onBack }: Props) {
+export default function MedicationForm({ editId, linkedUserId, forDepShareId, openSchedule, onBack }: Props) {
   const { data: meds } = useMedications()
   const { data: deps } = useDependents()
+  const { data: settings } = useSettings()
   const createMed = useCreateMedication()
   const updateMed = useUpdateMedication()
 
   const existing = editId != null ? meds?.find((m) => m.id === editId) : undefined
+  const linkedDeps = settings?.active_dependents ?? []
+  const viewingDeps = settings?.viewing_deps ?? []
 
-  const [form, setForm] = useState<FormState>(() => {
-    if (existing) {
-      return {
-        name: existing.name,
-        dosage: existing.dosage,
-        meal_relation: existing.meal_relation,
-        times_per_day: existing.times_per_day,
-        dependent_id: existing.dependent_id,
-        rules: existing.rules.map(ruleFromData),
-      }
-    }
+  const [selectedLinkedUserId, setSelectedLinkedUserId] = useState<number | undefined>(
+    linkedUserId ?? existing?.linked_user_id
+  )
+  const [selectedDepShareId, setSelectedDepShareId] = useState<number | undefined>(
+    forDepShareId ?? existing?.dep_share_id
+  )
+  const effectiveLinkedUserId = selectedLinkedUserId
+  const effectiveDepShareId = selectedDepShareId
+  const recipientLocked = editId != null || linkedUserId != null || forDepShareId != null
+  const showRecipientPicker = !recipientLocked &&
+    ((deps?.length ?? 0) > 0 || linkedDeps.length > 0 || viewingDeps.length > 0)
+
+  const fromExisting = (m: NonNullable<typeof existing>): FormState => {
+    const parsed = parseDosage(m.dosage)
     return {
+    name: m.name,
+    unit_dose_value: m.unit_dose_value != null ? fmtNum(m.unit_dose_value) : parsed.value,
+    unit_dose_label: m.unit_dose_label || parsed.label,
+    pack_size: m.stock_qty != null ? Math.round(m.stock_qty)
+      : m.pack_size != null ? Math.round(m.pack_size) : 10,
+    dose_per_intake: m.dose_per_intake != null ? fmtNum(m.dose_per_intake) : '',
+    course_total: m.course_total != null ? String(m.course_total) : '',
+    per_dose: m.rules.some((r) => !!r.dosage),
+    meal_relation: m.meal_relation,
+    times_per_day: m.times_per_day,
+    rules: m.rules.length ? m.rules.map(ruleFromData) : [defaultRule()],
+    dependent_id: m.dependent_id,
+    }
+  }
+
+  const [form, setForm] = useState<FormState>(() =>
+    existing ? fromExisting(existing) : {
       name: '',
-      dosage: '',
+      unit_dose_value: '',
+      unit_dose_label: 'мг',
+      pack_size: 10,
+      dose_per_intake: '',
+      course_total: '',
+      per_dose: false,
       meal_relation: 'any',
       times_per_day: 1,
+      rules: [defaultRule()],
       dependent_id: null,
-      rules: [defaultRule(0)],
     }
-  })
+  )
 
+  // Блок «Расписание»: при создании — свёрнут (сперва упаковка); при редактировании
+  // открыт если у лекарства уже есть приёмы или пришли из «+ расписание».
+  const [scheduleOn, setScheduleOn] = useState<boolean>(
+    !!openSchedule || (editId != null && (existing?.rules.length ?? 0) > 0)
+  )
+  const [packDrumOpen, setPackDrumOpen] = useState(false)
   const [errors, setErrors] = useState<Errors>({})
+  const bodyRef = useRef<HTMLDivElement>(null)
   const [submitError, setSubmitError] = useState<string | null>(null)
+  const [doseWarn, setDoseWarn] = useState(false)
 
-  // Re-initialize form when editing med loads after initial render
   useEffect(() => {
     if (existing && !form.name) {
-      setForm({
-        name: existing.name,
-        dosage: existing.dosage,
-        meal_relation: existing.meal_relation,
-        times_per_day: existing.times_per_day,
-        dependent_id: existing.dependent_id,
-        rules: existing.rules.map(ruleFromData),
-      })
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setForm(fromExisting(existing))
+      setScheduleOn(!!openSchedule || existing.rules.length > 0)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [existing?.id])
 
-  const setTimes = (n: number) =>
-    setForm((f) => ({ ...f, times_per_day: n, rules: syncRules(f.rules, n) }))
+  const addRule = () =>
+    setForm((f) => {
+      const next = syncRules(f.rules, f.rules.length + 1)
+      return { ...f, rules: next, times_per_day: next.length }
+    })
+
+  const removeRule = (index: number) =>
+    setForm((f) => {
+      if (f.rules.length <= 1) return f
+      const next = f.rules.filter((_, i) => i !== index)
+      return { ...f, rules: next, times_per_day: next.length }
+    })
 
   const patchRule = (index: number, patch: Partial<RuleState>) =>
-    setForm((f) => ({
-      ...f,
-      rules: f.rules.map((r, i) => (i === index ? { ...r, ...patch } : r)),
-    }))
+    setForm((f) => ({ ...f, rules: f.rules.map((r, i) => (i === index ? { ...r, ...patch } : r)) }))
 
   const isPending = createMed.isPending || updateMed.isPending
 
+  // Авторасчёт списания: назначено / дозировка 1 ед.
+  const udv = parseFloat(form.unit_dose_value)
+  const dpi = parseFloat(form.dose_per_intake)
+  const unitsPerDose = udv > 0 && dpi > 0 ? dpi / udv : null
+  // F11-F: при чередовании доза задаётся в цикле — «назначено за приём» дублирует
+  const anyCycle = scheduleOn && form.rules.some((r) => r.cycle)
+
   const handleSubmit = async () => {
-    const errs = validate(form)
+    const errs = validate(form, scheduleOn)
     setErrors(errs)
-    if (Object.keys(errs).length > 0) return
+    if (Object.keys(errs).length > 0) {
+      // Скролл к первому невалидному полю + фокус — юзер сразу видит, что править.
+      requestAnimationFrame(() => {
+        const el = bodyRef.current?.querySelector('.field-input--error, .field-error')
+        if (!el) return
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        const field = el.closest('.form-field') ?? el.parentElement
+        field?.querySelector<HTMLElement>('input, textarea, select')?.focus({ preventScroll: true })
+      })
+      return
+    }
 
     const body = {
       name: form.name.trim(),
-      dosage: form.dosage.trim(),
+      dosage: buildDosage(form),
       meal_relation: form.meal_relation,
       times_per_day: form.times_per_day,
-      dependent_id: form.dependent_id,
-      rules: form.rules.map(ruleToIn),
+      dependent_id: (effectiveLinkedUserId || effectiveDepShareId) ? null : form.dependent_id,
+      for_linked_user_id: effectiveLinkedUserId ?? null,
+      for_dep_share_id: effectiveDepShareId ?? null,
+      unit_dose_value: udv > 0 ? udv : null,
+      unit_dose_label: form.unit_dose_label,
+      dose_per_intake: dpi > 0 ? dpi : null,
+      pack_size: form.pack_size,
+      course_total: form.course_total.trim() ? parseInt(form.course_total, 10) : null,
+      rules: scheduleOn ? form.rules.map((r) => ruleToIn(r, form.per_dose, form.unit_dose_label)) : [],
     }
 
     try {
-      if (editId != null) {
-        await updateMed.mutateAsync({ id: editId, ...body })
-      } else {
-        await createMed.mutateAsync(body)
-      }
+      if (editId != null) await updateMed.mutateAsync({ id: editId, ...body })
+      else await createMed.mutateAsync(body)
       onBack()
     } catch (e) {
       setSubmitError(e instanceof Error ? e.message : 'Ошибка сохранения')
@@ -467,41 +575,50 @@ export default function MedicationForm({ editId, onBack }: Props) {
   return (
     <div className="form-page">
       <div className="form-header">
-        <button className="form-back-btn" onClick={onBack} type="button">
-          ←
-        </button>
+        <button className="form-back-btn" onClick={onBack} type="button" aria-label="Назад"><ArrowLeft size={20} strokeWidth={2} /></button>
         <h1 className="form-title">
-          {editId != null ? 'Редактировать' : 'Добавить лекарство'}
+          {editId != null ? 'Препарат' : 'Новый препарат'}
         </h1>
       </div>
 
-      <div className="form-body">
-        {/* Dependent — first when caregiver has dependents */}
-        {deps && deps.length > 0 && (
+      <div className="form-body" ref={bodyRef}>
+        {showRecipientPicker && (
           <div className="form-section">
             <label className="field-label">Для кого</label>
             <select
               className="field-select"
-              value={form.dependent_id ?? ''}
-              onChange={(e) =>
-                setForm((f) => ({
-                  ...f,
-                  dependent_id: e.target.value ? +e.target.value : null,
-                }))
+              value={
+                effectiveLinkedUserId != null ? `linked:${effectiveLinkedUserId}`
+                : effectiveDepShareId != null ? `share:${effectiveDepShareId}`
+                : form.dependent_id != null ? `dep:${form.dependent_id}` : ''
               }
+              onChange={(e) => {
+                const v = e.target.value
+                setForm((f) => ({ ...f, dependent_id: v.startsWith('dep:') ? +v.slice(4) : null }))
+                setSelectedLinkedUserId(v.startsWith('linked:') ? +v.slice(7) : undefined)
+                setSelectedDepShareId(v.startsWith('share:') ? +v.slice(6) : undefined)
+              }}
             >
-              <option value="">Для себя</option>
-              {deps.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.name}
+              <option value="">Себе</option>
+              {deps?.map((d) => (<option key={`dep:${d.id}`} value={`dep:${d.id}`}>{d.name}</option>))}
+              {linkedDeps.map((d) => (
+                <option key={`linked:${d.dependent_user_id}`} value={`linked:${d.dependent_user_id}`}>
+                  @{d.dependent_username ?? `id${d.dependent_telegram_id}`}
+                </option>
+              ))}
+              {viewingDeps.map((vd) => (
+                <option key={`share:${vd.share_id}`} value={`share:${vd.share_id}`}>
+                  {vd.dep_name} · @{vd.owner_username}
                 </option>
               ))}
             </select>
           </div>
         )}
 
-        {/* Name */}
+        {/* ── Упаковка ── */}
         <div className="form-section">
+          <div className="form-section-head"><Package size={15} strokeWidth={2} className="ic" /> Упаковка</div>
+
           <div className="form-field">
             <label className="field-label">Название</label>
             <input
@@ -514,69 +631,186 @@ export default function MedicationForm({ editId, onBack }: Props) {
             {errors.name && <span className="field-error">{errors.name}</span>}
           </div>
 
-          <div className="form-field">
-            <label className="field-label">Дозировка</label>
-            <input
-              type="text"
-              className={`field-input${errors.dosage ? ' field-input--error' : ''}`}
-              placeholder="Например: 100 мг"
-              value={form.dosage}
-              onChange={(e) => setForm((f) => ({ ...f, dosage: e.target.value }))}
-            />
-            {errors.dosage && <span className="field-error">{errors.dosage}</span>}
-          </div>
-        </div>
+          <div className="form-grid2">
+            <div className="form-field">
+              <label className="field-label">Дозировка 1 ед.</label>
+              <div className="dose-row">
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  className={`field-input field-input--short${errors.unit_dose_value ? ' field-input--error' : ''}`}
+                  placeholder="500"
+                  value={form.unit_dose_value}
+                  onChange={(e) => {
+                    const v = e.target.value
+                    setForm((f) => ({ ...f, unit_dose_value: v }))
+                    if (editId != null && existing?.unit_dose_value != null &&
+                        v !== fmtNum(existing.unit_dose_value)) setDoseWarn(true)
+                  }}
+                />
+                <select
+                  className="field-select field-select--unit"
+                  value={form.unit_dose_label}
+                  onChange={(e) => setForm((f) => ({ ...f, unit_dose_label: e.target.value }))}
+                >
+                  {DOSE_UNITS.map((u) => (<option key={u} value={u}>{u}</option>))}
+                </select>
+              </div>
+              {errors.unit_dose_value && <span className="field-error">{errors.unit_dose_value}</span>}
+              <span className="field-hint">Вещества в одной таблетке/капсуле.</span>
+            </div>
 
-        {/* Meal relation */}
-        <div className="form-section">
-          <label className="field-label">Как принимать</label>
-          <div className="seg-ctrl">
-            {MEAL_OPTIONS.map((o) => (
-              <button
-                key={o.value}
-                type="button"
-                className={`seg-btn${form.meal_relation === o.value ? ' seg-btn--active' : ''}`}
-                onClick={() => setForm((f) => ({ ...f, meal_relation: o.value }))}
+            <div className="form-field">
+              <label className="field-label">Ед. в упаковке</label>
+              <span
+                className={`settings-time-chip${packDrumOpen ? ' settings-time-chip--active' : ''}`}
+                onClick={() => setPackDrumOpen((v) => !v)}
               >
-                {o.label}
-              </button>
-            ))}
+                {form.pack_size} шт.
+                <span className="settings-time-chip-chevron">{packDrumOpen ? '‹' : '›'}</span>
+              </span>
+              <span className="field-hint">
+                {editId == null ? 'Это и есть запас.' : 'Текущий запас. Докупили — поднимите.'}
+              </span>
+            </div>
           </div>
+
+          {packDrumOpen && (
+            <div className="plan-time-expand">
+              <NumberDrum value={form.pack_size} min={1} max={240}
+                onChange={(v) => setForm((f) => ({ ...f, pack_size: v }))} />
+              <button type="button" className="plan-time-done-btn" onClick={() => setPackDrumOpen(false)}>Готово</button>
+            </div>
+          )}
+          {doseWarn && (
+            <span className="field-warn">
+              <AlertTriangle size={14} strokeWidth={2} className="ic" /> Купили упаковку с другой дозировкой? Лучше создайте новый препарат — так история и запас не смешаются.
+            </span>
+          )}
         </div>
 
-        {/* Times per day */}
-        <div className="form-section">
-          <label className="field-label">Приёмов в день</label>
-          <div className="seg-ctrl">
-            {[1, 2, 3, 4, 5, 6].map((n) => (
-              <button
-                key={n}
-                type="button"
-                className={`seg-btn${form.times_per_day === n ? ' seg-btn--active' : ''}`}
-                onClick={() => setTimes(n)}
-              >
-                {n}
+        {/* ── Расписание приёма / курс ── */}
+        {scheduleOn ? (
+          <>
+            <div className="form-section">
+              <button type="button" className="schedule-remove-toggle" onClick={() => setScheduleOn(false)}>
+                <Trash2 size={15} strokeWidth={2} className="ic" /> Удалить расписание
               </button>
-            ))}
-          </div>
-        </div>
+            </div>
 
-        {/* Schedule rules */}
-        {form.rules.map((rule, i) => (
-          <div key={i} className="form-section">
-            <RuleSection rule={rule} index={i} errors={errors} onChange={patchRule} />
+            <div className="form-section">
+              <div className="form-section-head"><Pill size={15} strokeWidth={2} className="ic" /> Приём и курс</div>
+
+              <div className="form-grid2">
+                <div className="form-field">
+                  <label className="field-label">Назначено за приём</label>
+                  {anyCycle ? (
+                    <span className="field-hint">Задано в чередовании ниже (своя доза на каждый день).</span>
+                  ) : (<>
+                    <div className="dose-row">
+                      <input
+                        type="number"
+                        inputMode="decimal"
+                        min="0"
+                        className="field-input field-input--short"
+                        placeholder={form.unit_dose_value || '250'}
+                        value={form.dose_per_intake}
+                        onChange={(e) => setForm((f) => ({ ...f, dose_per_intake: e.target.value }))}
+                      />
+                      <span className="field-unit">{form.unit_dose_label}</span>
+                    </div>
+                    {unitsPerDose != null ? (
+                      <span className="field-hint">
+                        ≈ {fmtNum(unitsPerDose)} ед.
+                        {unitsPerDose === 0.5 ? ' (½)' : unitsPerDose === 0.25 ? ' (¼)' : ''} · списывается
+                      </span>
+                    ) : (
+                      <span className="field-hint">Пусто = 1 ед. целиком.</span>
+                    )}
+                  </>)}
+                </div>
+
+                <div className="form-field">
+                  <label className="field-label">Курс — приёмов</label>
+                  <div className="dose-row">
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      min="1"
+                      className="field-input field-input--short"
+                      placeholder="∞"
+                      value={form.course_total}
+                      onChange={(e) => setForm((f) => ({ ...f, course_total: e.target.value }))}
+                    />
+                    <span className="field-unit">раз</span>
+                  </div>
+                  <span className="field-hint">Всего по назначению. Пусто = бессрочно.</span>
+                </div>
+              </div>
+
+              <label className="form-switch-row">
+                <span className="form-switch-label">Разная доза по приёмам</span>
+                <input
+                  type="checkbox"
+                  className="form-switch"
+                  checked={form.per_dose}
+                  disabled={anyCycle}
+                  onChange={(e) => setForm((f) => ({
+                    ...f,
+                    per_dose: e.target.checked,
+                    // F11-F: режимы доз взаимоисключающие — сбрасываем цикл у правил
+                    rules: e.target.checked ? f.rules.map((r) => ({ ...r, cycle: false })) : f.rules,
+                  }))}
+                />
+              </label>
+              {form.per_dose && (
+                <span className="field-hint">У каждого приёма своя доза ниже. Пусто в приёме = общая.</span>
+              )}
+              {anyCycle && (
+                <span className="field-hint">Недоступно при чередовании доз по дням.</span>
+              )}
+            </div>
+
+            <div className="form-section">
+              <div className="form-field">
+                <label className="field-label">Как принимать</label>
+                <div className="seg-ctrl seg-ctrl--meal">
+                  {MEAL_OPTIONS.map((o) => (
+                    <button key={o.value} type="button"
+                      className={`seg-btn${form.meal_relation === o.value ? ' seg-btn--active' : ''}`}
+                      onClick={() => setForm((f) => ({ ...f, meal_relation: o.value }))}
+                    >{o.label}</button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {form.rules.map((rule, i) => (
+              <RuleSection key={i} rule={rule} index={i} errors={errors} onChange={patchRule}
+                onRemove={() => removeRule(i)} canRemove={form.rules.length > 1}
+                perDose={form.per_dose} unitLabel={form.unit_dose_label} />
+            ))}
+
+            <div className="form-section">
+              <button type="button" className="schedule-add-toggle" onClick={addRule}>
+                <Plus size={15} strokeWidth={2} className="ic" /> Добавить приём
+              </button>
+            </div>
+          </>
+        ) : (
+          <div className="form-section">
+            <button type="button" className="schedule-add-toggle" onClick={() => setScheduleOn(true)}>
+              <CalendarPlus size={15} strokeWidth={2} className="ic" /> Добавить расписание приёма
+            </button>
+            <span className="field-hint">Можно сохранить и без расписания — напоминания добавите позже.</span>
           </div>
-        ))}
+        )}
 
         {submitError && <p className="submit-error">{submitError}</p>}
 
         <div className="form-section form-section--actions">
-          <button
-            type="button"
-            className="btn-primary"
-            onClick={handleSubmit}
-            disabled={isPending}
-          >
+          <button type="button" className="btn-primary" onClick={handleSubmit} disabled={isPending}>
             {isPending ? 'Сохранение…' : 'Сохранить'}
           </button>
         </div>

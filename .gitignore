@@ -10,4 +10,5 @@ __pycache__/
 # Claude Code
 .claude/
 CLAUDE.md
+CLAUDE.original.md
 *.log

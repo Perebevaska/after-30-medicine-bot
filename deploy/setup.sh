@@ -13,7 +13,8 @@ die()     { echo -e "${RED}[ERROR]${NC} $*"; exit 1; }
 [[ $EUID -ne 0 ]] && die "Запустите скрипт от root: sudo bash setup.sh"
 
 REPO_URL="https://github.com/Perebevaska/after-30-medicine-bot.git"
-BRANCH="develop"
+# D-2: прод отслеживает main — CI/CD деплоит только при push в main.
+BRANCH="main"
 APP_DIR="/root/after-30-medicine-bot"
 
 echo ""
@@ -46,12 +47,16 @@ fi
 read -rp "RATE_LIMIT_PER_MINUTE (по умолчанию: 60): " RATE_LIMIT
 RATE_LIMIT="${RATE_LIMIT:-60}"
 
+read -rp "SSH-порт (Enter — 27027; введите 22 чтобы не менять): " SSH_PORT
+SSH_PORT="${SSH_PORT:-27027}"
+
 echo ""
 info "Конфигурация:"
 echo "  Домен:   $DOMAIN"
 echo "  Bot:     ${BOT_TOKEN:0:10}..."
 echo "  Admin:   $ADMIN_ID"
 echo "  DB pass: ${DB_PASS:0:8}..."
+echo "  SSH:     порт $SSH_PORT"
 echo ""
 read -rp "Всё верно? Продолжить установку? [y/N] " CONFIRM
 [[ "${CONFIRM,,}" != "y" ]] && die "Установка отменена"
@@ -61,7 +66,7 @@ read -rp "Всё верно? Продолжить установку? [y/N] " CO
 info "Обновление пакетов..."
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -q
-apt-get install -y -q git python3 python3-venv python3-pip curl postgresql fonts-dejavu-core
+apt-get install -y -q git python3 python3-venv python3-pip curl postgresql redis-server fonts-dejavu-core
 
 # ─── Node.js 22 ───────────────────────────────────────────────────────────────
 
@@ -125,6 +130,7 @@ cat > .env <<EOF
 BOT_TOKEN=${BOT_TOKEN}
 ADMIN_ID=${ADMIN_ID}
 DATABASE_URL=postgresql://medbot:${DB_PASS}@127.0.0.1/medbot
+REDIS_URL=redis://127.0.0.1:6379
 MINIAPP_ORIGIN=https://${DOMAIN}
 RATE_LIMIT_PER_MINUTE=${RATE_LIMIT}
 TRUST_PROXY=true
@@ -170,11 +176,11 @@ success "Mini App собран"
 
 info "Создание systemd-сервисов..."
 
-cat > /etc/systemd/system/medbot.service <<EOF
+cat > /etc/systemd/system/medbot-bot.service <<EOF
 [Unit]
 Description=Med Bot — Telegram бот напоминаний
-After=network-online.target postgresql.service
-Requires=postgresql.service
+After=network-online.target postgresql.service redis-server.service
+Requires=postgresql.service redis-server.service
 
 [Service]
 Type=simple
@@ -182,8 +188,10 @@ User=root
 WorkingDirectory=${APP_DIR}
 EnvironmentFile=${APP_DIR}/.env
 ExecStart=${APP_DIR}/venv/bin/python3 bot.py
-Restart=on-failure
+Restart=always
 RestartSec=10s
+StartLimitIntervalSec=300
+StartLimitBurst=5
 StandardOutput=journal
 StandardError=journal
 
@@ -194,8 +202,8 @@ EOF
 cat > /etc/systemd/system/medbot-api.service <<EOF
 [Unit]
 Description=Med Bot — FastAPI
-After=network-online.target postgresql.service
-Requires=postgresql.service
+After=network-online.target postgresql.service redis-server.service
+Requires=postgresql.service redis-server.service
 
 [Service]
 Type=simple
@@ -203,8 +211,10 @@ User=root
 WorkingDirectory=${APP_DIR}
 EnvironmentFile=${APP_DIR}/.env
 ExecStart=${APP_DIR}/venv/bin/uvicorn api.main:app --host 127.0.0.1 --port 8000
-Restart=on-failure
-RestartSec=10s
+Restart=always
+RestartSec=5s
+StartLimitIntervalSec=300
+StartLimitBurst=5
 StandardOutput=journal
 StandardError=journal
 
@@ -212,40 +222,134 @@ StandardError=journal
 WantedBy=multi-user.target
 EOF
 
+cat > /etc/systemd/system/medbot-worker.service <<EOF
+[Unit]
+Description=Med Bot — ARQ Worker (очередь Telegram-сообщений)
+After=network-online.target redis-server.service
+Requires=redis-server.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=${APP_DIR}
+EnvironmentFile=${APP_DIR}/.env
+ExecStart=${APP_DIR}/venv/bin/arq worker.WorkerSettings
+Restart=always
+RestartSec=10s
+StartLimitIntervalSec=300
+StartLimitBurst=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# ─── journald: ограничение размера логов (OP4) ────────────────────────────────
+
+info "Настройка journald (SystemMaxUse=200M)..."
+mkdir -p /etc/systemd/journald.conf.d/
+cat > /etc/systemd/journald.conf.d/medbot.conf <<EOF
+[Journal]
+SystemMaxUse=200M
+EOF
+systemctl restart systemd-journald
+success "journald настроен ($(journalctl --disk-usage 2>/dev/null | grep -oP '[\d.]+ [A-Z]+' | head -1 || echo '?'))"
+
 # ─── Caddyfile ────────────────────────────────────────────────────────────────
 
 info "Настройка Caddy..."
-cat > /etc/caddy/Caddyfile <<EOF
-${DOMAIN} {
-    handle /api/* {
-        uri strip_prefix /api
-        reverse_proxy 127.0.0.1:8000
-    }
-
-    handle {
-        root * ${APP_DIR}/miniapp/dist
-        try_files {path} /index.html
-        file_server
-    }
-}
-EOF
+# D-3: единый источник конфига — deploy/Caddyfile.template (рендер sed, без envsubst-зависимости).
+sed -e "s|\${DOMAIN}|${DOMAIN}|g" -e "s|\${APP_DIR}|${APP_DIR}|g" \
+    "${APP_DIR}/deploy/Caddyfile.template" > /etc/caddy/Caddyfile
 
 # ─── Запуск сервисов ──────────────────────────────────────────────────────────
 
 info "Запуск сервисов..."
+# D-4: бэкап-юниты БД из репо + ежедневный таймер pg_dump (ротация 7 дней).
+cp "${APP_DIR}/deploy/backup/medbot-backup.service" "${APP_DIR}/deploy/backup/medbot-backup.timer" /etc/systemd/system/
+chmod +x "${APP_DIR}/deploy/backup/backup.sh"
 systemctl daemon-reload
-systemctl enable medbot medbot-api caddy --quiet
-systemctl restart medbot medbot-api caddy
+systemctl enable medbot-bot medbot-api medbot-worker caddy redis-server --quiet
+systemctl enable --now medbot-backup.timer --quiet
+systemctl restart redis-server
+systemctl restart medbot-bot medbot-api medbot-worker caddy
 
-# Проверка
+# Проверка (OP1: systemctl is-active для всех сервисов)
 sleep 5
-for svc in medbot medbot-api caddy; do
+for svc in medbot-bot medbot-api medbot-worker caddy redis-server; do
     if systemctl is-active --quiet "$svc"; then
         success "$svc запущен"
     else
         warn "$svc не запустился — проверьте: journalctl -u $svc -n 30"
     fi
 done
+
+# ─── Безопасность (hardening) ─────────────────────────────────────────────────
+# Воспроизводит ручной аудит безопасности: ufw + fail2ban + swappiness + X11 off
+# + смена SSH-порта через ssh.socket (Ubuntu 24.04 — socket-активация).
+# Идемпотентно. Порт 22 НЕ срезается автоматически (защита от лок-аута) — см. вывод в конце.
+
+info "Безопасность: firewall, fail2ban, sshd, sysctl..."
+apt-get install -y -q ufw fail2ban
+
+# .env — только владелец (внутри токен + пароль БД)
+chmod 600 "${APP_DIR}/.env"
+
+# swappiness 10 — меньше своп-долбёж диска при малой RAM
+echo 'vm.swappiness=10' > /etc/sysctl.d/99-swappiness.conf
+sysctl -w vm.swappiness=10 >/dev/null
+
+# X11Forwarding off — на сервере не нужен
+if grep -q '^X11Forwarding yes' /etc/ssh/sshd_config; then
+    sed -i 's/^X11Forwarding yes/X11Forwarding no/' /etc/ssh/sshd_config
+fi
+sshd -t || die "sshd_config невалиден после правки X11Forwarding"
+
+# SSH-порт через ssh.socket override; держим И 22 И новый порт до ручной проверки
+if [[ "$SSH_PORT" != "22" ]]; then
+    mkdir -p /etc/systemd/system/ssh.socket.d
+    cat > /etc/systemd/system/ssh.socket.d/override.conf <<EOF
+[Socket]
+ListenStream=
+ListenStream=0.0.0.0:22
+ListenStream=[::]:22
+ListenStream=0.0.0.0:${SSH_PORT}
+ListenStream=[::]:${SSH_PORT}
+EOF
+    systemctl daemon-reload
+    systemctl restart ssh.socket
+fi
+
+# UFW — default deny incoming, разрешаем SSH(+22 temp)/HTTP/HTTPS
+ufw default deny incoming >/dev/null
+ufw default allow outgoing >/dev/null
+ufw allow "${SSH_PORT}/tcp" comment 'ssh' >/dev/null
+[[ "$SSH_PORT" != "22" ]] && ufw allow 22/tcp comment 'ssh-old-temp' >/dev/null
+ufw allow 80/tcp comment 'http-caddy' >/dev/null
+ufw allow 443/tcp comment 'https-caddy' >/dev/null
+ufw --force enable >/dev/null
+
+# fail2ban — jail sshd; journalmatch на ssh.service (socket-активация логирует туда)
+F2B_PORTS="${SSH_PORT}"
+[[ "$SSH_PORT" != "22" ]] && F2B_PORTS="22,${SSH_PORT}"
+cat > /etc/fail2ban/jail.local <<EOF
+[DEFAULT]
+bantime  = 1h
+findtime = 10m
+maxretry = 5
+backend  = systemd
+
+[sshd]
+enabled  = true
+port     = ${F2B_PORTS}
+maxretry = 4
+bantime  = 2h
+journalmatch = _SYSTEMD_UNIT=ssh.service + _COMM=sshd
+EOF
+systemctl enable --now fail2ban >/dev/null 2>&1
+systemctl restart fail2ban
+success "Hardening применён (ufw + fail2ban + swappiness=10 + X11 off)"
 
 # ─── Финальная проверка ───────────────────────────────────────────────────────
 
@@ -266,8 +370,20 @@ echo ""
 echo "  Mini App:  https://${DOMAIN}/"
 echo "  API:       https://${DOMAIN}/api/health"
 echo ""
-echo "  Логи бота:  journalctl -u medbot -f"
-echo "  Логи API:   journalctl -u medbot-api -f"
-echo "  Логи Caddy: journalctl -u caddy -f"
+echo "  Логи бота:    journalctl -u medbot-bot -f"
+echo "  Логи API:     journalctl -u medbot-api -f"
+echo "  Логи Worker:  journalctl -u medbot-worker -f"
+echo "  Логи Caddy:   journalctl -u caddy -f"
 echo ""
-warn "Не забудьте настроить бэкап БД: deploy/backup/backup.sh"
+success "Бэкап БД: medbot-backup.timer включён (ежедневно, ротация 7 дней)"
+
+if [[ "$SSH_PORT" != "22" ]]; then
+    echo ""
+    warn "SSH-порт сменён на ${SSH_PORT}, но порт 22 ОСТАВЛЕН открытым (защита от лок-аута)."
+    warn "1) В ОТДЕЛЬНОМ терминале проверь:  ssh -p ${SSH_PORT} root@${DOMAIN}"
+    warn "2) Убедившись что вход работает — сруби 22:"
+    echo  "     printf '[Socket]\\nListenStream=\\nListenStream=0.0.0.0:${SSH_PORT}\\nListenStream=[::]:${SSH_PORT}\\n' > /etc/systemd/system/ssh.socket.d/override.conf"
+    echo  "     systemctl daemon-reload && systemctl restart ssh.socket"
+    echo  "     ufw delete allow 22/tcp"
+    echo  "     sed -i 's/^port     = 22,${SSH_PORT}/port     = ${SSH_PORT}/' /etc/fail2ban/jail.local && systemctl restart fail2ban"
+fi

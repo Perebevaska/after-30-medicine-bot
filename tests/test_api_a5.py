@@ -71,7 +71,7 @@ def test_isolation_update(api_client, db):
         _seed(db, OTHER_ID)
         r = cb.put(f"/medications/{mid}", json={
             "name": "Взлом", "dosage": "0", "meal_relation": "any",
-            "times_per_day": 1, "rules": [],
+            "times_per_day": 1, "rules": [{"reminder_time": "09:00", "frequency": "daily"}],
         })
     assert r.status_code == 404
 
@@ -135,7 +135,7 @@ def test_rate_limit(api_client, monkeypatch):
 
     r = api_client.get("/health")
     assert r.status_code == 429
-    assert r.json()["detail"] == "rate limit exceeded"
+    assert r.json()["detail"] == m._RATE_MSG
 
 
 # ── Unified error format ──────────────────────────────────────────────────────

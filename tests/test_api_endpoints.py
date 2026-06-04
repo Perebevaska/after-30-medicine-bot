@@ -70,7 +70,7 @@ def test_update_not_found(api_client, db):
     _seed_user(db)
     r = api_client.put("/medications/999999", json={
         "name": "X", "dosage": "1", "meal_relation": "any",
-        "times_per_day": 1, "rules": [],
+        "times_per_day": 1, "rules": [{"reminder_time": "09:00", "frequency": "daily"}],
     })
     assert r.status_code == 404
 
@@ -134,11 +134,46 @@ def test_stats_adherence_no_meds(api_client, db):
     assert r.json()["medications"] == []
 
 
+def test_stats_adherence_with_meds(api_client, db):
+    """FA-BE1: при наличии лекарств эндпоинт не падал (передавался одиночный
+    dict вместо списка + строки вместо date в count_due_by_medication)."""
+    _seed_user(db)
+    mid = _create_med(api_client, rules=[{"reminder_time": "09:00", "frequency": "daily"}])
+    r = api_client.get("/stats/adherence")
+    assert r.status_code == 200
+    body = r.json()
+    meds = body["medications"]
+    assert len(meds) == 1
+    assert meds[0]["medication_id"] == mid
+    assert isinstance(meds[0]["due"], int) and meds[0]["due"] > 0
+    assert meds[0]["taken"] == 0
+    assert meds[0]["pct"] == 0
+    assert body["total_pct"] == 0
+
+
 def test_stats_streak(api_client, db):
     _seed_user(db)
     r = api_client.get("/stats/streak")
     assert r.status_code == 200
     assert isinstance(r.json(), list)
+
+
+def test_stats_overview_shape(api_client, db):
+    """F11-C: контракт сводки — серии, окна 7/30/90, график, пунктуальность, нагрузка."""
+    _seed_user(db)
+    _create_med(api_client, rules=[{"reminder_time": "09:00", "frequency": "daily"}])
+    r = api_client.get("/stats/overview")
+    assert r.status_code == 200
+    body = r.json()
+    assert set(body) == {"streak", "adherence", "punctuality", "risk", "load", "achievements"}
+    assert set(body["risk"]) == {"ready", "history_days", "signals"}
+    assert set(body["streak"]) == {"current", "best"}
+    assert set(body["adherence"]["windows"]) == {"7", "30", "90"}
+    assert isinstance(body["adherence"]["weekly"], list)
+    assert body["load"]["meds"] == 1
+    assert set(body["punctuality"]) == {
+        "sample", "ontime_pct", "late_pct", "avg_delay_min",
+        "worst_hour", "worst_hour_skip_pct"}
 
 
 # ── /medications/{id}/stock ──────────────────────────────────────────────────
@@ -258,3 +293,41 @@ def test_health(api_client):
     data = api_client.get("/health").json()
     assert data["status"] in ("ok", "degraded")
     assert data["db"] == "ok"
+
+
+# ── A1: упаковка / доза / курс через API ─────────────────────────────────────
+
+def test_create_with_package_fields(api_client, db):
+    _seed_user(db)
+    r = api_client.post("/medications", json={
+        "name": "Аспирин", "dosage": "250 мг", "meal_relation": "after",
+        "times_per_day": 1, "unit_dose_value": 500, "unit_dose_label": "мг",
+        "dose_per_intake": 250, "pack_size": 10, "course_total": 4,
+        "rules": [{"reminder_time": "09:00", "frequency": "daily"}],
+    })
+    assert r.status_code == 201
+    mid = r.json()["id"]
+    med = next(m for m in api_client.get("/medications").json() if m["id"] == mid)
+    assert med["units_per_dose"] == 0.5      # 250/500
+    assert med["stock_qty"] == 10            # pack_size → запас
+    assert med["course_total"] == 4
+    assert med["course_done"] == 0
+
+
+def test_course_progress_and_continue(api_client, db):
+    _seed_user(db)
+    r = api_client.post("/medications", json={
+        "name": "Курс", "dosage": "1 таб", "meal_relation": "any",
+        "times_per_day": 1, "course_total": 2,
+        "rules": [{"reminder_time": "09:00", "frequency": "daily"}],
+    })
+    mid = r.json()["id"]
+    # 2 приёма → курс завершён
+    db.log_intake(mid, "09:00", "taken", "2000-01-01 00:00:00", "2100-01-01 00:00:00")
+    db.log_intake(mid, "10:00", "taken", "2000-01-01 00:00:00", "2100-01-01 00:00:00")
+    med = next(m for m in api_client.get("/medications").json() if m["id"] == mid)
+    assert med["course_done"] == 2 and med["course_total"] == 2
+    # «продолжить» — снять лимит
+    assert api_client.post(f"/medications/{mid}/course/continue").status_code == 204
+    med = next(m for m in api_client.get("/medications").json() if m["id"] == mid)
+    assert med["course_total"] is None

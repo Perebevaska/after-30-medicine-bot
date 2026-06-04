@@ -36,10 +36,18 @@ def db(_pg_schema):
 
 @pytest.fixture(autouse=True)
 def _clear_rate_counters():
-    """Сбрасывает счётчики rate limiter перед каждым тестом."""
+    """Сбрасывает счётчики rate limiter (in-memory + Redis) перед каждым тестом."""
     try:
         import api.main as m
         m._counters.clear()
+    except Exception:
+        pass
+    # AX7: чистим Redis sliding-window, иначе состояние течёт между тестами.
+    try:
+        import redis as _r
+        c = _r.from_url(os.environ.get("REDIS_URL", "redis://localhost:6379"))
+        for k in c.scan_iter("ratelimit:*"):
+            c.delete(k)
     except Exception:
         pass
 

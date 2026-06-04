@@ -1,6 +1,63 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, getInitDataRaw } from './client'
-import type { TodayItem, IntakeIn, AdherenceResponse, StreakItem, Medication, MedicationIn, Dependent, StockInfo, UserSettings, WeekStatRow } from './types'
+import type { TodayItem, IntakeIn, AdherenceResponse, StreakItem, StatsOverview, Medication, MedicationIn, Dependent, StockInfo, UserSettings, WeekStatRow, AdminStats, DepShareInfo } from './types'
+
+export function useRequestCaregiverLink() {
+  const qc = useQueryClient()
+  return useMutation<{ id: number }, Error, string>({
+    mutationFn: (code) => api.post<{ id: number }>('/caregiver-links', { code }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['caregiver-links'] })
+      qc.invalidateQueries({ queryKey: ['settings'] })
+    },
+  })
+}
+
+export function useConfirmCaregiverLink() {
+  const qc = useQueryClient()
+  return useMutation<void, Error, number>({
+    mutationFn: (id) => api.post<void>(`/caregiver-links/${id}/confirm`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['caregiver-links'] })
+      qc.invalidateQueries({ queryKey: ['settings'] })
+    },
+  })
+}
+
+export function useDeclineCaregiverLink() {
+  const qc = useQueryClient()
+  return useMutation<void, Error, number>({
+    mutationFn: (id) => api.post<void>(`/caregiver-links/${id}/decline`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['caregiver-links'] })
+      qc.invalidateQueries({ queryKey: ['settings'] })
+    },
+  })
+}
+
+export function useDeleteCaregiverLink() {
+  const qc = useQueryClient()
+  return useMutation<void, Error, number>({
+    mutationFn: (id) => api.delete<void>(`/caregiver-links/${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['caregiver-links'] })
+      qc.invalidateQueries({ queryKey: ['settings'] })
+      qc.invalidateQueries({ queryKey: ['medications'] })
+      qc.invalidateQueries({ queryKey: ['today'] })
+    },
+  })
+}
+
+export function useRequestLinkBreak() {
+  const qc = useQueryClient()
+  return useMutation<void, Error, number>({
+    mutationFn: (id) => api.post<void>(`/caregiver-links/${id}/request-break`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['settings'] })
+      qc.invalidateQueries({ queryKey: ['caregiver-links'] })
+    },
+  })
+}
 
 export function useToday() {
   return useQuery<TodayItem[]>({
@@ -15,6 +72,30 @@ export function useAdherence() {
     queryKey: ['adherence'],
     queryFn: () => api.get<AdherenceResponse>('/stats/adherence'),
     enabled: !!getInitDataRaw(),
+  })
+}
+
+export function useStatsOverview() {
+  return useQuery<StatsOverview>({
+    queryKey: ['stats-overview'],
+    queryFn: () => api.get<StatsOverview>('/stats/overview'),
+    enabled: !!getInitDataRaw(),
+  })
+}
+
+export function useHearts() {
+  return useQuery<{ hearts: number }>({
+    queryKey: ['hearts'],
+    queryFn: () => api.get<{ hearts: number }>('/stats/hearts'),
+    enabled: !!getInitDataRaw(),
+  })
+}
+
+export function useSetStrictMode() {
+  const qc = useQueryClient()
+  return useMutation<void, Error, { enabled: boolean; hours?: number; minutes?: number }>({
+    mutationFn: (body) => api.put<void>('/settings/strict-mode', body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['settings'] }),
   })
 }
 
@@ -80,6 +161,17 @@ export function usePauseMedication() {
   return useMutation<void, Error, { id: number; paused: boolean }>({
     mutationFn: ({ id, paused }) =>
       api.post<void>(`/medications/${id}/${paused ? 'pause' : 'resume'}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['medications'] })
+      qc.invalidateQueries({ queryKey: ['today'] })
+    },
+  })
+}
+
+export function useContinueCourse() {
+  const qc = useQueryClient()
+  return useMutation<void, Error, number>({
+    mutationFn: (id) => api.post<void>(`/medications/${id}/course/continue`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['medications'] })
       qc.invalidateQueries({ queryKey: ['today'] })
@@ -161,6 +253,13 @@ export function useSettings() {
     queryKey: ['settings'],
     queryFn: () => api.get<UserSettings>('/settings'),
     enabled: !!getInitDataRaw(),
+    // «Забота» — события push-природы (входящий запрос / подтверждение /
+    // отвязка приходят со стороны другого юзера). Telegram webview не шлёт
+    // надёжный focus, поэтому поллим, пока вкладка видима. Payload мал.
+    // Не гейтим по наличию pending: получатель нового запроса изначально
+    // pending не имеет — иначе поллинг бы не стартовал и бейдж не появлялся.
+    refetchInterval: 12000,
+    refetchIntervalInBackground: false,
   })
 }
 
@@ -182,16 +281,8 @@ export function useSetTimezoneByLocation() {
 
 export function useSetReminderMode() {
   const qc = useQueryClient()
-  return useMutation<void, Error, 'once' | 'repeat'>({
-    mutationFn: (mode) => api.put<void>('/settings/reminder-mode', { mode }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['settings'] }),
-  })
-}
-
-export function useSetPreset() {
-  const qc = useQueryClient()
-  return useMutation<void, Error, { slot: string; time: string }>({
-    mutationFn: ({ slot, time }) => api.put<void>(`/settings/presets/${slot}`, { time }),
+  return useMutation<void, Error, { mode: 'once' | 'repeat'; hours?: number; minutes?: number }>({
+    mutationFn: (body) => api.put<void>('/settings/reminder-mode', body),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['settings'] }),
   })
 }
@@ -212,6 +303,22 @@ export function useSetCaregiver() {
       qc.invalidateQueries({ queryKey: ['settings'] })
       qc.invalidateQueries({ queryKey: ['dependents'] })
     },
+  })
+}
+
+export function useSetDependentReminderMode() {
+  const qc = useQueryClient()
+  return useMutation<void, Error, { link_id: number; mode: 'once' | 'repeat'; hours?: number; minutes?: number }>({
+    mutationFn: (v) => api.put<void>('/settings/dependent-reminder-mode', v),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['settings'] }),
+  })
+}
+
+export function useSetDependentStrictMode() {
+  const qc = useQueryClient()
+  return useMutation<void, Error, { link_id: number; enabled: boolean; hours?: number; minutes?: number }>({
+    mutationFn: (v) => api.put<void>('/settings/dependent-strict-mode', v),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['settings'] }),
   })
 }
 
@@ -247,6 +354,83 @@ export function useDeleteAccount() {
   })
 }
 
+export function useAdminStats(enabled: boolean) {
+  return useQuery<AdminStats>({
+    queryKey: ['admin-stats'],
+    queryFn: () => api.get<AdminStats>('/admin/stats'),
+    enabled: enabled && !!getInitDataRaw(),
+    refetchInterval: 30_000,
+  })
+}
+
+// ── F8: dep shares ───────────────────────────────────────────────────────────
+
+export function useEnsureDepShareCode() {
+  const qc = useQueryClient()
+  return useMutation<DepShareInfo, Error, number>({
+    mutationFn: (depId) => api.post<{ share_code: string }>(`/dependent-shares/${depId}/code`)
+      .then((r) => ({ share_code: r.share_code, active_viewer: null, pending_viewers: [] })),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['settings'] }),
+  })
+}
+
+export function useJoinDepShare() {
+  const qc = useQueryClient()
+  return useMutation<void, Error, string>({
+    mutationFn: (code) => api.post<void>('/dependent-shares/join', { code }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['settings'] })
+      qc.invalidateQueries({ queryKey: ['today'] })
+    },
+  })
+}
+
+export function useConfirmDepShare() {
+  const qc = useQueryClient()
+  return useMutation<void, Error, number>({
+    mutationFn: (shareId) => api.post<void>(`/dependent-shares/${shareId}/confirm`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['settings'] })
+      qc.invalidateQueries({ queryKey: ['medications'] })
+      qc.invalidateQueries({ queryKey: ['today'] })
+    },
+  })
+}
+
+export function useDeclineDepShare() {
+  const qc = useQueryClient()
+  return useMutation<void, Error, number>({
+    mutationFn: (shareId) => api.post<void>(`/dependent-shares/${shareId}/decline`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['settings'] }),
+  })
+}
+
+export function useRevokeDepShare() {
+  const qc = useQueryClient()
+  return useMutation<void, Error, number>({
+    mutationFn: (shareId) => api.delete<void>(`/dependent-shares/${shareId}`),
+    onSuccess: () => {
+      // revoke = передача владения viewer'у: меняются и dependents, и medications
+      qc.invalidateQueries({ queryKey: ['settings'] })
+      qc.invalidateQueries({ queryKey: ['dependents'] })
+      qc.invalidateQueries({ queryKey: ['medications'] })
+      qc.invalidateQueries({ queryKey: ['today'] })
+    },
+  })
+}
+
+export function useLeaveDepShare() {
+  const qc = useQueryClient()
+  return useMutation<void, Error, number>({
+    mutationFn: (shareId) => api.delete<void>(`/dependent-shares/${shareId}/leave`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['settings'] })
+      qc.invalidateQueries({ queryKey: ['medications'] })
+      qc.invalidateQueries({ queryKey: ['today'] })
+    },
+  })
+}
+
 export function useLogIntake() {
   const qc = useQueryClient()
   return useMutation<void, Error, IntakeIn>({
@@ -269,9 +453,15 @@ export function useLogIntake() {
       if (c?.prev) qc.setQueryData(['today'], c.prev)
     },
     onSettled: () => {
+      // Dashboard-данные обновляем сразу (дёшево).
       qc.invalidateQueries({ queryKey: ['today'] })
-      qc.invalidateQueries({ queryKey: ['streak'] })
-      qc.invalidateQueries({ queryKey: ['adherence'] })
+      qc.invalidateQueries({ queryKey: ['hearts'] })
+      // Тяжёлую статистику (мониторится скрытым StatsPage — все панели смонтированы)
+      // только помечаем устаревшей: иначе каждый свайп = рефетч 90-дневной агрегации
+      // + перерисовка графиков → нарастающий джанк слайдера. Освежится при фокусе/открытии.
+      qc.invalidateQueries({ queryKey: ['streak'], refetchType: 'none' })
+      qc.invalidateQueries({ queryKey: ['adherence'], refetchType: 'none' })
+      qc.invalidateQueries({ queryKey: ['stats-overview'], refetchType: 'none' })
     },
   })
 }
