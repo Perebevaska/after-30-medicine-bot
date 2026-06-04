@@ -127,6 +127,11 @@ def init_db():
             stock_qty REAL DEFAULT NULL,
             units_per_dose REAL DEFAULT 1,
             low_stock_days INTEGER DEFAULT 5,
+            unit_dose_value REAL DEFAULT NULL,
+            unit_dose_label TEXT DEFAULT 'мг',
+            dose_per_intake REAL DEFAULT NULL,
+            pack_size REAL DEFAULT NULL,
+            course_total INTEGER DEFAULT NULL,
             paused INTEGER DEFAULT 0,
             created_at TEXT DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS'),
             FOREIGN KEY (user_id) REFERENCES users(id),
@@ -206,6 +211,11 @@ def migrate():
             ("stock_qty",      "REAL DEFAULT NULL"),
             ("units_per_dose", "REAL DEFAULT 1"),
             ("low_stock_days", "INTEGER DEFAULT 5"),
+            ("unit_dose_value", "REAL DEFAULT NULL"),
+            ("unit_dose_label", "TEXT DEFAULT 'мг'"),
+            ("dose_per_intake", "REAL DEFAULT NULL"),
+            ("pack_size",       "REAL DEFAULT NULL"),
+            ("course_total",    "INTEGER DEFAULT NULL"),
             ("paused",         "INTEGER DEFAULT 0"),
         ]:
             conn.execute(
@@ -1229,16 +1239,56 @@ def delete_dependent(telegram_id: int, dependent_id: int) -> list:
         return med_ids
 
 
+def _parse_dose_number(s):
+    """Число из строки дозы правила ("250 мг" → 250.0). None если не распарсить."""
+    if not s:
+        return None
+    import re
+    m = re.match(r"\s*([\d.,]+)", str(s))
+    if not m:
+        return None
+    try:
+        return float(m.group(1).replace(",", "."))
+    except ValueError:
+        return None
+
+
+def compute_units_per_dose(dose_per_intake, unit_dose_value) -> float:
+    """Сколько единиц упаковки списывать за приём = назначено / дозировка 1 ед.
+
+    Аспирин 500 мг/таб, назначено 250 мг → 250/500 = 0.5 таб. Если структурных
+    данных нет (свободная дозировка строкой) — 1 единица за приём (как раньше).
+    """
+    if dose_per_intake and unit_dose_value and unit_dose_value > 0:
+        return dose_per_intake / unit_dose_value
+    return 1
+
+
 def add_medication(user_id: int, name: str, dosage: str,
                    meal_relation: str, times_per_day: int,
-                   dependent_id: int = None) -> int:
-    """Добавляет лекарство и возвращает его id."""
+                   dependent_id: int = None, *,
+                   unit_dose_value=None, unit_dose_label: str = "мг",
+                   dose_per_intake=None, pack_size=None,
+                   course_total=None) -> int:
+    """Добавляет лекарство и возвращает его id.
+
+    Новая модель: упаковка задаётся через unit_dose_value (дозировка 1 ед.),
+    pack_size (ед. в упаковке → стартовый остаток), dose_per_intake (назначено
+    за приём). units_per_dose считается на сервере. pack_size None → учёт запаса
+    выключен (stock_qty NULL)."""
+    units_per_dose = compute_units_per_dose(dose_per_intake, unit_dose_value)
+    stock_qty = pack_size if pack_size is not None else None
     with get_connection() as conn:
         row = conn.execute(
-            """INSERT INTO medications (user_id, name, dosage, meal_relation, times_per_day, dependent_id)
-               VALUES (%s, %s, %s, %s, %s, %s)
+            """INSERT INTO medications
+               (user_id, name, dosage, meal_relation, times_per_day, dependent_id,
+                unit_dose_value, unit_dose_label, dose_per_intake, pack_size,
+                course_total, units_per_dose, stock_qty)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                RETURNING id""",
-            (user_id, name, dosage, meal_relation, times_per_day, dependent_id)
+            (user_id, name, dosage, meal_relation, times_per_day, dependent_id,
+             unit_dose_value, unit_dose_label, dose_per_intake, pack_size,
+             course_total, units_per_dose, stock_qty)
         ).fetchone()
         return row["id"]
 
@@ -1489,6 +1539,19 @@ def get_taken_counts(user_id: int, start_utc: str, end_utc: str) -> dict:
     return {r["mid"]: r["cnt"] for r in rows}
 
 
+def get_course_progress(medication_id: int) -> int:
+    """Сколько приёмов лекарства уже отмечено 'taken' за всё время (прогресс курса).
+
+    Курс завершён, когда это значение ≥ medications.course_total (вычисляется
+    в API/фронте; флага в БД нет)."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS cnt FROM intake_log WHERE medication_id = %s AND status = 'taken'",
+            (medication_id,)
+        ).fetchone()
+        return row["cnt"] if row else 0
+
+
 def get_streak_rows(user_id: int) -> list:
     """Правила активных непаузных лекарств + dependent_id/имя/created_at — для серий (F2)."""
     with get_connection() as conn:
@@ -1499,6 +1562,20 @@ def get_streak_rows(user_id: int) -> list:
                {_USER_RULES_FROM}""",
             (user_id,)
         ).fetchall()
+
+
+def get_own_meds_units(user_id: int) -> dict:
+    """{medication_id: units_per_dose} для активных непаузных СОБСТВЕННЫХ лекарств (F11-C).
+
+    dependent_id IS NULL — без лекарств локальных близких. Для расчёта нагрузки терапии.
+    """
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT id, units_per_dose FROM medications "
+            "WHERE user_id = %s AND active = 1 AND paused = 0 AND dependent_id IS NULL",
+            (user_id,)
+        ).fetchall()
+    return {r["id"]: r["units_per_dose"] for r in rows}
 
 
 def get_intake_statuses_window(user_id: int, start_utc: str, end_utc: str) -> list:
@@ -1514,13 +1591,24 @@ def get_intake_statuses_window(user_id: int, start_utc: str, end_utc: str) -> li
 
 
 def update_medication(medication_id: int, user_id: int, name: str, dosage: str,
-                      meal_relation: str, times_per_day: int, new_rules: list):
-    """Обновляет лекарство и его расписание. new_rules — список dict с полями rule."""
+                      meal_relation: str, times_per_day: int, new_rules: list, *,
+                      unit_dose_value=None, unit_dose_label: str = "мг",
+                      dose_per_intake=None, pack_size=None, course_total=None):
+    """Обновляет лекарство и его расписание. new_rules — список dict с полями rule.
+
+    Пересчитывает units_per_dose. «Ед. в упаковке» (pack_size) теперь = текущий
+    запас: stock_qty синхронизируется с pack_size (единый источник для пользователя;
+    отдельной панели «учёт запаса» больше нет). pack_size=None → учёт выключён."""
+    units_per_dose = compute_units_per_dose(dose_per_intake, unit_dose_value)
     with get_connection() as conn:
         conn.execute(
-            """UPDATE medications SET name=%s, dosage=%s, meal_relation=%s, times_per_day=%s
+            """UPDATE medications SET name=%s, dosage=%s, meal_relation=%s, times_per_day=%s,
+                   unit_dose_value=%s, unit_dose_label=%s, dose_per_intake=%s,
+                   pack_size=%s, stock_qty=%s, course_total=%s, units_per_dose=%s
                WHERE id=%s AND user_id=%s""",
-            (name, dosage, meal_relation, times_per_day, medication_id, user_id)
+            (name, dosage, meal_relation, times_per_day,
+             unit_dose_value, unit_dose_label, dose_per_intake, pack_size,
+             pack_size, course_total, units_per_dose, medication_id, user_id)
         )
         conn.execute("DELETE FROM schedule_rules WHERE medication_id=%s", (medication_id,))
         for rule in new_rules:
@@ -1629,6 +1717,7 @@ def get_schedules_for_user(telegram_id: int) -> list:
         return conn.execute(
             """SELECT u.telegram_id, u.timezone,
                       m.id AS medication_id, m.name, m.dosage AS med_dosage, m.meal_relation,
+                      m.dependent_id AS dependent_id,
                       sr.reminder_time, sr.frequency, sr.interval_days,
                       sr.weekdays, sr.month_day, sr.anchor_date, sr.dosage AS rule_dosage,
                       d.name AS dependent_name
@@ -1799,6 +1888,18 @@ def set_low_stock_days(medication_id: int, user_id: int, days: int):
         )
 
 
+def set_course_total(medication_id: int, user_id: int, total):
+    """Устанавливает лимит курса (число приёмов) или снимает его (None = бессрочно).
+
+    «Продолжить» завершённый курс = total=None: лекарство продолжает приёмы
+    по расписанию без отметки «завершён»."""
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE medications SET course_total = %s WHERE id = %s AND user_id = %s",
+            (total, medication_id, user_id)
+        )
+
+
 def disable_stock_tracking(medication_id: int, user_id: int):
     """Выключает учёт запаса (stock_qty = NULL)."""
     with get_connection() as conn:
@@ -1808,24 +1909,40 @@ def disable_stock_tracking(medication_id: int, user_id: int):
         )
 
 
-def apply_intake_stock(medication_id: int, new_status: str, old_status):
+def apply_intake_stock(medication_id: int, new_status: str, old_status, scheduled_time=None):
     """Корректирует остаток при отметке приёма. Возвращает dict состояния после или None.
 
     Идемпотентно: списывает units_per_dose только при переходе в `taken`,
     возвращает при уходе из `taken`. `changed=True` — если остаток изменился.
     None — если трекинг выключен (stock_qty IS NULL) или лекарство не найдено.
+
+    Поприёмная доза: если у правила (по scheduled_time) задана своя dosage —
+    списываем по ней (dosage/unit_dose_value), иначе по единой units_per_dose.
     """
     with get_connection() as conn:
         # AX2: FOR UPDATE сериализует параллельные списания одного лекарства
         # (кнопка «Выпил всё» шлёт N параллельных запросов) — без блокировки
         # строки два read-modify-write теряли бы часть изменений (lost update).
         row = conn.execute(
-            "SELECT stock_qty, units_per_dose, low_stock_days FROM medications WHERE id = %s FOR UPDATE",
+            "SELECT stock_qty, units_per_dose, low_stock_days, unit_dose_value "
+            "FROM medications WHERE id = %s FOR UPDATE",
             (medication_id,)
         ).fetchone()
         if row is None or row["stock_qty"] is None:
             return None
         units = row["units_per_dose"] or 1
+        # Поприёмное списание: своя доза конкретного приёма перекрывает общую.
+        if scheduled_time is not None and row["unit_dose_value"]:
+            r = conn.execute(
+                "SELECT dosage FROM schedule_rules "
+                "WHERE medication_id = %s AND reminder_time = %s AND dosage IS NOT NULL "
+                "LIMIT 1",
+                (medication_id, scheduled_time)
+            ).fetchone()
+            if r and r["dosage"]:
+                dv = _parse_dose_number(r["dosage"])
+                if dv:
+                    units = dv / row["unit_dose_value"]
         qty = row["stock_qty"]
         changed = False
         if new_status == "taken" and old_status != "taken":

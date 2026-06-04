@@ -6,6 +6,7 @@ export interface TodayItem {
   reminder_time: string
   status: 'pending' | 'taken' | 'skipped'
   is_due: boolean
+  dependent_id?: number | null
   dependent_name: string | null
   linked_user_id?: number
   linked_user_name?: string
@@ -38,6 +39,32 @@ export interface StreakItem {
   dependent_id: number | null
   name: string | null
   streak: number
+}
+
+export interface WeeklyAdherence {
+  start: string
+  end: string
+  due: number
+  taken: number
+  pct: number | null
+}
+
+export interface StatsOverview {
+  streak: { current: number; best: number }
+  adherence: {
+    windows: { '7': number | null; '30': number | null; '90': number | null }
+    weekly: WeeklyAdherence[]
+  }
+  punctuality: {
+    sample: number
+    early_pct: number | null
+    ontime_pct: number | null
+    late_pct: number | null
+    avg_delay_min: number | null
+    worst_hour: number | null
+    worst_hour_skip_pct: number | null
+  }
+  load: { meds: number; intakes_per_day: number; units_per_week: number }
 }
 
 export type MealRelation = 'before' | 'after' | 'with' | 'any'
@@ -77,6 +104,12 @@ export interface Medication {
   stock_qty: number | null
   units_per_dose: number
   low_stock_days: number
+  unit_dose_value: number | null
+  unit_dose_label: string
+  dose_per_intake: number | null
+  pack_size: number | null
+  course_total: number | null
+  course_done?: number       // присылается только если задан course_total
   rules: ScheduleRule[]
   linked_user_id?: number
   linked_user_name?: string
@@ -99,6 +132,11 @@ export interface MedicationIn {
   dependent_id?: number | null
   for_linked_user_id?: number | null
   for_dep_share_id?: number | null
+  unit_dose_value?: number | null
+  unit_dose_label?: string
+  dose_per_intake?: number | null
+  pack_size?: number | null
+  course_total?: number | null
   rules: RuleIn[]
 }
 

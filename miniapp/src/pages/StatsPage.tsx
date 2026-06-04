@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { Send } from 'lucide-react'
-import { useAdherence, useStreak, useSendExport, useWeekStats, useSettings } from '../api/hooks'
-import type { WeekStatRow, StreakItem } from '../api/types'
+import { useAdherence, useStreak, useSendExport, useStatsOverview, useSettings } from '../api/hooks'
+import type { StreakItem, StatsOverview, WeeklyAdherence } from '../api/types'
 
 function pctColor(pct: number): string {
   if (pct >= 80) return '#4caf50'
@@ -9,52 +9,171 @@ function pctColor(pct: number): string {
   return '#f44336'
 }
 
-// ─── Summary card ─────────────────────────────────────────────────────────
-
-function skippedDaysCount(weekRows: WeekStatRow[]): number {
-  return new Set(weekRows.filter((r) => r.skipped > 0).map((r) => r.day)).size
+function pluralDays(n: number): string {
+  const n10 = n % 10, n100 = n % 100
+  if (n10 === 1 && n100 !== 11) return 'день'
+  if (n10 >= 2 && n10 <= 4 && !(n100 >= 12 && n100 <= 14)) return 'дня'
+  return 'дней'
 }
 
-function SkippedBadge({ count }: { count: number }) {
-  let emoji: string, text: string
-  if (count === 0) { emoji = '💚'; text = 'Всё под контролем' }
-  else if (count <= 2) { emoji = '😕'; text = `${count} дн. с пропусками за неделю` }
-  else { emoji = '😟'; text = `${count} дн. с пропусками за неделю` }
+function pluralMeds(n: number): string {
+  const n10 = n % 10, n100 = n % 100
+  if (n10 === 1 && n100 !== 11) return 'препарат'
+  if (n10 >= 2 && n10 <= 4 && !(n100 >= 12 && n100 <= 14)) return 'препарата'
+  return 'препаратов'
+}
+
+// ─── Нагрузка по терапии ──────────────────────────────────────────────────
+
+function LoadCard({ load }: { load: StatsOverview['load'] }) {
+  if (load.meds === 0) return null
   return (
-    <div className="skipped-days-badge">
-      <span className="skipped-days-emoji">{emoji}</span>
-      <span className="skipped-days-text">{text}</span>
+    <div className="stats-card load-card">
+      <div className="load-item">
+        <span className="load-num">{load.meds}</span>
+        <span className="load-label">{pluralMeds(load.meds)}</span>
+      </div>
+      <div className="load-item">
+        <span className="load-num">{load.intakes_per_day}</span>
+        <span className="load-label">приёмов в день</span>
+      </div>
+      <div className="load-item">
+        <span className="load-num">{load.units_per_week}</span>
+        <span className="load-label">единиц в неделю</span>
+      </div>
     </div>
   )
 }
 
-function SummaryCard({
-  totalPct, streak, depStreaks, weekRows,
+// ─── Серии ────────────────────────────────────────────────────────────────
+
+function StreakCard({
+  current, best, depStreaks,
 }: {
-  totalPct: number | null | undefined
-  streak: number
+  current: number
+  best: number
   depStreaks: StreakItem[]
-  weekRows: WeekStatRow[]
 }) {
-  const skipped = weekRows.length ? skippedDaysCount(weekRows) : null
   return (
-    <div className="stats-summary-card">
-      {totalPct !== null && totalPct !== undefined && (
-        <span className="summary-pct" style={{ color: pctColor(totalPct) }}>{totalPct}%</span>
-      )}
-      {skipped !== null && <SkippedBadge count={skipped} />}
-      <div className="summary-streak">
+    <div className="stats-card streak-card">
+      <div className="streak-main">
         <span className="streak-fire">🔥</span>
-        <span className="summary-streak-count">{streak}</span>
-        <span className="summary-streak-label">дней подряд</span>
+        <span className="streak-big">{current}</span>
+        <span className="streak-unit">{pluralDays(current)} подряд</span>
       </div>
+      <div className="streak-best">🏆 Лучший результат — {best} {pluralDays(best)}</div>
       {depStreaks.map((s) => (
-        <div key={s.dependent_id} className="summary-streak summary-streak--dep">
-          <span className="streak-fire">🔥</span>
-          <span className="summary-streak-count">{s.streak}</span>
-          <span className="summary-streak-label">{s.name}</span>
+        <div key={s.dependent_id} className="streak-dep">
+          🔥 {s.streak} · {s.name}
         </div>
       ))}
+    </div>
+  )
+}
+
+// ─── Соблюдение: окна 7/30/90 + график по дням ────────────────────────────
+
+function shortDate(iso: string): string {
+  const [, m, d] = iso.split('-')
+  return `${Number(d)}.${m}`
+}
+
+function WeeklyGraph({ weekly }: { weekly: WeeklyAdherence[] }) {
+  const last = weekly.length - 1
+  return (
+    <div className="adh-week">
+      <div className="adh-week-title">Соблюдение по неделям</div>
+      <div className="adh-week-bars" role="img" aria-label="Соблюдение по неделям">
+        {weekly.map((w, i) => (
+          <div key={w.start} className="adh-week-col" title={`${shortDate(w.start)}–${shortDate(w.end)}: ${w.pct === null ? 'нет приёмов' : w.pct + '%'}`}>
+            <span className="adh-week-pct">{w.pct === null ? '' : `${w.pct}%`}</span>
+            <div className="adh-week-track">
+              {w.pct === null
+                ? <div className="adh-week-fill adh-week-fill--empty" />
+                : <div className="adh-week-fill" style={{ height: `${Math.max(w.pct, 4)}%`, background: pctColor(w.pct) }} />}
+            </div>
+            <span className="adh-week-x">{i === 0 ? shortDate(w.start) : i === last ? 'тек.' : ''}</span>
+          </div>
+        ))}
+      </div>
+      <div className="adh-legend">
+        <span><i className="lg-dot" style={{ background: '#4caf50' }} />≥80%</span>
+        <span><i className="lg-dot" style={{ background: '#ff9800' }} />50–79%</span>
+        <span><i className="lg-dot" style={{ background: '#f44336' }} />&lt;50%</span>
+      </div>
+    </div>
+  )
+}
+
+function WinCell({ label, pct }: { label: string; pct: number | null }) {
+  return (
+    <div className="win-cell">
+      <span className="win-label">{label}</span>
+      {pct === null
+        ? <span className="win-pct win-pct--empty">—</span>
+        : <span className="win-pct" style={{ color: pctColor(pct) }}>{pct}%</span>}
+    </div>
+  )
+}
+
+function AdherenceCard({ adherence }: { adherence: StatsOverview['adherence'] }) {
+  const { windows, weekly } = adherence
+  const hasData = weekly.some((w) => w.due > 0)
+  return (
+    <div className="stats-card adh-card">
+      <h3 className="adh-title">Соблюдение приёма</h3>
+      <p className="adh-sub">Доля вовремя принятых лекарств от запланированных</p>
+      <div className="win-row">
+        <WinCell label="7 дней" pct={windows['7']} />
+        <WinCell label="30 дней" pct={windows['30']} />
+        <WinCell label="90 дней" pct={windows['90']} />
+      </div>
+      {hasData
+        ? <WeeklyGraph weekly={weekly} />
+        : <p className="hint">Начни отмечать приёмы — здесь появится график 📈</p>}
+    </div>
+  )
+}
+
+// ─── Пунктуальность отметок ───────────────────────────────────────────────
+
+function DistRow({ label, pct, color }: { label: string; pct: number; color: string }) {
+  return (
+    <div className="dist-row">
+      <span className="dist-label">{label}</span>
+      <div className="dist-track">
+        <div className="dist-fill" style={{ width: `${pct}%`, background: color }} />
+      </div>
+      <span className="dist-pct">{pct}%</span>
+    </div>
+  )
+}
+
+function PunctualityCard({ punct }: { punct: StatsOverview['punctuality'] }) {
+  const hasWorst = punct.worst_hour !== null
+  const hasDist = punct.ontime_pct !== null
+  if (!hasWorst && !hasDist) return null
+  const hh = (h: number) => `${String(h).padStart(2, '0')}:00`
+  return (
+    <div className="stats-card punct-card">
+      <h3 className="punct-title">Пунктуальность отметок</h3>
+      {hasDist ? (
+        <>
+          <p className="punct-sub">Когда отмечаешь приём относительно плана:</p>
+          <DistRow label="Раньше" pct={punct.early_pct!} color="#42a5f5" />
+          <DistRow label="Вовремя" pct={punct.ontime_pct!} color="#4caf50" />
+          <DistRow label="Позже" pct={punct.late_pct!} color="#ff9800" />
+          <p className="punct-hint">«Вовремя» — в пределах ±30 мин от планового времени</p>
+        </>
+      ) : (
+        <p className="punct-sub">Пока мало отметок для распределения</p>
+      )}
+      {hasWorst && (
+        <div className="punct-worst">
+          🕘 Самый проблемный час — <b>{hh(punct.worst_hour!)}</b> ({punct.worst_hour_skip_pct}% пропусков)
+        </div>
+      )}
+      <p className="punct-note">Учитывается время нажатия отметки, не реального приёма</p>
     </div>
   )
 }
@@ -66,7 +185,6 @@ type ReportDef = { slot: string; icon: string; title: string }
 const REPORTS: ReportDef[] = [
   { slot: 'plan',      icon: '📋', title: 'Расписание на неделю' },
   { slot: 'week',      icon: '📅', title: 'История за 7 дней' },
-  { slot: 'adherence', icon: '📊', title: 'Мой прогресс' },
   { slot: 'doctor',    icon: '🩺', title: 'Отчёт для врача' },
 ]
 
@@ -105,17 +223,15 @@ function ReportRow({ slot, icon, title }: ReportDef) {
 // ─── Page ─────────────────────────────────────────────────────────────────
 
 export default function StatsPage() {
-  const { data: streakData, isLoading: streakLoading } = useStreak()
+  const { data: overview, isLoading: overviewLoading } = useStatsOverview()
+  const { data: streakData } = useStreak()
   const { data: adherence, isLoading: adherenceLoading } = useAdherence()
-  const { data: weekRows = [] } = useWeekStats()
   const { data: settings } = useSettings()
 
   const caregiverEnabled = !!settings?.caregiver_enabled
-  const ownerStreak = streakData?.find((s) => s.dependent_id === null)?.streak ?? 0
   const depStreaks = caregiverEnabled
     ? (streakData?.filter((s) => s.dependent_id !== null) ?? [])
     : []
-  const totalPct = adherence?.total_pct
   const allMeds = adherence?.medications ?? []
   const meds = caregiverEnabled ? allMeds : allMeds.filter((m) => !m.dependent_name)
 
@@ -125,14 +241,18 @@ export default function StatsPage() {
         <span className="page-header-title">Прогресс</span>
       </div>
 
-      {streakLoading && <p className="hint">Загрузка…</p>}
-      {!streakLoading && (
-        <SummaryCard
-          totalPct={totalPct}
-          streak={ownerStreak}
-          depStreaks={depStreaks}
-          weekRows={weekRows}
-        />
+      {overviewLoading && <p className="hint">Загрузка…</p>}
+      {!overviewLoading && overview && (
+        <>
+          <StreakCard
+            current={overview.streak.current}
+            best={overview.streak.best}
+            depStreaks={depStreaks}
+          />
+          <LoadCard load={overview.load} />
+          <AdherenceCard adherence={overview.adherence} />
+          <PunctualityCard punct={overview.punctuality} />
+        </>
       )}
 
       <h2 className="section-title">По препаратам</h2>

@@ -86,7 +86,31 @@ class RuleIn(BaseModel):
         return self
 
 
-class MedicationIn(BaseModel):
+_MAX_DOSE = 1_000_000
+
+
+def _assert_unique_rules(rules: list[RuleIn]):
+    """Запрет дублей: два одинаковых приёма схлопываются в один слот
+    (UNIQUE intake_log по (medication_id, reminder_time, день)) и тикаются разом."""
+    seen = set()
+    for r in rules:
+        key = (r.reminder_time, r.frequency, r.interval_days, r.weekdays,
+               r.month_day, r.anchor_date)
+        if key in seen:
+            raise ValueError("Нельзя добавить два одинаковых приёма на одно и то же время")
+        seen.add(key)
+
+
+class _PackageFields(BaseModel):
+    """Новая модель упаковки/курса (A1): дозировка 1 ед., назначенная доза, запас, курс."""
+    unit_dose_value: Optional[float] = Field(default=None, gt=0, le=_MAX_DOSE)
+    unit_dose_label: str = Field(default="мг", max_length=16)
+    dose_per_intake: Optional[float] = Field(default=None, gt=0, le=_MAX_DOSE)
+    pack_size: Optional[float] = Field(default=None, ge=0, le=_MAX_DOSE)
+    course_total: Optional[int] = Field(default=None, ge=1, le=100_000)
+
+
+class MedicationIn(_PackageFields):
     name: str = Field(min_length=1, max_length=NAME_MAX_LEN)
     dosage: str = Field(max_length=DOSAGE_MAX_LEN)
     meal_relation: _MealRelation
@@ -94,15 +118,25 @@ class MedicationIn(BaseModel):
     dependent_id: Optional[int] = None
     for_linked_user_id: Optional[int] = None  # F7: user_id linked dependent
     for_dep_share_id: Optional[int] = None    # F8: share_id viewer → shared dep
-    rules: list[RuleIn] = Field(min_length=1, max_length=MAX_RULES_PER_MED)
+    rules: list[RuleIn] = Field(default_factory=list, max_length=MAX_RULES_PER_MED)
+
+    @model_validator(mode="after")
+    def _v_unique_rules(self):
+        _assert_unique_rules(self.rules)
+        return self
 
 
-class MedicationUpdate(BaseModel):
+class MedicationUpdate(_PackageFields):
     name: str = Field(min_length=1, max_length=NAME_MAX_LEN)
     dosage: str = Field(max_length=DOSAGE_MAX_LEN)
     meal_relation: _MealRelation
     times_per_day: int = Field(ge=1, le=24)
-    rules: list[RuleIn] = Field(min_length=1, max_length=MAX_RULES_PER_MED)
+    rules: list[RuleIn] = Field(default_factory=list, max_length=MAX_RULES_PER_MED)
+
+    @model_validator(mode="after")
+    def _v_unique_rules(self):
+        _assert_unique_rules(self.rules)
+        return self
 
 
 @router.get("")
@@ -140,6 +174,11 @@ async def list_medications(user: TelegramUser = Depends(require_db_user)):
                 "dep_share_id": vd["share_id"],
                 "dep_share_name": vd["dep_name"],
             })
+    # A1: прогресс курса — только для лекарств с заданным course_total
+    # (запрос на лекарство, но таких единицы). course_done ≥ course_total → курс завершён.
+    for entry in result:
+        if entry.get("course_total"):
+            entry["course_done"] = await asyncio.to_thread(db.get_course_progress, entry["id"])
     return result
 
 
@@ -176,6 +215,9 @@ async def create_medication(body: MedicationIn, user: TelegramUser = Depends(req
     med_id = await asyncio.to_thread(
         db.add_medication, target_user_id, body.name, body.dosage,
         body.meal_relation, body.times_per_day, dep_id,
+        unit_dose_value=body.unit_dose_value, unit_dose_label=body.unit_dose_label,
+        dose_per_intake=body.dose_per_intake, pack_size=body.pack_size,
+        course_total=body.course_total,
     )
     for rule in body.rules:
         await asyncio.to_thread(
@@ -213,6 +255,9 @@ async def update_medication(
         db.update_medication, med_id, med["user_id"],
         body.name, body.dosage, body.meal_relation, body.times_per_day,
         [r.model_dump() for r in body.rules],
+        unit_dose_value=body.unit_dose_value, unit_dose_label=body.unit_dose_label,
+        dose_per_intake=body.dose_per_intake, pack_size=body.pack_size,
+        course_total=body.course_total,
     )
     return {"ok": True}
 
@@ -221,6 +266,13 @@ async def update_medication(
 async def delete_medication(med_id: int, user: TelegramUser = Depends(require_db_user)):
     med = await _resolve_med(med_id, user)
     await asyncio.to_thread(db.deactivate_medication, med_id, med["user_id"])
+
+
+@router.post("/{med_id}/course/continue", status_code=204)
+async def continue_course(med_id: int, user: TelegramUser = Depends(require_db_user)):
+    """Продолжить завершённый курс: снять лимит course_total (приёмы идут дальше)."""
+    med = await _resolve_med(med_id, user)
+    await asyncio.to_thread(db.set_course_total, med_id, med["user_id"], None)
 
 
 @router.post("/{med_id}/pause", status_code=204)

@@ -1,10 +1,10 @@
 import { useState, useRef, useEffect } from 'react'
-import { Pencil, Pause, Play, Package, Trash2, Plus } from 'lucide-react'
-import { useMedications, useDeleteMedication, usePauseMedication, useSettings } from '../api/hooks'
+import { Pencil, Pause, Play, Trash2, Plus, CalendarPlus } from 'lucide-react'
+import { useMedications, useDeleteMedication, usePauseMedication, useContinueCourse, useSettings } from '../api/hooks'
 import { apiErrorMessage } from '../api/client'
 import type { Medication } from '../api/types'
-import { StockExpanded } from './StockPage'
 import { MEAL_LABELS } from '../constants'
+import DepSectionTitle from '../components/DepSectionTitle'
 
 const FREQ: Record<string, string> = {
   daily: 'ежедневно',
@@ -22,15 +22,16 @@ function scheduleLabel(med: Medication): string {
   return `${times} (${freqs.join(', ')})`
 }
 
-type CardView = 'collapsed' | 'actions' | 'stock' | 'confirm-delete'
+type CardView = 'collapsed' | 'actions' | 'confirm-delete'
 
 const CLOSE_MS = 220
 
 function MedCard({
-  med, onEdit, onOpen, forceClose,
+  med, onEdit, onSchedule, onOpen, forceClose,
 }: {
   med: Medication
   onEdit: (id: number) => void
+  onSchedule: (id: number) => void
   onOpen: () => void
   forceClose: boolean
 }) {
@@ -38,7 +39,16 @@ function MedCard({
   const [isOpen, setIsOpen] = useState(false)
   const { mutate: del, isPending: delPending } = useDeleteMedication()
   const { mutate: pause, isPending: pausePending } = usePauseMedication()
+  const { mutate: continueCourse, isPending: contPending } = useContinueCourse()
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const hasSchedule = med.rules.length > 0
+  const courseTotal = med.course_total ?? null
+  const courseDone = med.course_done ?? 0
+  const courseComplete = courseTotal != null && courseDone >= courseTotal
+  const hasStock = med.stock_qty !== null && med.stock_qty !== undefined
+  // Низкий остаток ≈ менее 3 дней приёма (доза × приёмов/день × 3).
+  const lowStock = hasStock && med.stock_qty! <= (med.units_per_dose || 1) * med.times_per_day * 3
 
   const open = () => { setView('actions'); setIsOpen(true); onOpen() }
   const close = () => {
@@ -71,21 +81,29 @@ function MedCard({
           <div className="mlist-name">
             {med.name}
             {!!med.paused && <span className="mlist-badge-paused">пауза</span>}
-            {med.dependent_name && (
-              <span className="mlist-dep"> · {med.dependent_name}</span>
-            )}
+            {courseComplete && <span className="mlist-badge-done">курс завершён</span>}
           </div>
           <div className="mlist-meta">
-            {med.rules.some((r) => r.dosage)
-              ? <span className="mlist-custom-dosage">своя дозировка</span>
-              : med.dosage
-            } · {MEAL_LABELS[med.meal_relation] ?? med.meal_relation}
-            {med.stock_qty !== null && med.stock_qty !== undefined && (
-              <> · 📦 {med.stock_qty} ед.</>
+            {med.dosage} · {MEAL_LABELS[med.meal_relation] ?? med.meal_relation}
+            {hasStock && (
+              <span className={lowStock ? 'mlist-stock mlist-stock--low' : 'mlist-stock'}>
+                {' '}· 📦 {med.stock_qty} ед.{lowStock ? ' · мало' : ''}
+              </span>
             )}
           </div>
-          {med.rules.length > 0 && (
+          {hasSchedule && (
             <div className="mlist-schedule">{scheduleLabel(med)}</div>
+          )}
+          {courseTotal != null && !courseComplete && (
+            <div className="mlist-course">Курс: {courseDone}/{courseTotal} приёмов</div>
+          )}
+          {!hasSchedule && (
+            <button
+              className="mlist-schedule-add"
+              onClick={(e) => { e.stopPropagation(); onSchedule(med.id) }}
+            >
+              <CalendarPlus size={15} strokeWidth={2} /> Добавить расписание
+            </button>
           )}
         </div>
         <span className={`mlist-card-chevron${isOpen ? ' mlist-card-chevron--open' : ''}`}>›</span>
@@ -93,7 +111,29 @@ function MedCard({
 
       <div className="mlist-card-body">
         <div className="mlist-card-body-inner">
-          {view === 'actions' && (
+          {view === 'actions' && courseComplete && (
+            <div className="mlist-course-done">
+              <span className="mlist-course-done-text">✅ Курс пройден ({courseDone}/{courseTotal})</span>
+              <div className="mlist-course-done-actions">
+                <button
+                  className="mlist-course-continue"
+                  disabled={contPending}
+                  onClick={() => continueCourse(med.id)}
+                >
+                  Продолжить
+                </button>
+                <button
+                  className="mlist-course-delete"
+                  disabled={delPending}
+                  onClick={() => del(med.id)}
+                >
+                  Удалить
+                </button>
+              </div>
+            </div>
+          )}
+
+          {view === 'actions' && !courseComplete && (
             <div className="mlist-action-row">
               <button
                 className="mlist-action-btn"
@@ -109,13 +149,6 @@ function MedCard({
                 disabled={pausePending}
               >
                 {med.paused ? <Play size={18} strokeWidth={2} /> : <Pause size={18} strokeWidth={2} />}
-              </button>
-              <button
-                className="mlist-action-btn"
-                title="Запас"
-                onClick={() => setView('stock')}
-              >
-                <Package size={18} strokeWidth={2} />
               </button>
               <button
                 className="mlist-action-btn mlist-action-btn--danger"
@@ -145,15 +178,6 @@ function MedCard({
               </button>
             </div>
           )}
-
-          {view === 'stock' && (
-            <div className="mlist-stock-section">
-              <StockExpanded med={med} />
-              <button className="mlist-back-link" onClick={() => setView('actions')}>
-                ← Назад
-              </button>
-            </div>
-          )}
         </div>
       </div>
     </div>
@@ -163,14 +187,26 @@ function MedCard({
 interface Props {
   onAdd: (linkedUserId?: number, forDepShareId?: number) => void
   onEdit: (id: number, linkedUserId?: number, forDepShareId?: number) => void
+  onSchedule: (id: number, linkedUserId?: number, forDepShareId?: number) => void
 }
 
-export default function MedicationList({ onAdd, onEdit }: Props) {
+export default function MedicationList({ onAdd, onEdit, onSchedule }: Props) {
   const { data, isLoading, error } = useMedications()
   const { data: settings } = useSettings()
   const [openMedId, setOpenMedId] = useState<number | null>(null)
 
-  const ownMeds = data?.filter((m) => !m.linked_user_id && !m.dep_share_id) ?? []
+  const allMeds = data ?? []
+  // Свои лекарства (без близкого)
+  const selfMeds = allMeds.filter((m) => !m.linked_user_id && !m.dep_share_id && !m.dependent_id)
+  // Свои локальные близкие — отдельным блоком на близкого (единообразие с F7/F8)
+  const localDepGroups = allMeds
+    .filter((m) => !m.linked_user_id && !m.dep_share_id && m.dependent_id)
+    .reduce<Record<number, { name: string; meds: Medication[] }>>((acc, m) => {
+      const did = m.dependent_id!
+      if (!acc[did]) acc[did] = { name: m.dependent_name ?? `№${did}`, meds: [] }
+      acc[did].meds.push(m)
+      return acc
+    }, {})
   // F7: group linked deps' meds by linked_user_id
   const linkedGroups = (data ?? [])
     .filter((m) => m.linked_user_id)
@@ -190,7 +226,8 @@ export default function MedicationList({ onAdd, onEdit }: Props) {
       acc[sid].push(m)
       return acc
     }, {})
-  const hasAny = ownMeds.length > 0 || Object.keys(linkedGroups).length > 0 || viewingDeps.length > 0
+  const hasAny = selfMeds.length > 0 || Object.keys(localDepGroups).length > 0
+    || Object.keys(linkedGroups).length > 0 || viewingDeps.length > 0
 
   return (
     <div className="page">
@@ -213,13 +250,14 @@ export default function MedicationList({ onAdd, onEdit }: Props) {
         </div>
       )}
 
-      {ownMeds.length > 0 && (
+      {selfMeds.length > 0 && (
         <div className="mlist-list">
-          {ownMeds.map((med) => (
+          {selfMeds.map((med) => (
             <MedCard
               key={med.id}
               med={med}
               onEdit={(id) => onEdit(id)}
+              onSchedule={(id) => onSchedule(id)}
               onOpen={() => setOpenMedId(med.id)}
               forceClose={openMedId !== null && openMedId !== med.id}
             />
@@ -227,16 +265,36 @@ export default function MedicationList({ onAdd, onEdit }: Props) {
         </div>
       )}
 
+      {/* Свои локальные близкие — отдельным блоком (👤 Имя) */}
+      {Object.entries(localDepGroups).map(([did, group]) => (
+        <div key={did}>
+          <DepSectionTitle name={group.name} />
+          <div className="mlist-list">
+            {group.meds.map((med) => (
+              <MedCard
+                key={med.id}
+                med={med}
+                onEdit={(id) => onEdit(id)}
+                onSchedule={(id) => onSchedule(id)}
+                onOpen={() => setOpenMedId(med.id)}
+                forceClose={openMedId !== null && openMedId !== med.id}
+              />
+            ))}
+          </div>
+        </div>
+      ))}
+
       {/* F7: linked dependents' sections */}
       {Object.entries(linkedGroups).map(([uid, group]) => (
         <div key={uid}>
-          <h2 className="section-title">@{group.name}</h2>
+          <DepSectionTitle name={group.name} account />
           <div className="mlist-list">
             {group.meds.map((med) => (
               <MedCard
                 key={med.id}
                 med={med}
                 onEdit={(id) => onEdit(id, med.linked_user_id)}
+                onSchedule={(id) => onSchedule(id, med.linked_user_id)}
                 onOpen={() => setOpenMedId(med.id)}
                 forceClose={openMedId !== null && openMedId !== med.id}
               />
@@ -250,7 +308,7 @@ export default function MedicationList({ onAdd, onEdit }: Props) {
         const meds = sharedDepMedMap[vd.share_id] ?? []
         return (
           <div key={vd.share_id}>
-            <h2 className="section-title">{vd.dep_name}</h2>
+            <DepSectionTitle name={vd.dep_name} />
             {meds.length > 0 ? (
               <div className="mlist-list">
                 {meds.map((med) => (
@@ -258,6 +316,7 @@ export default function MedicationList({ onAdd, onEdit }: Props) {
                     key={med.id}
                     med={med}
                     onEdit={(id) => onEdit(id, undefined, vd.share_id)}
+                    onSchedule={(id) => onSchedule(id, undefined, vd.share_id)}
                     onOpen={() => setOpenMedId(med.id)}
                     forceClose={openMedId !== null && openMedId !== med.id}
                   />

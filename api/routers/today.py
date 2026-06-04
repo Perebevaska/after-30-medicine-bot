@@ -41,6 +41,7 @@ def _build_today_items(
             "reminder_time": t,
             "status": status,
             "is_due": is_due,
+            "dependent_id": row.get("dependent_id"),
             "dependent_name": row.get("dependent_name"),
         }
         if linked_user_id is not None:
@@ -132,7 +133,8 @@ async def log_intake(body: IntakeIn, user: TelegramUser = Depends(require_db_use
         body.status, start_utc, end_utc,
     )
     await asyncio.to_thread(
-        db.apply_intake_stock, body.medication_id, body.status, old_status
+        db.apply_intake_stock, body.medication_id, body.status, old_status,
+        body.scheduled_time,
     )
     # G1: сердечки начисляются ВСЕМ в связке — владельцу + всем активным
     # помощникам локального близкого (общая забота = общая награда).

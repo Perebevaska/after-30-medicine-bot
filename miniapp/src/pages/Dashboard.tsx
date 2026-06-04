@@ -1,12 +1,14 @@
 import { useState, useRef, useEffect, forwardRef, useImperativeHandle } from 'react'
 import { createPortal } from 'react-dom'
 import { Check, X } from 'lucide-react'
+import { postEvent } from '@telegram-apps/sdk-react'
 import { useToday, useLogIntake, useHearts, useSettings } from '../api/hooks'
 import { useQueryClient } from '@tanstack/react-query'
 import { api, apiErrorMessage } from '../api/client'
 import type { TodayItem } from '../api/types'
 import { randomWish } from '../wishes'
 import { MEAL_LABELS } from '../constants'
+import DepSectionTitle from '../components/DepSectionTitle'
 
 interface HeartParticle {
   id: number
@@ -140,22 +142,106 @@ const itemKey = (i: TodayItem) => `${i.medication_id}-${i.reminder_time}`
 // AX5: is_due приходит с сервера (TZ аккаунта), не считаем по времени браузера.
 const isDuePending = (i: TodayItem) => i.status === 'pending' && i.is_due
 
+// Вибрация в конце удержания: нативный Telegram haptic (impact heavy).
+// Требует web_app_ready при старте (main.tsx), иначе Android-клиент игнорит событие.
+function haptic() {
+  try {
+    postEvent('web_app_trigger_haptic_feedback', { type: 'impact', impact_style: 'heavy' })
+    return
+  } catch { /* noop */ }
+  // Веб-фоллбэк (вне Telegram)
+  try { navigator.vibrate?.(35) } catch { /* noop */ }
+}
+
+const HOLD_MS = 600
+
+// Кнопка подтверждения долгим нажатием: при удержании граница заполняется
+// по часовой стрелке (зелёная take / красная skip); в конце — onConfirm + вибрация.
+// Случайный тап не срабатывает (отпустил раньше → сброс).
+function HoldButton({
+  variant, onConfirm, disabled, title, children,
+}: {
+  variant: 'take' | 'skip'
+  onConfirm: () => void
+  disabled?: boolean
+  title?: string
+  children: React.ReactNode
+}) {
+  const [deg, setDeg] = useState(0)
+  const rafRef = useRef<number | null>(null)
+  const startRef = useRef(0)
+  const doneRef = useRef(false)
+
+  const stop = () => {
+    if (rafRef.current) cancelAnimationFrame(rafRef.current)
+    rafRef.current = null
+    startRef.current = 0
+    setDeg(0)
+  }
+
+  useEffect(() => () => { if (rafRef.current) cancelAnimationFrame(rafRef.current) }, [])
+
+  const tick = (t: number) => {
+    if (!startRef.current) startRef.current = t
+    const p = Math.min(1, (t - startRef.current) / HOLD_MS)
+    setDeg(p * 360)
+    if (p >= 1) {
+      doneRef.current = true
+      haptic()
+      onConfirm()
+      stop()
+      return
+    }
+    rafRef.current = requestAnimationFrame(tick)
+  }
+
+  const start = (e: React.PointerEvent) => {
+    if (disabled) return
+    e.preventDefault()
+    doneRef.current = false
+    startRef.current = 0
+    if (rafRef.current) cancelAnimationFrame(rafRef.current)
+    rafRef.current = requestAnimationFrame(tick)
+  }
+
+  const cancel = () => {
+    if (!doneRef.current && rafRef.current) stop()
+  }
+
+  return (
+    <button
+      type="button"
+      className={`btn-${variant} hold-btn`}
+      title={title}
+      disabled={disabled}
+      style={{ '--hold-deg': `${deg}deg` } as React.CSSProperties}
+      onPointerDown={start}
+      onPointerUp={cancel}
+      onPointerLeave={cancel}
+      onPointerCancel={cancel}
+      onContextMenu={(e) => e.preventDefault()}
+    >
+      {children}
+    </button>
+  )
+}
+
 function MedCard({
   item,
   entering,
   onTaken,
   onSkipped,
-  hideDep,
 }: {
   item: TodayItem
   entering?: boolean
   onTaken?: () => void
   onSkipped?: () => void
-  hideDep?: boolean
 }) {
   const { mutate, isPending } = useLogIntake()
 
-  const log = (status: 'taken' | 'skipped' | 'pending') => {
+  // Undo убран намеренно: отмена приёма ломала «курс завершён» (COUNT taken).
+  // Приём подтверждается долгим нажатием — случайный тап не отметит.
+  const log = (status: 'taken' | 'skipped') => {
     if (status === 'taken') onTaken?.()
     if (status === 'skipped') onSkipped?.()
     mutate({
@@ -180,9 +266,6 @@ function MedCard({
       <div className="mlist-info">
         <div className="mlist-name">
           {item.name}
-          {!hideDep && item.dependent_name && (
-            <span className="mlist-dep"> · {item.dependent_name}</span>
-          )}
         </div>
         <div className="mlist-meta">
           {item.dosage} · {MEAL_LABELS[item.meal_relation] ?? item.meal_relation}
@@ -192,19 +275,18 @@ function MedCard({
 
       {item.status === 'pending' ? (
         <div className="med-actions">
-          <button className="btn-take" onClick={() => log('taken')} disabled={isPending}><Check size={18} strokeWidth={2.5} /></button>
-          <button className="btn-skip" onClick={() => log('skipped')} disabled={isPending}><X size={18} strokeWidth={2.5} /></button>
+          <HoldButton variant="take" onConfirm={() => log('taken')} disabled={isPending} title="Удерживайте, чтобы принять">
+            <Check size={20} strokeWidth={2.5} />
+          </HoldButton>
+          <HoldButton variant="skip" onConfirm={() => log('skipped')} disabled={isPending} title="Удерживайте, чтобы пропустить">
+            <X size={20} strokeWidth={2.5} />
+          </HoldButton>
         </div>
       ) : (
         <div className="med-actions">
-          <button
-            className="btn-undo"
-            onClick={() => log('pending')}
-            disabled={isPending}
-            title="Отменить отметку"
-          >
-            {item.status === 'taken' ? <Check size={18} strokeWidth={2.5} /> : <X size={18} strokeWidth={2.5} />}
-          </button>
+          <span className={`med-status med-status--${item.status}`} aria-hidden="true">
+            {item.status === 'taken' ? <Check size={20} strokeWidth={2.5} /> : <X size={20} strokeWidth={2.5} />}
+          </span>
         </div>
       )}
     </div>
@@ -221,9 +303,19 @@ export default function Dashboard() {
 
   const allItems = data ?? []
   // F7: separate own items from linked dependents' items
-  const ownItems = allItems.filter((i) => !i.linked_user_id && !i.dep_share_id)
+  const ownItems = allItems.filter((i) => !i.linked_user_id && !i.dep_share_id && !i.dependent_id)
+  // Свои локальные близкие — отдельным блоком (как F7/F8)
+  const localDepItems = allItems.filter((i) => !i.linked_user_id && !i.dep_share_id && !!i.dependent_id)
   const linkedItems = allItems.filter((i) => !!i.linked_user_id)
   const sharedDepItems = allItems.filter((i) => !!i.dep_share_id)
+
+  // Группировка своих локальных близких по dependent_id
+  const localDepGroups = localDepItems.reduce<Record<number, { name: string; items: TodayItem[] }>>((acc, item) => {
+    const did = item.dependent_id!
+    if (!acc[did]) acc[did] = { name: item.dependent_name ?? `№${did}`, items: [] }
+    acc[did].items.push(item)
+    return acc
+  }, {})
 
   // Group linked items by linked_user_id
   const linkedGroups = linkedItems.reduce<Record<number, { name: string; items: TodayItem[] }>>((acc, item) => {
@@ -331,7 +423,7 @@ export default function Dashboard() {
                 onClick={handleTakeAll}
                 disabled={takingAll}
               >
-                💊 Выпил всё
+                💊 Принять всё
               </button>
             </div>
           )}
@@ -355,10 +447,27 @@ export default function Dashboard() {
         </>
       )}
 
+      {/* Свои локальные близкие — активные карточки (владелец отмечает приём) */}
+      {Object.entries(localDepGroups).map(([did, group]) => (
+        <div key={did}>
+          <DepSectionTitle name={group.name} />
+          <div className="mlist-list">
+            {group.items.map((item) => (
+              <MedCard
+                key={itemKey(item)}
+                item={item}
+                onTaken={() => wishRef.current?.celebrate()}
+                onSkipped={() => wishRef.current?.skipped()}
+              />
+            ))}
+          </div>
+        </div>
+      ))}
+
       {/* F7: read-only sections for linked dependents */}
       {hasLinked && Object.entries(linkedGroups).map(([uid, group]) => (
         <div key={uid}>
-          <h2 className="section-title">@{group.name}</h2>
+          <DepSectionTitle name={group.name} account />
           <div className="mlist-list">
             {group.items.map((item) => (
               <div
@@ -393,13 +502,12 @@ export default function Dashboard() {
       {/* F8: shared local dependents — помощник №2 отмечает приёмы (CRUD-доступ) */}
       {hasSharedDeps && Object.entries(sharedDepGroups).map(([did, group]) => (
         <div key={did}>
-          <h2 className="section-title">{group.name}</h2>
+          <DepSectionTitle name={group.name} />
           <div className="mlist-list">
             {group.items.map((item) => (
               <MedCard
                 key={itemKey(item)}
                 item={item}
-                hideDep
                 onTaken={() => wishRef.current?.celebrate()}
                 onSkipped={() => wishRef.current?.skipped()}
               />

@@ -204,6 +204,21 @@
   padding: 16px 16px 8px;
 }
 
+/* Заголовок блока близкого: 👤/👥 иконка + имя (Приёмы + Аптечка) */
+.section-title--dep {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 14px;
+  color: var(--text);
+}
+.section-title--dep svg {
+  color: var(--hint);
+  flex-shrink: 0;
+}
+
 /* Med list */
 .med-list {
   display: flex;
@@ -259,15 +274,15 @@
 /* Action buttons */
 .med-actions {
   display: flex;
-  gap: 8px;
+  gap: 16px;
   margin-left: 12px;
   flex-shrink: 0;
 }
 
 .btn-take,
 .btn-skip {
-  width: 40px;
-  height: 40px;
+  width: 48px;
+  height: 48px;
   border-radius: 50%;
   border: none;
   background: var(--secondary-bg);
@@ -306,6 +321,40 @@
 .btn-undo:hover { opacity: 0.8; }
 .btn-undo:active { transform: scale(0.9); opacity: 1; }
 .btn-undo:disabled { opacity: 0.25; cursor: default; }
+
+/* Долгое нажатие: кольцо заполняется по часовой стрелке (take=зелёный, skip=красный) */
+.hold-btn {
+  position: relative;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+.hold-btn::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  background: conic-gradient(var(--hold-color) var(--hold-deg, 0deg), transparent 0deg);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 3px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 3px));
+  pointer-events: none;
+}
+.btn-take.hold-btn { --hold-color: #4caf50; }
+.btn-skip.hold-btn { --hold-color: #e0533d; }
+
+/* Отмеченный приём — статичный кружок без действия (undo убран) */
+.med-status {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--secondary-bg);
+}
+.med-status--taken { color: #4caf50; }
+.med-status--skipped { color: #e0533d; }
 
 .med-status-badge {
   font-size: 22px;
@@ -518,12 +567,6 @@
   text-transform: uppercase;
 }
 
-.mlist-dep {
-  font-size: 13px;
-  color: var(--hint);
-  font-weight: 400;
-}
-
 .mlist-meta {
   font-size: 13px;
   color: var(--hint);
@@ -661,6 +704,11 @@
   color: var(--text);
   font-size: 14px;
   cursor: pointer;
+}
+
+.mlist-stock--low {
+  color: var(--destructive, #e0533d);
+  font-weight: 600;
 }
 
 .mlist-stock-section {
@@ -1357,56 +1405,155 @@
 /* ── Stats page ──────────────────────────────────────────────────────────── */
 
 /* Summary card */
-.stats-summary-card {
-  margin: 12px 12px 4px;
+/* ── F11-C: карточки сводки «Прогресс» ─────────────────────────────────── */
+.stats-card {
+  margin: 10px 12px;
   padding: 16px;
   background: var(--secondary-bg);
   border-radius: 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
 }
-
-.summary-pct {
-  font-size: 48px;
-  font-weight: 800;
-  line-height: 1;
-}
-
-.skipped-days-badge {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.skipped-days-emoji { font-size: 17px; }
-
-.skipped-days-text {
-  font-size: 14px;
-  color: var(--hint);
-}
-
-.summary-streak {
-  display: flex;
-  align-items: baseline;
-  gap: 5px;
-  margin-top: 4px;
-}
-
-.summary-streak--dep { opacity: 0.75; margin-top: 2px; }
 
 .streak-fire { font-size: 18px; }
 
-.summary-streak-count {
-  font-size: 22px;
-  font-weight: 700;
+/* Нагрузка по терапии */
+.load-card {
+  display: flex;
+  justify-content: space-around;
+  text-align: center;
+  gap: 8px;
+}
+
+.load-item { display: flex; flex-direction: column; gap: 3px; }
+
+.load-num {
+  font-size: 26px;
+  font-weight: 800;
   color: var(--text);
   line-height: 1;
 }
 
-.summary-streak-label {
-  font-size: 13px;
+.load-label { font-size: 12px; color: var(--hint); }
+
+/* Серии */
+.streak-card { display: flex; flex-direction: column; gap: 6px; }
+
+.streak-main { display: flex; align-items: baseline; gap: 7px; }
+
+.streak-big {
+  font-size: 40px;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--text);
+}
+
+.streak-unit { font-size: 15px; color: var(--hint); }
+
+.streak-best { font-size: 14px; color: var(--text); opacity: 0.85; }
+
+.streak-dep { font-size: 13px; color: var(--hint); }
+
+/* Соблюдение: окна + график */
+.win-row { display: flex; justify-content: space-around; margin-bottom: 14px; }
+
+.win-cell { display: flex; flex-direction: column; align-items: center; gap: 3px; }
+
+.win-label { font-size: 12px; color: var(--hint); }
+
+.win-pct { font-size: 24px; font-weight: 800; line-height: 1; }
+
+.win-pct--empty { color: var(--hint); }
+
+/* График по неделям */
+.adh-week-title { font-size: 13px; color: var(--hint); margin-bottom: 8px; }
+
+.adh-week-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 96px;
+}
+
+.adh-week-col {
+  flex: 1;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.adh-week-pct { font-size: 9px; color: var(--hint); line-height: 1; height: 11px; }
+
+.adh-week-track {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  align-items: flex-end;
+  background: rgba(127,127,127,0.07);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.adh-week-fill { width: 100%; border-radius: 3px 3px 0 0; min-height: 3px; }
+
+.adh-week-fill--empty { height: 3px; background: rgba(127,127,127,0.18); }
+
+.adh-week-x { font-size: 9px; color: var(--hint); margin-top: 3px; height: 11px; }
+
+.adh-legend {
+  display: flex;
+  justify-content: center;
+  gap: 14px;
+  margin-top: 10px;
+  font-size: 11px;
   color: var(--hint);
+}
+
+.adh-legend span { display: inline-flex; align-items: center; gap: 4px; }
+
+.lg-dot { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+
+/* Соблюдение — заголовок */
+.adh-title { font-size: 15px; font-weight: 700; margin: 0 0 4px; }
+
+.adh-sub { font-size: 13px; color: var(--hint); margin: 4px 0 12px; }
+
+/* Пунктуальность — распределение */
+.punct-title { font-size: 15px; font-weight: 700; margin: 0 0 4px; }
+
+.punct-sub { font-size: 13px; color: var(--hint); margin: 4px 0 10px; }
+
+.dist-row { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
+
+.dist-label { font-size: 13px; color: var(--text); width: 58px; }
+
+.dist-track {
+  flex: 1;
+  height: 14px;
+  background: rgba(127,127,127,0.1);
+  border-radius: 7px;
+  overflow: hidden;
+}
+
+.dist-fill { height: 100%; border-radius: 7px; min-width: 2px; transition: width .3s; }
+
+.dist-pct { font-size: 12px; font-weight: 700; color: var(--text); width: 36px; text-align: right; }
+
+.punct-hint { font-size: 11px; color: var(--hint); margin: 6px 0 0; }
+
+.punct-worst {
+  font-size: 13px;
+  color: var(--text);
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(127,127,127,0.12);
+}
+
+.punct-note {
+  font-size: 11px;
+  color: var(--hint);
+  opacity: 0.7;
+  margin: 8px 0 0;
+  font-style: italic;
 }
 
 .stats-adh-block {
@@ -2478,3 +2625,198 @@
   color: #fff;
 }
 .caregiver-add-done-btn:disabled { opacity: 0.5; cursor: default; }
+
+/* ── A1/A2: упаковка · доза · курс ───────────────────────────────────────── */
+.form-section-head {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--hint);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-bottom: 10px;
+}
+
+.dose-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Две колонки полей формы (дозировка/упаковка, назначено/курс, как/сколько) */
+.form-grid2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  align-items: start;
+}
+.form-grid2 .dose-row { gap: 6px; }
+.form-grid2 .field-select--unit { width: 64px; }
+.form-grid2 .settings-time-chip { width: 100%; box-sizing: border-box; justify-content: space-between; }
+
+/* Тоггл «Разная доза по приёмам» */
+.form-switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 14px;
+  cursor: pointer;
+}
+.form-switch-label { font-size: 14px; color: var(--text); }
+.form-switch {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 44px;
+  height: 26px;
+  border-radius: 13px;
+  background: var(--secondary-bg);
+  position: relative;
+  cursor: pointer;
+  transition: background 0.2s;
+  flex: 0 0 auto;
+}
+.form-switch::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.2s;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+.form-switch:checked { background: var(--link, #3390ec); }
+.form-switch:checked::after { transform: translateX(18px); }
+
+/* Карточка приёма «Приём №» */
+.rule-card { position: relative; }
+.rule-card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.rule-num {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--link, #3390ec);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.rule-time-chip { flex: 1 1 auto; justify-content: space-between; }
+.rule-dose {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.rule-dose-input { width: 64px; text-align: center; padding-left: 6px; padding-right: 6px; }
+
+.field-select--unit {
+  width: 92px;
+  flex: 0 0 auto;
+}
+
+.field-hint {
+  display: block;
+  font-size: 12px;
+  color: var(--hint);
+  margin-top: 5px;
+  line-height: 1.35;
+}
+
+.field-warn {
+  display: block;
+  font-size: 12.5px;
+  color: #a16207;
+  background: rgba(234, 179, 8, 0.12);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-top: 7px;
+  line-height: 1.4;
+}
+
+.schedule-add-toggle {
+  width: 100%;
+  height: 46px;
+  border: 1.5px dashed var(--link);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--link);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.schedule-add-toggle:active { background: var(--secondary-bg); }
+
+/* список: бейдж завершения, прогресс курса, добавить расписание */
+.mlist-badge-done {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  color: #16a34a;
+  background: rgba(22, 163, 74, 0.12);
+  border-radius: 4px;
+  padding: 1px 5px;
+  margin-left: 6px;
+  vertical-align: middle;
+  text-transform: uppercase;
+}
+
+.mlist-course {
+  font-size: 12px;
+  color: var(--hint);
+  margin-top: 2px;
+}
+
+.mlist-schedule-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 7px;
+  padding: 4px 10px;
+  border: 1px dashed var(--link);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--link);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.mlist-schedule-add:active { background: var(--secondary-bg); }
+
+.mlist-course-done {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 14px;
+  background: rgba(22, 163, 74, 0.10);
+  border-top: 1px solid rgba(22, 163, 74, 0.18);
+}
+.mlist-course-done-text {
+  font-size: 13px;
+  font-weight: 600;
+  color: #16a34a;
+}
+.mlist-course-done-actions { display: flex; gap: 8px; }
+.mlist-course-continue,
+.mlist-course-delete {
+  font-size: 13px;
+  font-weight: 600;
+  border: none;
+  border-radius: 8px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+.mlist-course-continue { background: #16a34a; color: #fff; }
+.mlist-course-delete { background: transparent; color: #cc3333; }
+.mlist-course-continue:disabled,
+.mlist-course-delete:disabled { opacity: 0.5; }

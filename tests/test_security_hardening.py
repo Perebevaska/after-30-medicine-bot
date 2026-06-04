@@ -38,15 +38,26 @@ def test_med_too_many_rules_rejected(api_client, db):
     assert r.status_code == 422
 
 
-def test_med_empty_rules_rejected(api_client, db):
+def test_med_empty_rules_allowed(api_client, db):
+    # A1: лекарство-упаковка можно создать без расписания (приёмы добавят позже).
     db.get_or_create_user(77001)
     r = api_client.post("/medications", json=_med_body(rules=[]))
-    assert r.status_code == 422
+    assert r.status_code == 201
 
 
 def test_med_times_per_day_out_of_range(api_client, db):
     db.get_or_create_user(77001)
     r = api_client.post("/medications", json=_med_body(times_per_day=10_000))
+    assert r.status_code == 422
+
+
+def test_med_duplicate_rules_rejected(api_client, db):
+    # #1: два одинаковых приёма (время+частота) схлопнулись бы в один слот intake_log
+    # и тикались бы разом — запрещаем на входе.
+    db.get_or_create_user(77001)
+    dup = [{"reminder_time": "09:00", "frequency": "daily"},
+           {"reminder_time": "09:00", "frequency": "daily"}]
+    r = api_client.post("/medications", json=_med_body(times_per_day=2, rules=dup))
     assert r.status_code == 422
 
 

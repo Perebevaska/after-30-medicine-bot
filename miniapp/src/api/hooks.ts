@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, getInitDataRaw } from './client'
-import type { TodayItem, IntakeIn, AdherenceResponse, StreakItem, Medication, MedicationIn, Dependent, StockInfo, UserSettings, WeekStatRow, AdminStats, DepShareInfo } from './types'
+import type { TodayItem, IntakeIn, AdherenceResponse, StreakItem, StatsOverview, Medication, MedicationIn, Dependent, StockInfo, UserSettings, WeekStatRow, AdminStats, DepShareInfo } from './types'
 
 export function useRequestCaregiverLink() {
   const qc = useQueryClient()
@@ -71,6 +71,14 @@ export function useAdherence() {
   return useQuery<AdherenceResponse>({
     queryKey: ['adherence'],
     queryFn: () => api.get<AdherenceResponse>('/stats/adherence'),
+    enabled: !!getInitDataRaw(),
+  })
+}
+
+export function useStatsOverview() {
+  return useQuery<StatsOverview>({
+    queryKey: ['stats-overview'],
+    queryFn: () => api.get<StatsOverview>('/stats/overview'),
     enabled: !!getInitDataRaw(),
   })
 }
@@ -153,6 +161,17 @@ export function usePauseMedication() {
   return useMutation<void, Error, { id: number; paused: boolean }>({
     mutationFn: ({ id, paused }) =>
       api.post<void>(`/medications/${id}/${paused ? 'pause' : 'resume'}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['medications'] })
+      qc.invalidateQueries({ queryKey: ['today'] })
+    },
+  })
+}
+
+export function useContinueCourse() {
+  const qc = useQueryClient()
+  return useMutation<void, Error, number>({
+    mutationFn: (id) => api.post<void>(`/medications/${id}/course/continue`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['medications'] })
       qc.invalidateQueries({ queryKey: ['today'] })
@@ -430,6 +449,7 @@ export function useLogIntake() {
       qc.invalidateQueries({ queryKey: ['today'] })
       qc.invalidateQueries({ queryKey: ['streak'] })
       qc.invalidateQueries({ queryKey: ['adherence'] })
+      qc.invalidateQueries({ queryKey: ['stats-overview'] })
       qc.invalidateQueries({ queryKey: ['hearts'] })
     },
   })

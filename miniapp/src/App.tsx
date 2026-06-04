@@ -75,6 +75,7 @@ export default function App() {
   const [editMedId, setEditMedId] = useState<number | undefined>()
   const [editLinkedUserId, setEditLinkedUserId] = useState<number | undefined>()
   const [editForDepShareId, setEditForDepShareId] = useState<number | undefined>()
+  const [openSchedule, setOpenSchedule] = useState(false)
   const [showForm, setShowForm] = useState(false)
   const touchStart = useRef<{ x: number; y: number } | null>(null)
 
@@ -113,10 +114,11 @@ export default function App() {
     if (dx > 0 && idx > 0) setNavPage(NAV_PAGES[idx - 1])
   }
 
-  const openForm = (editId?: number, linkedUserId?: number, forDepShareId?: number) => {
+  const openForm = (editId?: number, linkedUserId?: number, forDepShareId?: number, openSchedule?: boolean) => {
     setEditMedId(editId)
     setEditLinkedUserId(linkedUserId)
     setEditForDepShareId(forDepShareId)
+    setOpenSchedule(!!openSchedule)
     setShowForm(true)
   }
 
@@ -125,10 +127,11 @@ export default function App() {
     setEditMedId(undefined)
     setEditLinkedUserId(undefined)
     setEditForDepShareId(undefined)
+    setOpenSchedule(false)
   }
 
   if (showForm) {
-    return <MedicationForm editId={editMedId} linkedUserId={editLinkedUserId} forDepShareId={editForDepShareId} onBack={closeForm} />
+    return <MedicationForm editId={editMedId} linkedUserId={editLinkedUserId} forDepShareId={editForDepShareId} openSchedule={openSchedule} onBack={closeForm} />
   }
 
   const activeIdx = NAV_PAGES.indexOf(navPage)
@@ -144,7 +147,7 @@ export default function App() {
           >
             {page === 'dashboard' && <Dashboard key={resetKeys.dashboard} />}
             {page === 'medications' && (
-              <MedicationList key={resetKeys.medications} onAdd={(uid, sid) => openForm(undefined, uid, sid)} onEdit={(id, uid, sid) => openForm(id, uid, sid)} />
+              <MedicationList key={resetKeys.medications} onAdd={(uid, sid) => openForm(undefined, uid, sid)} onEdit={(id, uid, sid) => openForm(id, uid, sid)} onSchedule={(id, uid, sid) => openForm(id, uid, sid, true)} />
             )}
             {page === 'stats' && <StatsPage key={resetKeys.stats} />}
             {page === 'settings' && <SettingsPage key={resetKeys.settings} />}

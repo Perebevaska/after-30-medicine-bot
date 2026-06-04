@@ -49,7 +49,7 @@ def _main_menu_text(first_name: str, hint: str = "") -> str:
     """Текст приветствия главного меню."""
     text = (
         f"Привет, {first_name}! 💊\n\n"
-        "Я напоминаю о приёмах и принимаю отметки «выпил / пропустил».\n"
+        "Напоминаю вовремя принять лекарства и отмечаю приёмы одним касанием.\n"
         "Добавление лекарств, статистика, настройки и «Забота» — "
         "в приложении 📱 (кнопка ниже)."
     )
@@ -261,7 +261,7 @@ async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=ReplyKeyboardRemove()
         )
         await show_main_menu(update, update.effective_user.first_name,
-                             hint="Нажми 💊 <b>Мои лекарства</b>, чтобы добавить первое лекарство.")
+                             hint="Открой 📱 <b>приложение</b> (кнопка ниже), чтобы добавить первое лекарство.")
         return ConversationHandler.END
     await update.message.reply_text(
         "Не удалось определить часовой пояс. Введи город:",
@@ -289,7 +289,7 @@ async def handle_city_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=ReplyKeyboardRemove()
             )
             await show_main_menu(update, update.effective_user.first_name,
-                                 hint="Нажми 💊 <b>Мои лекарства</b>, чтобы добавить первое лекарство.")
+                                 hint="Открой 📱 <b>приложение</b> (кнопка ниже), чтобы добавить первое лекарство.")
             return ConversationHandler.END
     await update.message.reply_text("Город не найден. Попробуй ещё раз:")
     return SETUP_CITY

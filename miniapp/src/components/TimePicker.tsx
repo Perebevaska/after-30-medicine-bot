@@ -9,7 +9,7 @@ const MINUTES = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'))
 const DRUM_ITEM_H = 44
 const DRUM_PAD = 1
 
-function DrumColumn({ items, value, onChange }: {
+export function DrumColumn({ items, value, onChange }: {
   items: string[]
   value: string
   onChange: (v: string) => void
@@ -63,6 +63,21 @@ function DrumColumn({ items, value, onChange }: {
           <div key={`post${i}`} className="drum-col-item" />
         ))}
       </div>
+    </div>
+  )
+}
+
+// Числовой барабан (одна колонка целых чисел) — «ед. в упаковке» и т.п.
+export function NumberDrum({ value, onChange, min = 1, max = 240 }: {
+  value: number
+  onChange: (v: number) => void
+  min?: number
+  max?: number
+}) {
+  const items = Array.from({ length: max - min + 1 }, (_, i) => String(min + i))
+  return (
+    <div className="drum-picker drum-picker--single">
+      <DrumColumn items={items} value={String(value)} onChange={(v) => onChange(Number(v))} />
     </div>
   )
 }
