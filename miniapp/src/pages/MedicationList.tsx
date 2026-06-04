@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { Pencil, Pause, Play, Trash2, Plus, CalendarPlus } from 'lucide-react'
+import { Pencil, Pause, Play, Trash2, Plus, CalendarPlus, Package, CheckCircle2 } from 'lucide-react'
 import { useMedications, useDeleteMedication, usePauseMedication, useContinueCourse, useSettings } from '../api/hooks'
 import { apiErrorMessage } from '../api/client'
 import type { Medication } from '../api/types'
@@ -87,7 +87,7 @@ function MedCard({
             {med.dosage} · {MEAL_LABELS[med.meal_relation] ?? med.meal_relation}
             {hasStock && (
               <span className={lowStock ? 'mlist-stock mlist-stock--low' : 'mlist-stock'}>
-                {' '}· 📦 {med.stock_qty} ед.{lowStock ? ' · мало' : ''}
+                {' '}· <Package size={13} strokeWidth={2} className="ic" /> {med.stock_qty} ед.{lowStock ? ' · мало' : ''}
               </span>
             )}
           </div>
@@ -113,7 +113,7 @@ function MedCard({
         <div className="mlist-card-body-inner">
           {view === 'actions' && courseComplete && (
             <div className="mlist-course-done">
-              <span className="mlist-course-done-text">✅ Курс пройден ({courseDone}/{courseTotal})</span>
+              <span className="mlist-course-done-text"><CheckCircle2 size={14} strokeWidth={2} className="ic" /> Курс пройден ({courseDone}/{courseTotal})</span>
               <div className="mlist-course-done-actions">
                 <button
                   className="mlist-course-continue"

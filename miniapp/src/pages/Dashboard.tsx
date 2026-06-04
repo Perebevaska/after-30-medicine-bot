@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, forwardRef, useImperativeHandle } from 'react'
 import { createPortal } from 'react-dom'
-import { Check, X } from 'lucide-react'
+import { Check, X, Globe, Pill, Pause, ArrowRight } from 'lucide-react'
 import { postEvent } from '@telegram-apps/sdk-react'
 import { useToday, useLogIntake, useHearts, useSettings, useMedications } from '../api/hooks'
 import { useQueryClient } from '@tanstack/react-query'
@@ -381,8 +381,8 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (p: 'medication
       {showTzBanner && (
         <div className="tz-banner">
           <span className="tz-banner-text">
-            🌍 Похоже, часовой пояс не задан — напоминания могут приходить не вовремя.
-            Зайди в <b>Настройки</b> и выбери свой город 🕐
+            <Globe size={15} strokeWidth={2} className="ic" /> Похоже, часовой пояс не задан — напоминания могут приходить не вовремя.
+            Зайди в <b>Настройки</b> и выбери свой город.
           </span>
           <button className="tz-banner-close" onClick={() => setTzBannerDismissed(true)} aria-label="Закрыть">
             <X size={16} strokeWidth={2.5} />
@@ -400,10 +400,10 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (p: 'medication
         if (ownMeds.length === 0) {
           return (
             <div className="empty-state">
-              <p className="empty-state-title">💊 Пока нет препаратов</p>
+              <p className="empty-state-title"><Pill size={17} strokeWidth={2} className="ic" /> Пока нет препаратов</p>
               <p className="empty-state-text">Добавьте первый — и я напомню о приёмах вовремя.</p>
               <button type="button" className="empty-state-link" onClick={() => onNavigate?.('medications')}>
-                В Аптечку →
+                В Аптечку <ArrowRight size={14} strokeWidth={2} className="ic" />
               </button>
             </div>
           )
@@ -411,10 +411,10 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (p: 'medication
         if (ownMeds.every((m) => m.paused)) {
           return (
             <div className="empty-state">
-              <p className="empty-state-title">⏸️ Все препараты на паузе</p>
+              <p className="empty-state-title"><Pause size={17} strokeWidth={2} className="ic" /> Все препараты на паузе</p>
               <p className="empty-state-text">Напоминания не приходят. Снимите паузу, когда будете готовы.</p>
               <button type="button" className="empty-state-link" onClick={() => onNavigate?.('medications')}>
-                В Аптечку →
+                В Аптечку <ArrowRight size={14} strokeWidth={2} className="ic" />
               </button>
             </div>
           )
@@ -447,7 +447,7 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (p: 'medication
                 onClick={handleTakeAll}
                 disabled={takingAll}
               >
-                💊 Принять всё
+                <Pill size={16} strokeWidth={2} className="ic" /> Принять всё
               </button>
             </div>
           )}

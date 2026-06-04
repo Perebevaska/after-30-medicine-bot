@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { Clock, Package, Pill, AlertTriangle, Trash2, CalendarPlus, ArrowLeft } from 'lucide-react'
 import {
   useMedications,
   useDependents,
@@ -199,7 +200,7 @@ function RuleSection({ rule, index, errors, onChange, perDose, unitLabel }: Rule
           className={`settings-time-chip rule-time-chip${drumOpen ? ' settings-time-chip--active' : ''}`}
           onClick={() => setDrumOpen((v) => !v)}
         >
-          🕐 {rule.reminder_time}
+          <Clock size={14} strokeWidth={2} className="ic" /> {rule.reminder_time}
           <span className="settings-time-chip-chevron">{drumOpen ? '‹' : '›'}</span>
         </span>
         {perDose && (
@@ -455,7 +456,7 @@ export default function MedicationForm({ editId, linkedUserId, forDepShareId, op
   return (
     <div className="form-page">
       <div className="form-header">
-        <button className="form-back-btn" onClick={onBack} type="button">←</button>
+        <button className="form-back-btn" onClick={onBack} type="button" aria-label="Назад"><ArrowLeft size={20} strokeWidth={2} /></button>
         <h1 className="form-title">
           {editId != null ? 'Препарат' : 'Новый препарат'}
         </h1>
@@ -497,7 +498,7 @@ export default function MedicationForm({ editId, linkedUserId, forDepShareId, op
 
         {/* ── Упаковка ── */}
         <div className="form-section">
-          <div className="form-section-head">📦 Упаковка</div>
+          <div className="form-section-head"><Package size={15} strokeWidth={2} className="ic" /> Упаковка</div>
 
           <div className="form-field">
             <label className="field-label">Название</label>
@@ -565,7 +566,7 @@ export default function MedicationForm({ editId, linkedUserId, forDepShareId, op
           )}
           {doseWarn && (
             <span className="field-warn">
-              ⚠️ Купили упаковку с другой дозировкой? Лучше создайте новый препарат — так история и запас не смешаются.
+              <AlertTriangle size={14} strokeWidth={2} className="ic" /> Купили упаковку с другой дозировкой? Лучше создайте новый препарат — так история и запас не смешаются.
             </span>
           )}
         </div>
@@ -574,7 +575,7 @@ export default function MedicationForm({ editId, linkedUserId, forDepShareId, op
         {scheduleOn ? (
           <>
             <div className="form-section">
-              <div className="form-section-head">💊 Приём и курс</div>
+              <div className="form-section-head"><Pill size={15} strokeWidth={2} className="ic" /> Приём и курс</div>
 
               <div className="form-grid2">
                 <div className="form-field">
@@ -684,14 +685,14 @@ export default function MedicationForm({ editId, linkedUserId, forDepShareId, op
 
             <div className="schedule-remove-row">
               <button type="button" className="schedule-remove-btn" onClick={() => setScheduleOn(false)}>
-                🗑 Удалить расписание
+                <Trash2 size={14} strokeWidth={2} className="ic" /> Удалить расписание
               </button>
             </div>
           </>
         ) : (
           <div className="form-section">
             <button type="button" className="schedule-add-toggle" onClick={() => setScheduleOn(true)}>
-              📅 Добавить расписание приёма
+              <CalendarPlus size={15} strokeWidth={2} className="ic" /> Добавить расписание приёма
             </button>
             <span className="field-hint">Можно сохранить и без расписания — напоминания добавите позже.</span>
           </div>

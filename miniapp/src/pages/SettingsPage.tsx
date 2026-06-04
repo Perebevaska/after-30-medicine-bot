@@ -1,4 +1,5 @@
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef, type ReactNode } from 'react'
+import { Sun, Moon, User, Check, X, Clock, Copy, Bell, Link2, AlertTriangle, MapPin } from 'lucide-react'
 import {
   useSettings, useSetReminderMode, useSetDailyPlan, useSetCaregiver,
   useDependents, useCreateDependent, useDeleteDependent,
@@ -10,10 +11,7 @@ import {
   useRevokeDepShare, useLeaveDepShare,
 } from '../api/hooks'
 import TimePicker from '../components/TimePicker'
-import {
-  getThemePref, setThemePref, getPaletteId, setPaletteId,
-  getCustomAccent, setCustomAccent, PALETTES, type ThemePref,
-} from '../theme'
+import { getThemePref, setThemePref, type ThemePref } from '../theme'
 import { resetOnboarding } from '../components/OnboardingTour'
 
 function InfoTip({ text }: { text: string }) {
@@ -46,14 +44,14 @@ function PendingCard({
 }) {
   return (
     <div className="pending-card">
-      <span className="pending-card-icon">👤</span>
+      <span className="pending-card-icon"><User size={20} strokeWidth={2} /></span>
       <div className="pending-card-body">
         <span className="pending-card-user">{user}</span>
         <span className="pending-card-desc">{desc}</span>
       </div>
       <div className="pending-card-actions">
-        <button className="pending-card-btn pending-card-btn--accept" title="Принять" onClick={onAccept} disabled={busy}>✓</button>
-        <button className="pending-card-btn pending-card-btn--decline" title="Отклонить" onClick={onDecline} disabled={busy}>✕</button>
+        <button className="pending-card-btn pending-card-btn--accept" title="Принять" onClick={onAccept} disabled={busy}><Check size={18} strokeWidth={2.5} /></button>
+        <button className="pending-card-btn pending-card-btn--decline" title="Отклонить" onClick={onDecline} disabled={busy}><X size={18} strokeWidth={2.5} /></button>
       </div>
     </div>
   )
@@ -131,8 +129,6 @@ export default function SettingsPage() {
   const deleteAccount = useDeleteAccount()
   const { data: adminStats, refetch: refetchAdmin } = useAdminStats(!!data?.is_admin)
   const [theme, setTheme] = useState<ThemePref>(getThemePref())
-  const [palette, setPalette] = useState<string>(getPaletteId())
-  const [customAccent, setCustomAccentState] = useState<string>(getCustomAccent())
   const [dailyPlanTime, setDailyPlanTime] = useState('08:00')
   const [planTimeEditing, setPlanTimeEditing] = useState(false)
   const [strictTime, setStrictTime] = useState('02:00')
@@ -331,14 +327,14 @@ export default function SettingsPage() {
 
       <h2 className="section-title">Внешний вид</h2>
       <p className="section-hint">
-        Тема задаёт фон, палитра — акцентный цвет. «Как в Telegram» подстраивается под тему клиента.
+        «Как в Telegram» подстраивается под тему клиента.
       </p>
       <div className="theme-seg">
         {([
-          ['auto', 'Как в Telegram'],
-          ['light', '☀️ Светлая'],
-          ['dark', '🌙 Тёмная'],
-        ] as [ThemePref, string][]).map(([val, label]) => (
+          ['auto', <>Как в Telegram</>],
+          ['light', <><Sun size={15} strokeWidth={2} /> Светлая</>],
+          ['dark', <><Moon size={15} strokeWidth={2} /> Тёмная</>],
+        ] as [ThemePref, ReactNode][]).map(([val, label]) => (
           <button
             key={val}
             type="button"
@@ -348,36 +344,6 @@ export default function SettingsPage() {
             {label}
           </button>
         ))}
-      </div>
-
-      <p className="section-hint" style={{ marginTop: 14 }}>Палитра акцента</p>
-      <div className="palette-grid">
-        {PALETTES.map((p) => (
-          <button
-            key={p.id}
-            type="button"
-            className={`palette-dot${palette === p.id ? ' palette-dot--active' : ''}`}
-            style={{ background: p.swatch }}
-            title={p.label}
-            aria-label={p.label}
-            onClick={() => { setPalette(p.id); setPaletteId(p.id) }}
-          />
-        ))}
-        <label
-          className={`palette-dot palette-dot--custom${palette === 'custom' ? ' palette-dot--active' : ''}`}
-          style={{ background: customAccent }}
-          title="Своя"
-        >
-          <input
-            type="color"
-            value={customAccent}
-            onChange={(e) => {
-              setCustomAccentState(e.target.value)
-              setCustomAccent(e.target.value)
-              setPalette('custom')
-            }}
-          />
-        </label>
       </div>
 
       <h2 className="section-title">Напоминания</h2>
@@ -626,7 +592,7 @@ export default function SettingsPage() {
             {data.active_caregiver!.break_requested ? (
               <div className="settings-row">
                 <span className="settings-label settings-label--hint-sm">
-                  ⏳ Запрос на отключение отправлен
+                  <Clock size={14} strokeWidth={2} className="ic" /> Запрос на отключение отправлен
                 </span>
               </div>
             ) : (
@@ -722,7 +688,7 @@ export default function SettingsPage() {
                   <span className="settings-label">Мой код</span>
                   <button className="caregiver-code-chip" onClick={handleCopyCode} title="Скопировать и поделиться">
                     <span className="caregiver-code-text">{data.caregiver_code ?? '…'}</span>
-                    <span className="caregiver-code-icon">{codeCopied ? '✓' : '⎘'}</span>
+                    <span className="caregiver-code-icon">{codeCopied ? <Check size={15} strokeWidth={2.5} /> : <Copy size={15} strokeWidth={2} />}</span>
                   </button>
                 </div>
                 <div className="settings-row">
@@ -758,7 +724,7 @@ export default function SettingsPage() {
                             onClick={() => handleToggleShare(d.id)}
                             title={hasViewer ? 'Управление доступом' : `Дать доступ к ${d.name}`}
                           >
-                            {hasPending ? '🔔' : hasViewer ? '👤' : '🔗'}
+                            {hasPending ? <Bell size={16} strokeWidth={2} /> : hasViewer ? <User size={16} strokeWidth={2} /> : <Link2 size={16} strokeWidth={2} />}
                           </button>
                           <button
                             className="btn-detach"
@@ -789,7 +755,7 @@ export default function SettingsPage() {
                             {shareCode ? (
                               <button className="caregiver-code-chip" onClick={() => handleCopyDepShareCode(d.id, shareCode)} title="Скопировать">
                                 <span className="caregiver-code-text">{shareCode}</span>
-                                <span className="caregiver-code-icon">{shareCopiedId === d.id ? '✓' : '⎘'}</span>
+                                <span className="caregiver-code-icon">{shareCopiedId === d.id ? <Check size={15} strokeWidth={2.5} /> : <Copy size={15} strokeWidth={2} />}</span>
                               </button>
                             ) : shareCodeError[d.id] ? (
                               <button className="dep-add-btn" onClick={() => {
@@ -813,7 +779,7 @@ export default function SettingsPage() {
                     <div className="settings-row caregiver-dep-row">
                       <span className="settings-label">
                         @{dep.dependent_username ?? `id${dep.dependent_telegram_id}`}
-                        {!!dep.break_requested && <span className="caregiver-break-badge"> ⚠️</span>}
+                        {!!dep.break_requested && <span className="caregiver-break-badge"> <AlertTriangle size={13} strokeWidth={2} className="ic" /></span>}
                       </span>
                       {dep.break_requested ? (
                         <button
@@ -1011,7 +977,7 @@ export default function SettingsPage() {
               onClick={handleGeolocate}
               disabled={setTzByLocation.isPending}
             >
-              {setTzByLocation.isPending ? 'Определяю…' : '📍 По геолокации'}
+              {setTzByLocation.isPending ? 'Определяю…' : <><MapPin size={15} strokeWidth={2} className="ic" /> По геолокации</>}
             </button>
             {geoError && <p className="tz-error">{geoError}</p>}
             <input

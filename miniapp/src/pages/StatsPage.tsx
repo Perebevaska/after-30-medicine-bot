@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { Send } from 'lucide-react'
+import { Send, Flame, Trophy, Clock, Lock, Check, ClipboardList, Calendar, Stethoscope, Loader2, AlertTriangle, type LucideIcon } from 'lucide-react'
 import { useAdherence, useStreak, useSendExport, useStatsOverview, useSettings } from '../api/hooks'
 import type { StreakItem, StatsOverview, WeeklyAdherence, AchievementsBlock } from '../api/types'
 
@@ -61,14 +61,14 @@ function StreakCard({
   return (
     <div className="stats-card streak-card">
       <div className="streak-main">
-        <span className="streak-fire">🔥</span>
+        <span className="streak-fire"><Flame size={20} strokeWidth={2} /></span>
         <span className="streak-big">{current}</span>
         <span className="streak-unit">{pluralDays(current)} подряд</span>
       </div>
-      <div className="streak-best">🏆 Лучший результат — {best} {pluralDays(best)}</div>
+      <div className="streak-best"><Trophy size={14} strokeWidth={2} className="ic" /> Лучший результат — {best} {pluralDays(best)}</div>
       {depStreaks.map((s) => (
         <div key={s.dependent_id} className="streak-dep">
-          🔥 {s.streak} · {s.name}
+          <Flame size={13} strokeWidth={2} className="ic" /> {s.streak} · {s.name}
         </div>
       ))}
     </div>
@@ -134,7 +134,7 @@ function AdherenceCard({ adherence }: { adherence: StatsOverview['adherence'] })
       </div>
       {hasData
         ? <WeeklyGraph weekly={weekly} />
-        : <p className="hint">Начни отмечать приёмы — здесь появится график 📈</p>}
+        : <p className="hint">Начни отмечать приёмы — здесь появится график</p>}
     </div>
   )
 }
@@ -174,7 +174,7 @@ function PunctualityCard({ punct }: { punct: StatsOverview['punctuality'] }) {
       )}
       {hasWorst && (
         <div className="punct-worst">
-          🕘 Самый проблемный час — <b>{hh(punct.worst_hour!)}</b> ({punct.worst_hour_skip_pct}% пропусков)
+          <Clock size={14} strokeWidth={2} className="ic" /> Самый проблемный час — <b>{hh(punct.worst_hour!)}</b> ({punct.worst_hour_skip_pct}% пропусков)
         </div>
       )}
       <p className="punct-note">Учитывается время нажатия отметки, не реального приёма</p>
@@ -204,7 +204,7 @@ function AchievementsCard({ block }: { block: AchievementsBlock }) {
               className={`ach-badge${on ? '' : ' ach-badge--locked'}${selected === a.code ? ' ach-badge--sel' : ''}`}
               onClick={() => setSelected((c) => (c === a.code ? null : a.code))}
             >
-              <span className="ach-icon">{on ? a.icon : '🔒'}</span>
+              <span className="ach-icon">{on ? a.icon : <Lock size={22} strokeWidth={2} />}</span>
               <span className="ach-name">{a.title}</span>
             </button>
           )
@@ -212,12 +212,12 @@ function AchievementsCard({ block }: { block: AchievementsBlock }) {
       </div>
       {sel && (
         <div className="ach-hint">
-          <span className="ach-hint-icon">{selOn ? sel.icon : '🔒'}</span>
+          <span className="ach-hint-icon">{selOn ? sel.icon : <Lock size={24} strokeWidth={2} />}</span>
           <div className="ach-hint-body">
             <span className="ach-hint-title">{sel.title}</span>
             <span className="ach-hint-desc">{sel.desc}</span>
             <span className={`ach-hint-state${selOn ? ' ach-hint-state--on' : ''}`}>
-              {selOn ? '✓ Получено' : 'Ещё не получено'}
+              {selOn ? <><Check size={13} strokeWidth={2.5} className="ic" /> Получено</> : 'Ещё не получено'}
             </span>
           </div>
         </div>
@@ -260,15 +260,15 @@ function AchievementToast({ block }: { block: AchievementsBlock }) {
 
 // ─── Report row ───────────────────────────────────────────────────────────
 
-type ReportDef = { slot: string; icon: string; title: string }
+type ReportDef = { slot: string; icon: LucideIcon; title: string }
 
 const REPORTS: ReportDef[] = [
-  { slot: 'plan',      icon: '📋', title: 'Расписание на неделю' },
-  { slot: 'week',      icon: '📅', title: 'История за 7 дней' },
-  { slot: 'doctor',    icon: '🩺', title: 'Отчёт для врача' },
+  { slot: 'plan',      icon: ClipboardList, title: 'Расписание на неделю' },
+  { slot: 'week',      icon: Calendar,      title: 'История за 7 дней' },
+  { slot: 'doctor',    icon: Stethoscope,   title: 'Отчёт для врача' },
 ]
 
-function ReportRow({ slot, icon, title }: ReportDef) {
+function ReportRow({ slot, icon: Icon, title }: ReportDef) {
   const { mutate, isPending, isError, reset } = useSendExport()
   const [sent, setSent] = useState(false)
   const sentTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -287,14 +287,14 @@ function ReportRow({ slot, icon, title }: ReportDef) {
 
   return (
     <div className="report-row">
-      <span className="report-row-icon">{icon}</span>
+      <span className="report-row-icon"><Icon size={18} strokeWidth={2} /></span>
       <span className="report-row-title">{title}</span>
       <button
         className={`report-send-btn${sent ? ' report-send-btn--sent' : ''}${isError ? ' report-send-btn--err' : ''}`}
         onClick={handleSend}
         disabled={isPending}
       >
-        {isPending ? '⏳' : sent ? '✅' : isError ? '⚠️' : <Send size={15} strokeWidth={2} />}
+        {isPending ? <Loader2 size={15} strokeWidth={2} className="spin" /> : sent ? <Check size={15} strokeWidth={2.5} /> : isError ? <AlertTriangle size={15} strokeWidth={2} /> : <Send size={15} strokeWidth={2} />}
       </button>
     </div>
   )
@@ -344,7 +344,7 @@ export default function StatsPage() {
       <h2 className="section-title">По препаратам</h2>
       {adherenceLoading && <p className="hint">Загрузка…</p>}
       {!adherenceLoading && meds.length === 0 && (
-        <p className="hint">Начни отмечать приёмы — и здесь появится твой прогресс 💊</p>
+        <p className="hint">Начни отмечать приёмы — и здесь появится твой прогресс</p>
       )}
       {!adherenceLoading && meds.length > 0 && (
         <div className="stats-adh-block">

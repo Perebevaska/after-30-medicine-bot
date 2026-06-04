@@ -1,32 +1,14 @@
-// Фаза 13: тема = режим (auto/light/dark) + акцент-палитра (пресет или своя).
-//  - Режим диктует ФОН/ТЕКСТ (как в Telegram): auto = цвета Telegram,
-//    light/dark = стандартные нейтральные палитры.
-//  - Палитра меняет ТОЛЬКО акцентный цвет (кнопки/ссылки/выделения).
+// Фаза 13/18: тема = режим (auto/light/dark). Один фикс-акцент бренда.
+//  - Режим диктует ФОН/ТЕКСТ: auto = цвета Telegram, light/dark = нейтральные.
+//  - Акцент — единый бренд-цвет (sea-green: доверие/здоровье), не перекрашивается.
 // Переменные инъектируются в <html> из JS (applyTheme).
 export type ThemePref = 'auto' | 'light' | 'dark'
 type Mode = 'light' | 'dark'
 
 const KEY_MODE = 'theme_pref'
-const KEY_PALETTE = 'theme_palette'
-const KEY_CUSTOM = 'theme_custom'
 
-export interface Palette {
-  id: string
-  label: string
-  swatch: string      // акцент для light + образец в UI
-  swatchDark?: string // акцент для dark (если нужен светлее)
-}
-
-// id 'telegram' и 'custom' — особые (см. accentFor). Остальные — пресеты-акценты.
-export const PALETTES: Palette[] = [
-  { id: 'telegram', label: 'Как в Telegram', swatch: '#3390ec' },
-  { id: 'coral', label: 'Коралл', swatch: '#e5715a', swatchDark: '#f08a72' },
-  { id: 'terracotta', label: 'Терракот', swatch: '#c85a3c', swatchDark: '#d9724e' },
-  { id: 'apricot', label: 'Абрикос', swatch: '#e8765c', swatchDark: '#f5957e' },
-  { id: 'ocean', label: 'Океан', swatch: '#2b8a9e', swatchDark: '#4fb3c7' },
-  { id: 'sage', label: 'Шалфей', swatch: '#4f8a5b', swatchDark: '#6cbf7a' },
-  { id: 'lavender', label: 'Лаванда', swatch: '#7c6bc4', swatchDark: '#a594e6' },
-]
+// Единый бренд-акцент. Свой оттенок для dark (светлее — контраст на тёмном фоне).
+const ACCENT: Record<Mode, string> = { light: '#2b8a9e', dark: '#4fb3c7' }
 
 // Стандартные нейтральные поверхности (когда режим задан явно light/dark).
 const SURFACE: Record<Mode, { bg: string; card: string; secondary: string; text: string; hint: string; separator: string }> = {
@@ -35,7 +17,6 @@ const SURFACE: Record<Mode, { bg: string; card: string; secondary: string; text:
 }
 
 const DESTRUCTIVE: Record<Mode, string> = { light: '#d64c3c', dark: '#f0796a' }
-const DEFAULT_CUSTOM = '#e5715a'
 
 type TgWebApp = { colorScheme?: 'light' | 'dark'; onEvent?: (e: string, cb: () => void) => void }
 function tg(): TgWebApp | undefined {
@@ -46,14 +27,6 @@ export function getThemePref(): ThemePref {
   const v = localStorage.getItem(KEY_MODE)
   return v === 'light' || v === 'dark' ? v : 'auto'
 }
-export function getPaletteId(): string {
-  const v = localStorage.getItem(KEY_PALETTE)
-  if (v === 'custom' || PALETTES.some((p) => p.id === v)) return v as string
-  return 'telegram'
-}
-export function getCustomAccent(): string {
-  return localStorage.getItem(KEY_CUSTOM) || DEFAULT_CUSTOM
-}
 
 function systemIsDark(): boolean {
   const scheme = tg()?.colorScheme
@@ -63,14 +36,6 @@ function systemIsDark(): boolean {
 }
 function resolveMode(pref: ThemePref): Mode {
   return pref === 'auto' ? (systemIsDark() ? 'dark' : 'light') : pref
-}
-
-function accentFor(paletteId: string, mode: Mode): string {
-  if (paletteId === 'telegram') return 'var(--tg-theme-button-color, #3390ec)'
-  if (paletteId === 'custom') return getCustomAccent()
-  const p = PALETTES.find((x) => x.id === paletteId)
-  if (!p) return 'var(--tg-theme-button-color, #3390ec)'
-  return mode === 'dark' ? (p.swatchDark ?? p.swatch) : p.swatch
 }
 
 export function applyTheme(): void {
@@ -99,7 +64,7 @@ export function applyTheme(): void {
     set('--separator', s.separator)
   }
 
-  const accent = accentFor(getPaletteId(), mode)
+  const accent = ACCENT[mode]
   set('--destructive', DESTRUCTIVE[mode])
   set('--accent', accent)
   set('--button-bg', accent)
@@ -112,15 +77,6 @@ export function applyTheme(): void {
 
 export function setThemePref(pref: ThemePref): void {
   localStorage.setItem(KEY_MODE, pref)
-  applyTheme()
-}
-export function setPaletteId(id: string): void {
-  localStorage.setItem(KEY_PALETTE, id)
-  applyTheme()
-}
-export function setCustomAccent(hex: string): void {
-  localStorage.setItem(KEY_CUSTOM, hex)
-  localStorage.setItem(KEY_PALETTE, 'custom')
   applyTheme()
 }
 
