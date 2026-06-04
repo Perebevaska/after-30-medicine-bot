@@ -144,16 +144,25 @@ const isDuePending = (i: TodayItem) => i.status === 'pending' && i.is_due
 
 // Вибрация в конце удержания: нативный Telegram haptic (impact heavy).
 // Требует web_app_ready при старте (main.tsx), иначе Android-клиент игнорит событие.
-function haptic() {
+function haptic(style: 'heavy' | 'light' = 'heavy') {
   try {
-    postEvent('web_app_trigger_haptic_feedback', { type: 'impact', impact_style: 'heavy' })
+    postEvent('web_app_trigger_haptic_feedback', { type: 'impact', impact_style: style })
     return
   } catch { /* noop */ }
   // Веб-фоллбэк (вне Telegram)
-  try { navigator.vibrate?.(35) } catch { /* noop */ }
+  try { navigator.vibrate?.(style === 'light' ? 12 : 35) } catch { /* noop */ }
 }
 
 const HOLD_MS = 600
+
+// Подсказка про удержание ✓/✕ показывается, пока юзер не отметит первый приём.
+const HOLD_LEARNED_KEY = 'hold_learned'
+function holdLearned(): boolean {
+  try { return localStorage.getItem(HOLD_LEARNED_KEY) === '1' } catch { return false }
+}
+function markHoldLearned(): void {
+  try { localStorage.setItem(HOLD_LEARNED_KEY, '1') } catch { /* noop */ }
+}
 
 // Кнопка подтверждения долгим нажатием: при удержании граница заполняется
 // по часовой стрелке (зелёная take / красная skip); в конце — onConfirm + вибрация.
@@ -168,9 +177,11 @@ function HoldButton({
   children: React.ReactNode
 }) {
   const [deg, setDeg] = useState(0)
+  const [hint, setHint] = useState(false) // короткий тап → обучающая подсказка «Удерживайте»
   const rafRef = useRef<number | null>(null)
   const startRef = useRef(0)
   const doneRef = useRef(false)
+  const hintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const stop = () => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current)
@@ -179,7 +190,10 @@ function HoldButton({
     setDeg(0)
   }
 
-  useEffect(() => () => { if (rafRef.current) cancelAnimationFrame(rafRef.current) }, [])
+  useEffect(() => () => {
+    if (rafRef.current) cancelAnimationFrame(rafRef.current)
+    if (hintTimerRef.current) clearTimeout(hintTimerRef.current)
+  }, [])
 
   const tick = (t: number) => {
     if (!startRef.current) startRef.current = t
@@ -204,14 +218,21 @@ function HoldButton({
     rafRef.current = requestAnimationFrame(tick)
   }
 
+  // Отпустил раньше порога → не отметили: показать подсказку, что надо держать.
   const cancel = () => {
-    if (!doneRef.current && rafRef.current) stop()
+    if (!doneRef.current && rafRef.current) {
+      stop()
+      haptic('light')
+      setHint(true)
+      if (hintTimerRef.current) clearTimeout(hintTimerRef.current)
+      hintTimerRef.current = setTimeout(() => setHint(false), 1600)
+    }
   }
 
   return (
     <button
       type="button"
-      className={`btn-${variant} hold-btn`}
+      className={`btn-${variant} hold-btn${hint ? ' hold-btn--hint' : ''}`}
       title={title}
       disabled={disabled}
       style={{ '--hold-deg': `${deg}deg` } as React.CSSProperties}
@@ -222,6 +243,7 @@ function HoldButton({
       onContextMenu={(e) => e.preventDefault()}
     >
       {children}
+      {hint && <span className="hold-tip">Удерживайте</span>}
     </button>
   )
 }
@@ -300,7 +322,10 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (p: 'medication
   const qc = useQueryClient()
   const [takingAll, setTakingAll] = useState(false)
   const [tzBannerDismissed, setTzBannerDismissed] = useState(false)
+  const [showHoldHint, setShowHoldHint] = useState(!holdLearned())
   const wishRef = useRef<WishCardHandle>(null)
+
+  const learnHold = () => { markHoldLearned(); setShowHoldHint(false) }
 
   const allItems = data ?? []
   // F7: separate own items from linked dependents' items
@@ -342,6 +367,7 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (p: 'medication
   const handleTakeAll = async () => {
     if (!dueItems.length) return
     setTakingAll(true)
+    learnHold()
     wishRef.current?.celebrate()
     const prev = qc.getQueryData<TodayItem[]>(['today'])
     qc.setQueryData<TodayItem[]>(['today'], (old) =>
@@ -427,13 +453,18 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (p: 'medication
           {dueItems.length > 0 && (
             <>
               <h2 className="section-title">Сейчас</h2>
+              {showHoldHint && (
+                <p className="hold-caption">
+                  Удерживайте <Check size={13} strokeWidth={2.5} className="ic" /> или <X size={13} strokeWidth={2.5} className="ic" />, чтобы отметить приём
+                </p>
+              )}
               <div className="mlist-list">
                 {dueItems.map((item) => (
                   <MedCard
                     key={itemKey(item)}
                     item={item}
-                    onTaken={() => wishRef.current?.celebrate()}
-                    onSkipped={() => wishRef.current?.skipped()}
+                    onTaken={() => { wishRef.current?.celebrate(); learnHold() }}
+                    onSkipped={() => { wishRef.current?.skipped(); learnHold() }}
                   />
                 ))}
               </div>
