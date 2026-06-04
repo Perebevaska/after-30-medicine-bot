@@ -446,11 +446,15 @@ export function useLogIntake() {
       if (c?.prev) qc.setQueryData(['today'], c.prev)
     },
     onSettled: () => {
+      // Dashboard-данные обновляем сразу (дёшево).
       qc.invalidateQueries({ queryKey: ['today'] })
-      qc.invalidateQueries({ queryKey: ['streak'] })
-      qc.invalidateQueries({ queryKey: ['adherence'] })
-      qc.invalidateQueries({ queryKey: ['stats-overview'] })
       qc.invalidateQueries({ queryKey: ['hearts'] })
+      // Тяжёлую статистику (мониторится скрытым StatsPage — все панели смонтированы)
+      // только помечаем устаревшей: иначе каждый свайп = рефетч 90-дневной агрегации
+      // + перерисовка графиков → нарастающий джанк слайдера. Освежится при фокусе/открытии.
+      qc.invalidateQueries({ queryKey: ['streak'], refetchType: 'none' })
+      qc.invalidateQueries({ queryKey: ['adherence'], refetchType: 'none' })
+      qc.invalidateQueries({ queryKey: ['stats-overview'], refetchType: 'none' })
     },
   })
 }

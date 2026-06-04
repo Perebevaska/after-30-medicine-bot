@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import { Clock, Package, Pill, AlertTriangle, Trash2, CalendarPlus, ArrowLeft } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { Clock, Package, Pill, AlertTriangle, Trash2, CalendarPlus, ArrowLeft, Plus, X } from 'lucide-react'
 import {
   useMedications,
   useDependents,
@@ -177,11 +177,13 @@ interface RuleSectionProps {
   index: number
   errors: Errors
   onChange: (index: number, patch: Partial<RuleState>) => void
+  onRemove?: () => void
+  canRemove: boolean
   perDose: boolean
   unitLabel: string
 }
 
-function RuleSection({ rule, index, errors, onChange, perDose, unitLabel }: RuleSectionProps) {
+function RuleSection({ rule, index, errors, onChange, onRemove, canRemove, perDose, unitLabel }: RuleSectionProps) {
   const set = (patch: Partial<RuleState>) => onChange(index, patch)
   const [drumOpen, setDrumOpen] = useState(false)
 
@@ -216,6 +218,11 @@ function RuleSection({ rule, index, errors, onChange, perDose, unitLabel }: Rule
             />
             <span className="field-unit">{unitLabel}</span>
           </span>
+        )}
+        {canRemove && (
+          <button type="button" className="rule-remove-btn" onClick={onRemove} aria-label="Удалить приём">
+            <X size={16} strokeWidth={2.2} />
+          </button>
         )}
       </div>
 
@@ -395,9 +402,8 @@ export default function MedicationForm({ editId, linkedUserId, forDepShareId, op
     !!openSchedule || (editId != null && (existing?.rules.length ?? 0) > 0)
   )
   const [packDrumOpen, setPackDrumOpen] = useState(false)
-  const [mealOpen, setMealOpen] = useState(false)
-  const [timesOpen, setTimesOpen] = useState(false)
   const [errors, setErrors] = useState<Errors>({})
+  const bodyRef = useRef<HTMLDivElement>(null)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [doseWarn, setDoseWarn] = useState(false)
 
@@ -410,8 +416,18 @@ export default function MedicationForm({ editId, linkedUserId, forDepShareId, op
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [existing?.id])
 
-  const setTimes = (n: number) =>
-    setForm((f) => ({ ...f, times_per_day: n, rules: syncRules(f.rules, n) }))
+  const addRule = () =>
+    setForm((f) => {
+      const next = syncRules(f.rules, f.rules.length + 1)
+      return { ...f, rules: next, times_per_day: next.length }
+    })
+
+  const removeRule = (index: number) =>
+    setForm((f) => {
+      if (f.rules.length <= 1) return f
+      const next = f.rules.filter((_, i) => i !== index)
+      return { ...f, rules: next, times_per_day: next.length }
+    })
 
   const patchRule = (index: number, patch: Partial<RuleState>) =>
     setForm((f) => ({ ...f, rules: f.rules.map((r, i) => (i === index ? { ...r, ...patch } : r)) }))
@@ -426,7 +442,17 @@ export default function MedicationForm({ editId, linkedUserId, forDepShareId, op
   const handleSubmit = async () => {
     const errs = validate(form, scheduleOn)
     setErrors(errs)
-    if (Object.keys(errs).length > 0) return
+    if (Object.keys(errs).length > 0) {
+      // Скролл к первому невалидному полю + фокус — юзер сразу видит, что править.
+      requestAnimationFrame(() => {
+        const el = bodyRef.current?.querySelector('.field-input--error, .field-error')
+        if (!el) return
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        const field = el.closest('.form-field') ?? el.parentElement
+        field?.querySelector<HTMLElement>('input, textarea, select')?.focus({ preventScroll: true })
+      })
+      return
+    }
 
     const body = {
       name: form.name.trim(),
@@ -462,7 +488,7 @@ export default function MedicationForm({ editId, linkedUserId, forDepShareId, op
         </h1>
       </div>
 
-      <div className="form-body">
+      <div className="form-body" ref={bodyRef}>
         {showRecipientPicker && (
           <div className="form-section">
             <label className="field-label">Для кого</label>
@@ -575,6 +601,12 @@ export default function MedicationForm({ editId, linkedUserId, forDepShareId, op
         {scheduleOn ? (
           <>
             <div className="form-section">
+              <button type="button" className="schedule-remove-toggle" onClick={() => setScheduleOn(false)}>
+                <Trash2 size={15} strokeWidth={2} className="ic" /> Удалить расписание
+              </button>
+            </div>
+
+            <div className="form-section">
               <div className="form-section-head"><Pill size={15} strokeWidth={2} className="ic" /> Приём и курс</div>
 
               <div className="form-grid2">
@@ -635,57 +667,28 @@ export default function MedicationForm({ editId, linkedUserId, forDepShareId, op
             </div>
 
             <div className="form-section">
-              <div className="form-grid2">
-                <div className="form-field">
-                  <label className="field-label">Как принимать</label>
-                  <span
-                    className={`settings-time-chip${mealOpen ? ' settings-time-chip--active' : ''}`}
-                    onClick={() => { setMealOpen((v) => !v); setTimesOpen(false) }}
-                  >
-                    {MEAL_OPTIONS.find((o) => o.value === form.meal_relation)?.label ?? form.meal_relation}
-                    <span className="settings-time-chip-chevron">{mealOpen ? '‹' : '›'}</span>
-                  </span>
-                </div>
-                <div className="form-field">
-                  <label className="field-label">Приёмов в день</label>
-                  <span
-                    className={`settings-time-chip${timesOpen ? ' settings-time-chip--active' : ''}`}
-                    onClick={() => { setTimesOpen((v) => !v); setMealOpen(false) }}
-                  >
-                    {form.times_per_day} {form.times_per_day === 1 ? 'раз' : 'раза'}
-                    <span className="settings-time-chip-chevron">{timesOpen ? '‹' : '›'}</span>
-                  </span>
+              <div className="form-field">
+                <label className="field-label">Как принимать</label>
+                <div className="seg-ctrl seg-ctrl--meal">
+                  {MEAL_OPTIONS.map((o) => (
+                    <button key={o.value} type="button"
+                      className={`seg-btn${form.meal_relation === o.value ? ' seg-btn--active' : ''}`}
+                      onClick={() => setForm((f) => ({ ...f, meal_relation: o.value }))}
+                    >{o.label}</button>
+                  ))}
                 </div>
               </div>
-
-              {mealOpen && (
-                <div className="plan-time-expand">
-                  <div className="seg-ctrl">
-                    {MEAL_OPTIONS.map((o) => (
-                      <button key={o.value} type="button"
-                        className={`seg-btn${form.meal_relation === o.value ? ' seg-btn--active' : ''}`}
-                        onClick={() => { setForm((f) => ({ ...f, meal_relation: o.value })); setMealOpen(false) }}
-                      >{o.label}</button>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {timesOpen && (
-                <div className="plan-time-expand">
-                  <NumberDrum value={form.times_per_day} min={1} max={10} onChange={setTimes} />
-                  <button type="button" className="plan-time-done-btn" onClick={() => setTimesOpen(false)}>Готово</button>
-                </div>
-              )}
             </div>
 
             {form.rules.map((rule, i) => (
               <RuleSection key={i} rule={rule} index={i} errors={errors} onChange={patchRule}
+                onRemove={() => removeRule(i)} canRemove={form.rules.length > 1}
                 perDose={form.per_dose} unitLabel={form.unit_dose_label} />
             ))}
 
-            <div className="schedule-remove-row">
-              <button type="button" className="schedule-remove-btn" onClick={() => setScheduleOn(false)}>
-                <Trash2 size={14} strokeWidth={2} className="ic" /> Удалить расписание
+            <div className="form-section">
+              <button type="button" className="schedule-add-toggle" onClick={addRule}>
+                <Plus size={15} strokeWidth={2} className="ic" /> Добавить приём
               </button>
             </div>
           </>

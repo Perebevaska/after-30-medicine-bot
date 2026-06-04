@@ -163,61 +163,85 @@ function markSlideLearned(): void {
 }
 
 const KNOB = 42
+const KNOB_MARGIN = 3 // .slide-knob margin в CSS — синхронизировать при изменении
 
 // Слайдер «сдвинь, чтобы принять»: тянем бегунок вправо до конца → onConfirm.
 // Осознанное действие — случайный тап не отмечает.
 function SlideToConfirm({ onConfirm, disabled }: { onConfirm: () => void; disabled?: boolean }) {
+  // Позиция кружка двигается напрямую через DOM (без React-state) — иначе ре-рендер
+  // на каждый pointermove не успевает за пальцем в Telegram-webview.
   const trackRef = useRef<HTMLDivElement>(null)
-  const [x, setX] = useState(0)
-  const [maxW, setMaxW] = useState(0)
-  const [dragging, setDragging] = useState(false)
+  const knobRef = useRef<HTMLSpanElement>(null)
+  const fillRef = useRef<HTMLSpanElement>(null)
+  const labelRef = useRef<HTMLSpanElement>(null)
   const draggingRef = useRef(false)
   const offsetRef = useRef(0)
   const maxRef = useRef(0)
   const doneRef = useRef(false)
 
-  const computeMax = () => Math.max(0, (trackRef.current?.clientWidth ?? 0) - KNOB - 6)
+  const computeMax = () => Math.max(0, (trackRef.current?.clientWidth ?? 0) - KNOB - 2 * KNOB_MARGIN)
+
+  // Стартовая позиция через DOM, НЕ через inline-style в JSX: иначе любой ре-рендер
+  // родителя (фоновый refetch ['today'] после отметки) сбрасывал бы кружок на 0 во время тяги.
+  useEffect(() => {
+    if (knobRef.current) knobRef.current.style.transform = 'translateX(0px)'
+    if (fillRef.current) fillRef.current.style.width = `${KNOB + 2 * KNOB_MARGIN}px`
+  }, [])
+
+  // Прямая отрисовка позиции x по DOM. withTr — плавный переход (только возврат/завершение).
+  const render = (x: number, withTr: boolean) => {
+    // ВАЖНО: для отключения перехода нужно валидное `none`, НЕ `transform none`
+    // (последнее — невалидный CSS, игнорится → старый 0.2s залипает → лаг за пальцем).
+    if (knobRef.current) {
+      knobRef.current.style.transition = withTr ? 'transform 0.2s' : 'none'
+      knobRef.current.style.transform = `translateX(${x}px)`
+    }
+    if (fillRef.current) {
+      fillRef.current.style.transition = withTr ? 'width 0.2s' : 'none'
+      fillRef.current.style.width = `${x + KNOB + 2 * KNOB_MARGIN}px`
+    }
+    if (labelRef.current) {
+      const pct = maxRef.current ? x / maxRef.current : 0
+      labelRef.current.style.opacity = `${Math.max(0, 1 - pct * 1.4)}`
+    }
+  }
 
   const down = (e: React.PointerEvent) => {
     if (disabled) return
     e.preventDefault()
     draggingRef.current = true
     doneRef.current = false
-    const m = computeMax()
-    maxRef.current = m
-    setMaxW(m)
-    offsetRef.current = e.clientX - x
-    setDragging(true)
+    maxRef.current = computeMax()
+    const cur = knobRef.current
+      ? new DOMMatrixReadOnly(getComputedStyle(knobRef.current).transform).m41 : 0
+    offsetRef.current = e.clientX - cur
     e.currentTarget.setPointerCapture?.(e.pointerId)
   }
   const move = (e: React.PointerEvent) => {
     if (!draggingRef.current) return
     const nx = Math.min(maxRef.current, Math.max(0, e.clientX - offsetRef.current))
-    setX(nx)
+    render(nx, false)
     if (nx >= maxRef.current - 1 && !doneRef.current) {
       doneRef.current = true
       draggingRef.current = false
-      setDragging(false)
       haptic()
-      onConfirm()
+      render(maxRef.current, false) // полная зелёная заливка видна
+      requestAnimationFrame(() => onConfirm()) // кадр на отрисовку заливки
     }
   }
   const up = () => {
     if (!draggingRef.current) return
     draggingRef.current = false
-    setDragging(false)
-    if (!doneRef.current) setX(0)
+    if (!doneRef.current) render(0, true) // плавный возврат
   }
 
-  const pct = maxW ? x / maxW : 0
-  const tr = dragging ? 'none' : '0.22s'
   return (
     <div className={`slide-confirm${disabled ? ' slide-confirm--disabled' : ''}`} ref={trackRef}>
-      <span className="slide-fill" style={{ width: `${x + KNOB}px`, transition: `width ${tr}` }} />
-      <span className="slide-label" style={{ opacity: Math.max(0, 1 - pct * 1.4) }}>Сдвинь, чтобы принять</span>
+      <span className="slide-fill" ref={fillRef} />
+      <span className="slide-label" ref={labelRef}>Сдвинь, чтобы принять</span>
       <span
         className="slide-knob"
-        style={{ transform: `translateX(${x}px)`, transition: `transform ${tr}` }}
+        ref={knobRef}
         onPointerDown={down}
         onPointerMove={move}
         onPointerUp={up}
@@ -230,26 +254,40 @@ function SlideToConfirm({ onConfirm, disabled }: { onConfirm: () => void; disabl
 }
 
 // Пропуск приёма — вторичное действие: тап → «Точно пропустить?» → тап подтверждает.
+// Круглая кнопка «пропустить»: тап1 взводит (красная заливка + пульс + подпись),
+// тап2 подтверждает. Авто-сброс через 3с. Случайный одиночный тап не пропустит.
 function SkipButton({ onConfirm, disabled }: { onConfirm: () => void; disabled?: boolean }) {
-  const [confirm, setConfirm] = useState(false)
+  const [armed, setArmed] = useState(false) // взведено — ждём подтверждающий тап
   const tRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => () => { if (tRef.current) clearTimeout(tRef.current) }, [])
+
   const click = () => {
     if (disabled) return
-    if (!confirm) {
-      setConfirm(true)
+    if (!armed) {
+      setArmed(true)
+      haptic('light')
       if (tRef.current) clearTimeout(tRef.current)
-      tRef.current = setTimeout(() => setConfirm(false), 3000)
+      tRef.current = setTimeout(() => setArmed(false), 3000)
       return
     }
     if (tRef.current) clearTimeout(tRef.current)
     haptic('light')
     onConfirm()
   }
+
   return (
-    <button type="button" className={`skip-btn${confirm ? ' skip-btn--confirm' : ''}`} disabled={disabled} onClick={click}>
-      {confirm ? 'Точно пропустить?' : <><X size={15} strokeWidth={2.5} className="ic" /> пропустить</>}
-    </button>
+    <div className="skip-wrap">
+      {armed && <span className="skip-tip">Тап — пропустить</span>}
+      <button
+        type="button"
+        className={`skip-circle${armed ? ' skip-circle--armed' : ''}`}
+        disabled={disabled}
+        aria-label={armed ? 'Подтвердить пропуск' : 'Пропустить приём'}
+        onClick={click}
+      >
+        <X size={26} strokeWidth={2.75} />
+      </button>
+    </div>
   )
 }
 
@@ -323,6 +361,9 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (p: 'medication
   const { data: settings } = useSettings()
   const qc = useQueryClient()
   const [takingAll, setTakingAll] = useState(false)
+  const [takeAllArmed, setTakeAllArmed] = useState(false) // двойной тап: 1й взводит, 2й принимает
+  const takeAllTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => () => { if (takeAllTimer.current) clearTimeout(takeAllTimer.current) }, [])
   const [tzBannerDismissed, setTzBannerDismissed] = useState(false)
   const [showHoldHint, setShowHoldHint] = useState(!slideLearned())
   const wishRef = useRef<WishCardHandle>(null)
@@ -366,6 +407,20 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (p: 'medication
     .sort((a, b) => b.reminder_time.localeCompare(a.reminder_time))
   const otherItems = ownItems.filter((i) => !isDuePending(i))
 
+  const clickTakeAll = () => {
+    if (takingAll || !dueItems.length) return
+    if (!takeAllArmed) {
+      setTakeAllArmed(true)
+      haptic('light')
+      if (takeAllTimer.current) clearTimeout(takeAllTimer.current)
+      takeAllTimer.current = setTimeout(() => setTakeAllArmed(false), 3000)
+      return
+    }
+    if (takeAllTimer.current) clearTimeout(takeAllTimer.current)
+    setTakeAllArmed(false)
+    handleTakeAll()
+  }
+
   const handleTakeAll = async () => {
     if (!dueItems.length) return
     setTakingAll(true)
@@ -391,9 +446,10 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (p: 'medication
       if (prev) qc.setQueryData(['today'], prev)
     } finally {
       await qc.invalidateQueries({ queryKey: ['today'] })
-      await qc.invalidateQueries({ queryKey: ['streak'] })
-      await qc.invalidateQueries({ queryKey: ['adherence'] })
       await qc.invalidateQueries({ queryKey: ['hearts'] })
+      qc.invalidateQueries({ queryKey: ['streak'], refetchType: 'none' })
+      qc.invalidateQueries({ queryKey: ['adherence'], refetchType: 'none' })
+      qc.invalidateQueries({ queryKey: ['stats-overview'], refetchType: 'none' })
       setTakingAll(false)
     }
   }
@@ -476,11 +532,11 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (p: 'medication
           {dueItems.length >= 2 && (
             <div className="take-all-row">
               <button
-                className="btn-take-all"
-                onClick={handleTakeAll}
+                className={`btn-take-all${takeAllArmed ? ' btn-take-all--armed' : ''}`}
+                onClick={clickTakeAll}
                 disabled={takingAll}
               >
-                <Pill size={16} strokeWidth={2} className="ic" /> Принять всё
+                {takeAllArmed ? 'Тап — принять всё' : 'Принять всё'}
               </button>
             </div>
           )}

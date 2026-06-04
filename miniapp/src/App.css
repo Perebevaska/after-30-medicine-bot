@@ -352,22 +352,48 @@
 }
 .slide-knob:active { cursor: grabbing; }
 
-.skip-btn {
-  flex-shrink: 0;
-  background: transparent;
+/* Круглая кнопка «пропустить» — вид как у отмеченного «отменено» кружка */
+.skip-wrap { position: relative; flex-shrink: 0; display: flex; }
+.skip-circle {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
   border: none;
-  color: var(--hint);
-  font-size: 12px;
-  font-weight: 500;
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 8px 4px;
+  padding: 0;
+  background: var(--secondary-bg);
+  color: #e0533d;
+  display: grid;
+  place-items: center;
   cursor: pointer;
-  white-space: nowrap;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  transition: transform 0.12s ease;
 }
-.skip-btn--confirm { color: var(--destructive); font-weight: 700; }
-.skip-btn:disabled { opacity: 0.4; cursor: default; }
+.skip-circle:active { transform: scale(0.94); }
+.skip-circle:disabled { opacity: 0.4; cursor: default; }
+.skip-circle--armed {
+  background: var(--destructive);
+  color: #fff;
+  animation: skipPulse 1s ease-in-out infinite;
+}
+@keyframes skipPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(224, 83, 61, 0.5); }
+  50% { box-shadow: 0 0 0 6px rgba(224, 83, 61, 0); }
+}
+.skip-tip {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  right: 0;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--destructive);
+  background: var(--secondary-bg);
+  padding: 3px 8px;
+  border-radius: 8px;
+  pointer-events: none;
+}
 
 /* Обучающая подпись под секцией «Сейчас» (гаснет после первой отметки) */
 .hold-caption {
@@ -512,6 +538,14 @@
 
 .btn-take-all:active { transform: scale(0.97); }
 .btn-take-all:disabled { opacity: 0.5; cursor: default; }
+.btn-take-all--armed {
+  background: #2e7d32;
+  animation: takeAllPulse 1s ease-in-out infinite;
+}
+@keyframes takeAllPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(76, 175, 80, 0.5); }
+  50% { box-shadow: 0 0 0 7px rgba(76, 175, 80, 0); }
+}
 
 .mlist-list {
   display: flex;
@@ -1086,6 +1120,13 @@
   gap: 6px;
 }
 
+.seg-ctrl--meal {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: 6px;
+}
+
 .seg-btn {
   flex: 1;
   min-width: 0;
@@ -1150,23 +1191,6 @@
   cursor: pointer;
   padding: 4px;
 }
-
-/* ── Удаление расписания (форма лекарства) ───────────────────────────────── */
-.schedule-remove-row {
-  display: flex;
-  justify-content: center;
-  margin-top: 4px;
-}
-.schedule-remove-btn {
-  padding: 7px 14px;
-  border: none;
-  background: transparent;
-  color: var(--destructive);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-}
-.schedule-remove-btn:active { opacity: 0.6; }
 
 /* ── Онбординг-тур (Фаза 14) ─────────────────────────────────────────────── */
 .tour-overlay {
@@ -3012,6 +3036,34 @@
   cursor: pointer;
 }
 .schedule-add-toggle:active { background: var(--secondary-bg); }
+
+.schedule-remove-toggle {
+  width: 100%;
+  height: 46px;
+  border: 1.5px dashed var(--destructive);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--destructive);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.schedule-remove-toggle:active { background: var(--secondary-bg); }
+
+.rule-remove-btn {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--destructive);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.rule-remove-btn:active { background: var(--secondary-bg); }
 
 /* список: бейдж завершения, прогресс курса, добавить расписание */
 .mlist-badge-done {

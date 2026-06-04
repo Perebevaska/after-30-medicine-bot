@@ -146,6 +146,15 @@ export default function App() {
     }
   }, [navPage, overview?.achievements])
 
+  // Тяжёлая статистика помечается stale без рефетча при отметке (чтобы не тормозил
+  // слайдер). Освежаем её при фактическом открытии вкладки «Прогресс».
+  useEffect(() => {
+    if (navPage !== 'stats') return
+    qc.invalidateQueries({ queryKey: ['stats-overview'] })
+    qc.invalidateQueries({ queryKey: ['streak'] })
+    qc.invalidateQueries({ queryKey: ['adherence'] })
+  }, [navPage, qc])
+
   useEffect(() => {
     if (!inTelegram) return
 
