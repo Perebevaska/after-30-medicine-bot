@@ -4,25 +4,69 @@
   padding: 0;
 }
 
-:root {
-  --bg: var(--tg-theme-bg-color, #ffffff);
-  --text: var(--tg-theme-text-color, #000000);
-  --hint: var(--tg-theme-hint-color, #999999);
-  --link: var(--tg-theme-link-color, #2678b6);
-  --button-bg: var(--tg-theme-button-color, #2678b6);
-  --button-text: var(--tg-theme-button-text-color, #ffffff);
-  --secondary-bg: var(--tg-theme-secondary-bg-color, #f1f1f1);
+/*
+ * Тёплая палитра «Коралл + крем» (Фаза 13).
+ * Telegram-цвета больше не используются для фонов/акцента — всегда наш тёплый бренд.
+ * Режим темы (auto/light/dark) → атрибут data-theme на <html> (см. theme.ts).
+ * auto = тёплая палитра + light/dark по Telegram colorScheme.
+ */
 
+:root {
   font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
   font-size: 16px;
   line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* LIGHT — крем + коралл (дефолт до инициализации JS) */
+:root,
+html[data-theme='light'] {
+  --accent: #e5715a;          /* коралл */
+  --bg: #fff9f4;              /* крем */
+  --card: #ffffff;
+  --secondary-bg: #f6ece3;    /* беж */
+  --text: #2b2320;
+  --hint: #9a8c82;
+  --separator: #ece0d5;
+  --destructive: #d64c3c;
+
+  /* алиасы для существующих имён в App.css */
+  --button-bg: var(--accent);
+  --button-color: var(--accent);
+  --button-text: #ffffff;
+  --button-text-color: #ffffff;
+  --link: var(--accent);
+  --link-color: var(--accent);
+
   color: var(--text);
   background: var(--bg);
-  -webkit-font-smoothing: antialiased;
+}
+
+/* DARK — тёплый уголь + коралл */
+html[data-theme='dark'] {
+  --accent: #f08a72;
+  --bg: #1c1815;             /* тёплый уголь */
+  --card: #262019;
+  --secondary-bg: #2e2620;
+  --text: #f2e9e1;
+  --hint: #a8978b;
+  --separator: #3a312a;
+  --destructive: #f0796a;
+
+  --button-bg: var(--accent);
+  --button-color: var(--accent);
+  --button-text: #1c1815;
+  --button-text-color: #1c1815;
+  --link: var(--accent);
+  --link-color: var(--accent);
+
+  color: var(--text);
+  background: var(--bg);
 }
 
 body {
   background: var(--bg);
+  color: var(--text);
   min-height: 100vh;
 }
 

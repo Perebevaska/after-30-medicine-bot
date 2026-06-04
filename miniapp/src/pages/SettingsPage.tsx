@@ -10,6 +10,7 @@ import {
   useRevokeDepShare, useLeaveDepShare,
 } from '../api/hooks'
 import TimePicker from '../components/TimePicker'
+import { getThemePref, setThemePref, type ThemePref } from '../theme'
 
 function InfoTip({ text }: { text: string }) {
   const [open, setOpen] = useState(false)
@@ -125,6 +126,7 @@ export default function SettingsPage() {
 
   const deleteAccount = useDeleteAccount()
   const { data: adminStats, refetch: refetchAdmin } = useAdminStats(!!data?.is_admin)
+  const [theme, setTheme] = useState<ThemePref>(getThemePref())
   const [dailyPlanTime, setDailyPlanTime] = useState('08:00')
   const [planTimeEditing, setPlanTimeEditing] = useState(false)
   const [strictTime, setStrictTime] = useState('02:00')
@@ -319,6 +321,29 @@ export default function SettingsPage() {
     <div className="page">
       <div className="page-header">
         <span className="page-header-title">Настройки</span>
+      </div>
+
+      <h2 className="section-title">Внешний вид</h2>
+      <p className="section-hint">
+        «Как в Telegram» подстраивается под светлую или тёмную тему вашего клиента.
+      </p>
+      <div className="settings-block">
+        <div className="seg-ctrl seg-ctrl--freq" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
+          {([
+            ['auto', 'Как в Telegram'],
+            ['light', '☀️ Светлая'],
+            ['dark', '🌙 Тёмная'],
+          ] as [ThemePref, string][]).map(([val, label]) => (
+            <button
+              key={val}
+              type="button"
+              className={`seg-btn${theme === val ? ' seg-btn--active' : ''}`}
+              onClick={() => { setTheme(val); setThemePref(val) }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <h2 className="section-title">Напоминания</h2>
