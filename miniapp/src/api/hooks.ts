@@ -253,6 +253,13 @@ export function useSettings() {
     queryKey: ['settings'],
     queryFn: () => api.get<UserSettings>('/settings'),
     enabled: !!getInitDataRaw(),
+    // «Забота» — события push-природы (входящий запрос / подтверждение /
+    // отвязка приходят со стороны другого юзера). Telegram webview не шлёт
+    // надёжный focus, поэтому поллим, пока вкладка видима. Payload мал.
+    // Не гейтим по наличию pending: получатель нового запроса изначально
+    // pending не имеет — иначе поллинг бы не стартовал и бейдж не появлялся.
+    refetchInterval: 12000,
+    refetchIntervalInBackground: false,
   })
 }
 
