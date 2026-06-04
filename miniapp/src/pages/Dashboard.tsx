@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect, forwardRef, useImperativeHandle } from 'react'
 import { createPortal } from 'react-dom'
-import { Check, X, Globe, Pill, Pause, ArrowRight } from 'lucide-react'
+import { Check, X, Globe, Pill, Pause, ArrowRight, Heart, Send } from 'lucide-react'
 import { postEvent } from '@telegram-apps/sdk-react'
-import { useToday, useLogIntake, useHearts, useSettings, useMedications } from '../api/hooks'
+import { useToday, useLogIntake, useHearts, useSettings, useMedications, useWishesStatus, useWishInbox, useSendWish, useReactWish } from '../api/hooks'
 import { useQueryClient } from '@tanstack/react-query'
 import { api, apiErrorMessage } from '../api/client'
 import type { TodayItem } from '../api/types'
@@ -355,6 +355,81 @@ function MedCard({
   )
 }
 
+// Ф15: соцмеханика пожеланий (тестовый функционал). Самодостаточный блок —
+// рендерится только если в настройках включён тогл «Слова поддержки».
+function WishZone({ enabled }: { enabled: boolean }) {
+  const { data: inbox } = useWishInbox(enabled)
+  const { data: status } = useWishesStatus(enabled)
+  const sendWish = useSendWish()
+  const reactWish = useReactWish()
+  const [open, setOpen] = useState(false)
+  const [justSent, setJustSent] = useState(false)
+
+  if (!enabled) return null
+
+  const incoming = inbox?.[0]
+  const canSend = !!status?.pool_ready && (status?.sent_today ?? 0) < (status?.daily_limit ?? 0)
+
+  const onSend = async (code: string) => {
+    try {
+      await sendWish.mutateAsync(code)
+      haptic('light')
+      setOpen(false)
+      setJustSent(true)
+      setTimeout(() => setJustSent(false), 2500)
+    } catch { /* ошибка — тихо, статус обновится */ }
+  }
+
+  const onReact = (id: number, reaction: 'helped' | 'supported') => {
+    haptic('light')
+    reactWish.mutate({ id, reaction })
+  }
+
+  return (
+    <div className="wish-zone">
+      {incoming && (
+        <div className="wish-inbox">
+          <div className="wish-inbox-head"><Heart size={15} strokeWidth={2} className="ic" /> Вам передали поддержку</div>
+          <div className="wish-inbox-text">{incoming.text}</div>
+          <div className="wish-inbox-actions">
+            <button className="wish-react-btn" onClick={() => onReact(incoming.id, 'helped')}>👍 Помогло</button>
+            <button className="wish-react-btn wish-react-btn--love" onClick={() => onReact(incoming.id, 'supported')}>❤️ Очень поддержало</button>
+          </div>
+        </div>
+      )}
+
+      {justSent ? (
+        <div className="wish-sent-toast"><Heart size={15} strokeWidth={2} className="ic" /> Поддержка отправлена</div>
+      ) : canSend ? (
+        <div className="wish-send">
+          {!open ? (
+            <button className="wish-send-btn" onClick={() => setOpen(true)}>
+              <Send size={15} strokeWidth={2} className="ic" /> Передать поддержку незнакомцу
+            </button>
+          ) : (
+            <div className="wish-send-presets">
+              <div className="wish-send-head">Выберите пожелание — оно уйдёт случайному человеку:</div>
+              {(status?.presets ?? []).map((p) => (
+                <button
+                  key={p.code}
+                  className="wish-preset-chip"
+                  disabled={sendWish.isPending}
+                  onClick={() => onSend(p.code)}
+                >
+                  {p.text}
+                </button>
+              ))}
+              <button className="wish-send-cancel" onClick={() => setOpen(false)}>Отмена</button>
+            </div>
+          )}
+        </div>
+      ) : status && !status.pool_ready ? (
+        <div className="wish-pool-hint">Пока мало участников — поддержку можно будет передать позже</div>
+      ) : null}
+    </div>
+  )
+}
+
 export default function Dashboard({ onNavigate }: { onNavigate?: (p: 'medications') => void }) {
   const { data, isLoading, error } = useToday()
   const { data: meds } = useMedications()
@@ -628,6 +703,8 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (p: 'medication
           </div>
         </div>
       ))}
+
+      <WishZone enabled={!!settings?.wishes_enabled} />
     </div>
   )
 }

@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, type ReactNode } from 'react'
-import { Sun, Moon, User, Check, X, Clock, Copy, Bell, Link2, AlertTriangle, MapPin, Trophy, Heart, Languages, Search, GraduationCap } from 'lucide-react'
+import { Sun, Moon, User, Check, X, Clock, Copy, Bell, Link2, AlertTriangle, MapPin, Trophy, Languages, Search, GraduationCap } from 'lucide-react'
 import {
   useSettings, useSetReminderMode, useSetDailyPlan, useSetCaregiver,
   useDependents, useCreateDependent, useDeleteDependent,
@@ -8,7 +8,7 @@ import {
   useDeclineCaregiverLink, useDeleteCaregiverLink, useRequestLinkBreak,
   useSetDependentReminderMode, useSetDependentStrictMode,
   useEnsureDepShareCode, useJoinDepShare, useConfirmDepShare, useDeclineDepShare,
-  useRevokeDepShare, useLeaveDepShare,
+  useRevokeDepShare, useLeaveDepShare, useSetWishes,
 } from '../api/hooks'
 import TimePicker from '../components/TimePicker'
 import { getThemePref, setThemePref, type ThemePref } from '../theme'
@@ -124,6 +124,7 @@ export default function SettingsPage({ onReplayTour }: { onReplayTour?: () => vo
   const setDailyPlan = useSetDailyPlan()
   const setCaregiver = useSetCaregiver()
   const setStrict = useSetStrictMode()
+  const setWishes = useSetWishes()
 
   const { data: deps } = useDependents()
   const createDep = useCreateDependent()
@@ -1121,6 +1122,27 @@ export default function SettingsPage({ onReplayTour }: { onReplayTour?: () => vo
         </>
       )}
 
+      <h2 className="section-title">
+        Слова поддержки <span className="settings-test-badge">тест</span>
+      </h2>
+      <p className="section-hint">
+        Передавай тёплые пожелания случайным людям и получай их сам — полностью
+        анонимно. Это тестовая функция: включи, чтобы попробовать.
+      </p>
+      <div className="settings-block">
+        <div className="settings-row">
+          <span className="settings-label">Участвовать</span>
+          <label className="toggle-switch">
+            <input
+              type="checkbox"
+              checked={!!data.wishes_enabled}
+              onChange={(e) => setWishes.mutate(e.target.checked)}
+            />
+            <span className="toggle-track" />
+          </label>
+        </div>
+      </div>
+
       <h2 className="section-title">Обучение</h2>
       <button type="button" className="replay-tour-btn" onClick={() => onReplayTour?.()}>
         <GraduationCap size={18} strokeWidth={2} className="ic" />
@@ -1134,13 +1156,6 @@ export default function SettingsPage({ onReplayTour }: { onReplayTour?: () => vo
           <div className="roadmap-body">
             <span className="roadmap-title">Достижения по уровням</span>
             <span className="roadmap-desc">Один бейдж растёт по ступеням с прогрессом до следующей</span>
-          </div>
-        </div>
-        <div className="roadmap-item">
-          <span className="roadmap-icon"><Heart size={18} strokeWidth={2} /></span>
-          <div className="roadmap-body">
-            <span className="roadmap-title">Слова поддержки</span>
-            <span className="roadmap-desc">Отправляй и получай тёплые пожелания от других анонимно</span>
           </div>
         </div>
         <div className="roadmap-item">

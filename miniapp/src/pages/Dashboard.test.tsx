@@ -25,6 +25,11 @@ vi.mock('../api/hooks', () => ({
   useSettings: () => ({ data: state.settings }),
   useHearts: () => ({ data: { hearts: 0 } }),
   useLogIntake: () => ({ mutate: spies.logIntake, isPending: false }),
+  // Ф15: WishZone выключен в тестах (settings.wishes_enabled не задаётся) — заглушки
+  useWishInbox: () => ({ data: [] }),
+  useWishesStatus: () => ({ data: undefined }),
+  useSendWish: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useReactWish: () => ({ mutate: vi.fn() }),
 }))
 
 vi.mock('../api/client', () => ({

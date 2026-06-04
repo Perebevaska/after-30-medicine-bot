@@ -233,6 +233,28 @@ export interface UserSettings {
   dep_shares: Record<string, DepShareInfo>
   viewing_deps: ViewingDepInfo[]
   pending_viewing_deps: PendingViewingDepInfo[]
+  wishes_enabled: number
+}
+
+// Ф15: соцмеханика пожеланий
+export interface WishPreset {
+  code: string
+  text: string
+}
+
+export interface WishesStatus {
+  enabled: boolean
+  presets: WishPreset[]
+  pool_size: number
+  pool_ready: boolean
+  sent_today: number
+  daily_limit: number
+}
+
+export interface WishInboxItem {
+  id: number
+  text: string
+  created_at: string
 }
 
 export interface DepShareInfo {
