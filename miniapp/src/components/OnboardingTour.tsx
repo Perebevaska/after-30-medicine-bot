@@ -24,6 +24,12 @@ export function shouldShowOnboarding(): boolean {
   return !localStorage.getItem(KEY)
 }
 
+// Сброс флага — обучение покажется снова (напр. после удаления всех данных).
+// eslint-disable-next-line react-refresh/only-export-components
+export function resetOnboarding(): void {
+  localStorage.removeItem(KEY)
+}
+
 interface Rect { left: number; top: number; width: number; height: number }
 
 export default function OnboardingTour({ onClose }: { onClose: () => void }) {

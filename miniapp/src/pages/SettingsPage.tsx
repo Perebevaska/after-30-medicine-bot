@@ -14,6 +14,7 @@ import {
   getThemePref, setThemePref, getPaletteId, setPaletteId,
   getCustomAccent, setCustomAccent, PALETTES, type ThemePref,
 } from '../theme'
+import { resetOnboarding } from '../components/OnboardingTour'
 
 function InfoTip({ text }: { text: string }) {
   const [open, setOpen] = useState(false)
@@ -1197,7 +1198,7 @@ export default function SettingsPage() {
                 disabled={deleteAccount.isPending}
                 onClick={() =>
                   deleteAccount.mutate(undefined, {
-                    onSuccess: () => setDeleted(true),
+                    onSuccess: () => { resetOnboarding(); setDeleted(true) },
                   })
                 }
               >
