@@ -148,6 +148,7 @@ async def stats_overview(user: TelegramUser = Depends(require_db_user)):
             "weekly": analytics.weekly_adherence(daily),
         },
         "punctuality": analytics.punctuality(intakes, user_tz),
+        "risk": analytics.risk_signals(daily, intakes, user_tz, today),
         "load": analytics.therapy_load(own_rules, units, today),
         "achievements": {
             "catalog": achievements.CATALOG,

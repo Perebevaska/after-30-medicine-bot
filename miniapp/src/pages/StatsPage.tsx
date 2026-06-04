@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
-import { Send, Flame, Trophy, Clock, Lock, Check, ClipboardList, Calendar, Stethoscope, Loader2, AlertTriangle, Pill, Target, Handshake, type LucideIcon } from 'lucide-react'
+import { Send, Flame, Trophy, Clock, Lock, Check, ClipboardList, Calendar, Stethoscope, Loader2, AlertTriangle, TrendingUp, Activity, Pill, Target, Handshake, type LucideIcon } from 'lucide-react'
 import { useAdherence, useStreak, useSendExport, useStatsOverview, useSettings } from '../api/hooks'
-import type { StreakItem, StatsOverview, WeeklyAdherence, AchievementsBlock } from '../api/types'
+import type { StreakItem, StatsOverview, WeeklyAdherence, AchievementsBlock, RiskSignal } from '../api/types'
 
 // Коды, по которым тост уже показан в этой сессии — защита от повтора при
 // ремаунте вкладки с кэш-ответом (newly остаётся в кэше React Query).
@@ -181,6 +181,35 @@ function PunctualityCard({ punct }: { punct: StatsOverview['punctuality'] }) {
   )
 }
 
+// ─── Риск-паттерны (F11 C-2) ──────────────────────────────────────────────
+
+const RISK_ICON: Record<RiskSignal['level'], LucideIcon> = {
+  warn: TrendingUp,
+  info: Activity,
+}
+
+function RiskCard({ risk }: { risk: StatsOverview['risk'] }) {
+  if (!risk.ready || risk.signals.length === 0) return null
+  return (
+    <div className="stats-card risk-card">
+      <h3 className="risk-title">На что обратить внимание</h3>
+      {risk.signals.map((s) => {
+        const Icon = RISK_ICON[s.level]
+        return (
+          <div key={s.key} className={`risk-row risk-row--${s.level}`}>
+            <span className="risk-icon"><Icon size={16} strokeWidth={2} /></span>
+            <div className="risk-body">
+              <span className="risk-name">{s.title}</span>
+              <span className="risk-detail">{s.detail}</span>
+            </div>
+          </div>
+        )
+      })}
+      <p className="risk-note">Подсказка по вашим отметкам, не диагноз</p>
+    </div>
+  )
+}
+
 // ─── Достижения (F12a) ────────────────────────────────────────────────────
 
 // Ф18: медальон вместо эмодзи. code → {глиф группы, уровень-градиент}.
@@ -356,6 +385,7 @@ export default function StatsPage() {
           <LoadCard load={overview.load} />
           <AdherenceCard adherence={overview.adherence} />
           <PunctualityCard punct={overview.punctuality} />
+          <RiskCard risk={overview.risk} />
           {overview.achievements && (
             <>
               <AchievementsCard block={overview.achievements} />

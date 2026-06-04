@@ -175,6 +175,79 @@ def punctuality(intakes: list, user_tz, min_sample: int = 10) -> dict:
     }
 
 
+def _stdev(values: list) -> float:
+    """Population stdev. 0 при <2 значениях."""
+    n = len(values)
+    if n < 2:
+        return 0.0
+    mean = sum(values) / n
+    var = sum((v - mean) ** 2 for v in values) / n
+    return var ** 0.5
+
+
+def risk_signals(daily: list, intakes: list, user_tz, today: date,
+                 gate_days: int = 21, slot_min: int = 8,
+                 spread_min: float = 90.0) -> dict:
+    """F11 C-2 — паттерны риска. Прозрачные эвристики, не диагноз.
+
+    daily — [{day, due, taken, pct}] (по возрастанию); intakes — own-приёмы окна.
+    Гейт: история с положенными приёмами ≥ gate_days, иначе {ready:False}.
+    Сигналы (по убыванию надёжности):
+      - rising_risk (warn): тренд пропусков за две недели (неделя B ≥ A+3, ≥4);
+      - unstable_timing (info): разброс отметок ≥ spread_min мин на слоте с ≥ slot_min.
+
+    Возврат {ready, history_days, signals:[{key, level, title, detail}]}.
+    """
+    planned = [d for d in daily if d["due"] > 0]
+    history_days = len(planned)
+    if history_days < gate_days:
+        return {"ready": False, "history_days": history_days, "signals": []}
+
+    signals = []
+
+    # ── Нарастающий риск: пропуски неделя A (старше) vs неделя B (свежее) ──
+    last14 = planned[-14:]
+    if len(last14) >= 6:
+        wa, wb = last14[:-7], last14[-7:]
+        if len(wa) >= 3 and len(wb) >= 3:
+            miss_a = sum(d["due"] - d["taken"] for d in wa)
+            miss_b = sum(d["due"] - d["taken"] for d in wb)
+            if miss_b >= 4 and miss_b >= miss_a + 3:
+                signals.append({
+                    "key": "rising_risk",
+                    "level": "warn",
+                    "title": "Нарастающий риск пропусков",
+                    "detail": f"Пропусков за неделю стало больше: {miss_a} → {miss_b}. "
+                              "Стоит обратить внимание на расписание.",
+                })
+
+    # ── Нестабильный график: разброс времени отметки по слоту ──
+    by_slot: dict = {}
+    for i in intakes:
+        if i["status"] != "taken" or not i.get("taken_at"):
+            continue
+        d = _delay_minutes(i.get("scheduled_time"), i["taken_at"], user_tz)
+        if d is not None:
+            by_slot.setdefault(i["scheduled_time"], []).append(d)
+    worst_slot = worst_spread = None
+    for slot, delays in by_slot.items():
+        if len(delays) < slot_min:
+            continue
+        sd = _stdev(delays)
+        if sd >= spread_min and (worst_spread is None or sd > worst_spread):
+            worst_slot, worst_spread = slot, sd
+    if worst_slot is not None:
+        signals.append({
+            "key": "unstable_timing",
+            "level": "info",
+            "title": "Нестабильный график",
+            "detail": f"Отметки приёма «{worst_slot}» сильно разбросаны во времени "
+                      f"(±{round(worst_spread)} мин). Ровное время помогает не забывать.",
+        })
+
+    return {"ready": True, "history_days": history_days, "signals": signals}
+
+
 def therapy_load(rows, units_by_med: dict, today: date, horizon: int = 7) -> dict:
     """Нагрузка по терапии за ближайшие `horizon` дней расписания.
 

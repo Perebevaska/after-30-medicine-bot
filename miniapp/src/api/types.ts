@@ -49,6 +49,19 @@ export interface WeeklyAdherence {
   pct: number | null
 }
 
+export interface RiskSignal {
+  key: string
+  level: 'warn' | 'info'
+  title: string
+  detail: string
+}
+
+export interface RiskBlock {
+  ready: boolean
+  history_days: number
+  signals: RiskSignal[]
+}
+
 export interface StatsOverview {
   streak: { current: number; best: number }
   adherence: {
@@ -63,6 +76,7 @@ export interface StatsOverview {
     worst_hour: number | null
     worst_hour_skip_pct: number | null
   }
+  risk: RiskBlock
   load: { meds: number; intakes_per_day: number; units_per_week: number }
   achievements: AchievementsBlock
 }

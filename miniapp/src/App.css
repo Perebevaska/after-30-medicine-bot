@@ -1789,6 +1789,42 @@
   font-style: italic;
 }
 
+/* ─── Риск-паттерны (F11 C-2) ───────────────────────────────────────── */
+.risk-card { padding: 14px 16px 16px; }
+.risk-title {
+  margin: 0 0 12px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+.risk-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px;
+  border-radius: 10px;
+  margin-bottom: 8px;
+}
+.risk-row--warn { background: rgba(244,67,54,0.08); }
+.risk-row--info { background: rgba(255,152,0,0.08); }
+.risk-icon {
+  flex-shrink: 0;
+  display: flex;
+  margin-top: 1px;
+}
+.risk-row--warn .risk-icon { color: #f44336; }
+.risk-row--info .risk-icon { color: #ff9800; }
+.risk-body { display: flex; flex-direction: column; gap: 2px; }
+.risk-name { font-size: 14px; font-weight: 600; color: var(--text); }
+.risk-detail { font-size: 13px; color: var(--text); opacity: 0.85; line-height: 1.4; }
+.risk-note {
+  font-size: 11px;
+  color: var(--hint);
+  opacity: 0.7;
+  margin: 4px 0 0;
+  font-style: italic;
+}
+
 /* ─── Достижения (F12a) ─────────────────────────────────────────────── */
 .ach-card { padding: 14px 16px 16px; }
 .ach-title {
