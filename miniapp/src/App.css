@@ -3739,6 +3739,12 @@ body.design-v2 .btn-take-all:active:not(:disabled) { transform: scale(0.96); }
   padding: 16px 16px 8px;
 }
 .section-head-row .section-title { flex: 0 1 auto; padding: 0; }
+.section-head-row--btn {
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.section-head-row--btn:active { opacity: 0.6; }
 
 /* Тоггл свёртки секции — только chevron, придвинут к заголовку/счётчику */
 .done-toggle {

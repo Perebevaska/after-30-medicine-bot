@@ -143,37 +143,37 @@ const itemKey = (i: TodayItem) => `${i.medication_id}-${i.reminder_time}`
 // AX5: is_due приходит с сервера (TZ аккаунта), не считаем по времени браузера.
 const isDuePending = (i: TodayItem) => i.status === 'pending' && i.is_due
 
-// Порядок в списке: due-pending (пора) → pending (запланировано) → принято/пропущено.
-// Внутри ранга — по времени приёма. Фикс бага: у близких due-карточки тонули под pending.
-const displayRank = (i: TodayItem) => (isDuePending(i) ? 0 : i.status === 'pending' ? 1 : 2)
-const sortDisplay = (items: TodayItem[]) =>
-  [...items].sort((a, b) => displayRank(a) - displayRank(b) || a.reminder_time.localeCompare(b.reminder_time))
+// Сортировка по времени приёма — поздние сверху (desc).
+const byTimeDesc = (items: TodayItem[]) =>
+  [...items].sort((a, b) => b.reminder_time.localeCompare(a.reminder_time))
 
 // Секция приёмов: весь список (включая непринятые) сворачивается тогглом
 // рядом с заголовком. Счётчик в шапке = сколько ещё нужно принять (pending).
-function MedSection({ title, items, renderItem }: {
+function MedSection({ title, items, renderItem, defaultOpen = false }: {
   title: ReactNode
   items: TodayItem[]
   renderItem: (item: TodayItem) => ReactNode
+  defaultOpen?: boolean
 }) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(defaultOpen)
   const active = items.filter((i) => i.status === 'pending')
   const done = items.filter((i) => i.status !== 'pending')
   return (
     <div>
-      <div className="section-head-row">
+      <div
+        className="section-head-row section-head-row--btn"
+        role="button"
+        tabIndex={0}
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen((v) => !v) } }}
+      >
         {title}
         {active.length > 0 && <span className="section-count">{active.length}</span>}
-        <button
-          type="button"
-          className="done-toggle"
-          aria-expanded={open}
-          aria-label={open ? 'Свернуть' : 'Развернуть'}
-          onClick={() => setOpen((v) => !v)}
-        >
+        <span className="done-toggle" aria-hidden="true">
           <ChevronDown size={18} strokeWidth={2.4}
             className={`done-toggle-ic${open ? ' done-toggle-ic--open' : ''}`} />
-        </button>
+        </span>
       </div>
       {open && (
         <div className="mlist-list">
@@ -564,14 +564,12 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (p: 'medication
       return acc
     }, {})
 
-    // Внутри каждой группы близкого — единый порядок (due → pending → done)
+    // Внутри каждой группы близкого — по времени приёма desc
     for (const g of [...Object.values(localDepGroups), ...Object.values(linkedGroups), ...Object.values(sharedDepGroups)])
-      g.items = sortDisplay(g.items)
+      g.items = byTimeDesc(g.items)
 
-    const dueItems = ownItems
-      .filter(isDuePending)
-      .sort((a, b) => b.reminder_time.localeCompare(a.reminder_time))
-    const otherItems = sortDisplay(ownItems.filter((i) => !isDuePending(i)))
+    const dueItems = byTimeDesc(ownItems.filter(isDuePending))
+    const otherItems = byTimeDesc(ownItems.filter((i) => !isDuePending(i)))
     return { localDepGroups, linkedGroups, sharedDepGroups, dueItems, otherItems, linkedItems, sharedDepItems, dayStatusByMed }
   }, [data])
 
@@ -716,6 +714,7 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (p: 'medication
           {otherItems.length > 0 && (
             <MedSection
               title={<h2 className="section-title">Сегодня</h2>}
+              defaultOpen={dueItems.length === 0}
               items={otherItems}
               renderItem={(item) => (
                 <MedCard
