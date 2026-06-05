@@ -3602,3 +3602,48 @@ body.design-v2 .nav-badge {
 }
 /* верхняя полоска-индикатор не нужна — заливка-pill её заменяет */
 body.design-v2 .nav-item--active::before { display: none; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Ф18 · WP1 — Формы (MedicationForm). Только под body.design-v2, откатываемо.
+   Плавающие секции-карточки, sticky «Сохранить», единый ритм, приглушённые хинты.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Ритм: единый вертикальный шаг между секциями */
+body.design-v2 .form-body {
+  gap: var(--sp-3);
+  padding: var(--sp-3) 0 var(--sp-4);
+}
+
+/* Секции = плавающие карточки: радиус + тень. Фон НЕ трогаем — базовый --bg
+   контрастит с фоном страницы (.form-page = --secondary-bg) во всех темах.
+   v2-surface здесь = secondary-bg → слился бы с фоном (тёмная/авто). */
+body.design-v2 .form-section {
+  margin: 0 var(--sp-3);
+  border-radius: var(--r-card);
+  box-shadow: var(--elev);
+}
+
+/* rule-card выбивается чуть сильнее — это вложенный блок приёма */
+body.design-v2 .rule-card { box-shadow: var(--elev); }
+
+/* Хинты приглушены, чтобы не спорить с лейблами */
+body.design-v2 .field-hint {
+  color: var(--hint);
+  font-size: 12px;
+  line-height: 1.4;
+  opacity: 0.85;
+}
+
+/* Sticky «Сохранить»: липнет к низу вьюпорта (bottom-nav на форме не рендерится).
+   Full-bleed бар с верхним hairline + safe-area — не теряется на длинной форме. */
+body.design-v2 .form-section--actions {
+  position: sticky;
+  bottom: 0;
+  margin: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: var(--bg);
+  border-top: 1px solid var(--hairline);
+  padding: var(--sp-3) var(--sp-4) calc(var(--sp-3) + env(safe-area-inset-bottom, 0px));
+  z-index: 5;
+}
