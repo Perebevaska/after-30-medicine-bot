@@ -2527,7 +2527,7 @@
   height: 1px;
   background: var(--hint);
   opacity: 0.15;
-  margin: 6px 0;
+  margin: 0;
 }
 
 .caregiver-locked-hint {
@@ -2915,6 +2915,28 @@
   font-size: 12.5px;
   line-height: 1.45;
   flex: 1;
+}
+
+/* WP4: кликабельный заголовок подсекции «Забота» (сворачивание) */
+.care-section-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  background: none;
+  border: none;
+  border-bottom: 1px solid rgba(0,0,0,0.06); /* разделитель заголовок ↔ близкий (UA-рамка кнопки убрана) */
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  font: inherit;
+  text-align: left;
+}
+body.design-v2 .care-section-toggle { border-bottom-color: var(--hairline); }
+.care-section-chevron {
+  color: var(--hint);
+  font-size: 18px;
+  line-height: 1;
 }
 .caregiver-input-hint {
   font-size: 12px;
@@ -3543,12 +3565,43 @@ body.design-v2 .skip-circle--armed { background: var(--destructive); }
    rgba(0,0,0,.05) / background:none → на secondary-карточке (--v2-surface) слились,
    особенно в тёмной теме. Возвращаем контраст фоном --bg + видимой рамкой. */
 body.design-v2 .caregiver-code-chip { background: var(--bg); }
+
+/* WP5: чипы времени (settings + rule-time-chip) — единый радиус --r-btn, без
+   обводки, база --bg (контраст на secondary-карточке), активный = заливка
+   --secondary-bg. Тайминги через общие токены. */
+body.design-v2 .settings-time-chip {
+  border: none;
+  border-radius: var(--r-btn);
+  background: var(--bg);
+  transition: background var(--dur) var(--ease);
+}
+body.design-v2 .settings-time-chip--active {
+  background: var(--secondary-bg);
+}
+body.design-v2 .settings-time-chip-chevron {
+  transition: color var(--dur) var(--ease);
+}
 /* Панель share локального близкого вложена в карточку (--v2-surface) → фон карточки,
    не фон приложения. Чип кода внутри = --bg (контраст). */
 body.design-v2 .dep-share-panel { background: var(--v2-surface); }
-body.design-v2 .caregiver-add-btn--ghost {
+/* Кнопки добавления — как кнопки темы (seg-btn): радиус --r-btn, без обводки.
+   Primary = заливка кнопки Telegram, ghost = secondary-bg. */
+body.design-v2 .caregiver-add-btn,
+body.design-v2 .caregiver-add-cancel-btn,
+body.design-v2 .caregiver-add-done-btn {
+  border-radius: var(--r-btn);
+  border: none;
+}
+body.design-v2 .caregiver-add-btn--ghost,
+body.design-v2 .caregiver-add-cancel-btn {
   background: var(--bg);
-  border: 1px solid var(--hairline);
+  border: none;
+  color: var(--text);
+}
+/* Компактная пустая строка (нет близких) — без высокого settings-row padding */
+.caregiver-empty-row {
+  padding-top: 6px;
+  padding-bottom: 6px;
 }
 body.design-v2 .btn-dep-share {
   background: var(--bg);

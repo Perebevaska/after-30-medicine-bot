@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useMemo, forwardRef, useImperativeHandle }
 import type { ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { Check, X, Globe, Pill, Pause, ArrowRight, Heart, Send, ChevronDown } from 'lucide-react'
-import { postEvent } from '@telegram-apps/sdk-react'
+import { haptic } from '../lib/haptic'
 import { useToday, useLogIntake, useHearts, useSettings, useMedications, useWishesStatus, useWishInbox, useSendWish, useReactWish } from '../api/hooks'
 import { useQueryClient } from '@tanstack/react-query'
 import { api, apiErrorMessage } from '../api/client'
@@ -185,16 +185,6 @@ function MedSection({ title, items, renderItem, defaultOpen = false }: {
   )
 }
 
-// Вибрация в конце удержания: нативный Telegram haptic (impact heavy).
-// Требует web_app_ready при старте (main.tsx), иначе Android-клиент игнорит событие.
-function haptic(style: 'heavy' | 'light' = 'heavy') {
-  try {
-    postEvent('web_app_trigger_haptic_feedback', { type: 'impact', impact_style: style })
-    return
-  } catch { /* noop */ }
-  // Веб-фоллбэк (вне Telegram)
-  try { navigator.vibrate?.(style === 'light' ? 12 : 35) } catch { /* noop */ }
-}
 
 // Подсказка-инструкция показывается, пока юзер не отметит первый приём.
 const SLIDE_LEARNED_KEY = 'slide_learned'

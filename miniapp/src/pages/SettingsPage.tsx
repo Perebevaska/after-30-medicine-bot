@@ -183,6 +183,11 @@ export default function SettingsPage({ onReplayTour }: { onReplayTour?: () => vo
   const [shareCopiedId, setShareCopiedId] = useState<number | null>(null)
   const [leaveConfirmId, setLeaveConfirmId] = useState<number | null>(null)
   const [shareCodeError, setShareCodeError] = useState<Record<number, boolean>>({})
+  // WP4: сворачиваемые подсекции «Забота» (локально, без API). Default — открыты.
+  const [myDepsOpen, setMyDepsOpen] = useState(true)
+  const [helpingOpen, setHelpingOpen] = useState(true)
+  // Подтверждение жёсткого удаления локального близкого (без viewer = удаляется из БД полностью)
+  const [deleteDepConfirmId, setDeleteDepConfirmId] = useState<number | null>(null)
 
   const handleCopyCode = () => {
     if (!data?.caregiver_code) return
@@ -665,6 +670,11 @@ export default function SettingsPage({ onReplayTour }: { onReplayTour?: () => vo
                 <span className="toggle-track" />
               </label>
             </div>
+            <div className="settings-row">
+              <span className="settings-label--hint caregiver-block-hint">
+                Создаёт ваш код-приглашение и показывает близких и подопечных в приложении. Выключение скрывает их и уведомления — связи при этом сохраняются.
+              </span>
+            </div>
 
             {caregiverOffConfirm && (
               <div className="inline-confirm">
@@ -712,10 +722,16 @@ export default function SettingsPage({ onReplayTour }: { onReplayTour?: () => vo
             <>
               {/* Мои близкие */}
               <div className="settings-block">
-                <div className="settings-row">
+                <button
+                  className="settings-row care-section-toggle"
+                  onClick={() => setMyDepsOpen((v) => !v)}
+                  aria-expanded={myDepsOpen}
+                >
                   <span className="settings-label caregiver-block-label">Мои близкие</span>
-                </div>
+                  <span className="care-section-chevron">{myDepsOpen ? '⌄' : '›'}</span>
+                </button>
 
+                {myDepsOpen && <>
                 {deps?.map((d) => {
                   const share = data.dep_shares?.[String(d.id)]
                   const isShareOpen = shareOpenId === d.id
@@ -736,13 +752,32 @@ export default function SettingsPage({ onReplayTour }: { onReplayTour?: () => vo
                           </button>
                           <button
                             className="btn-detach"
-                            onClick={() => deleteDep.mutate(d.id)}
+                            onClick={() => hasViewer ? deleteDep.mutate(d.id) : setDeleteDepConfirmId(d.id)}
                             disabled={deleteDep.isPending}
                           >
                             {hasViewer ? 'Отвязать' : 'Удалить'}
                           </button>
                         </div>
                       </div>
+                      {deleteDepConfirmId === d.id && (
+                        <div className="inline-confirm">
+                          <p className="inline-confirm-text">
+                            «{d.name}» и все его препараты будут удалены <b>полностью и безвозвратно</b>.
+                          </p>
+                          <div className="inline-confirm-actions">
+                            <button className="inline-confirm-btn inline-confirm-btn--cancel" onClick={() => setDeleteDepConfirmId(null)} disabled={deleteDep.isPending}>
+                              Отмена
+                            </button>
+                            <button
+                              className="inline-confirm-btn inline-confirm-btn--danger"
+                              onClick={() => { deleteDep.mutate(d.id); setDeleteDepConfirmId(null) }}
+                              disabled={deleteDep.isPending}
+                            >
+                              Удалить
+                            </button>
+                          </div>
+                        </div>
+                      )}
                       {isShareOpen && (
                         <div className="dep-share-panel">
                           <p className="dep-share-hint">
@@ -838,7 +873,7 @@ export default function SettingsPage({ onReplayTour }: { onReplayTour?: () => vo
                 ))}
 
                 {!deps?.length && !data.active_dependents?.length && !data.pending_sent?.length && (
-                  <div className="settings-row">
+                  <div className="settings-row caregiver-empty-row">
                     <span className="settings-label--hint caregiver-block-hint">
                       Пока никого нет. Добавьте близкого или подключитесь по коду.
                     </span>
@@ -905,14 +940,21 @@ export default function SettingsPage({ onReplayTour }: { onReplayTour?: () => vo
                     </div>
                   </div>
                 )}
+                </>}
               </div>
 
               {/* Помогаю (viewer side) */}
               {(!!data.viewing_deps?.length || !!data.pending_viewing_deps?.length) && (
                 <div className="settings-block">
-                  <div className="settings-row">
+                  <button
+                    className="settings-row care-section-toggle"
+                    onClick={() => setHelpingOpen((v) => !v)}
+                    aria-expanded={helpingOpen}
+                  >
                     <span className="settings-label caregiver-block-label">Помогаю</span>
-                  </div>
+                    <span className="care-section-chevron">{helpingOpen ? '⌄' : '›'}</span>
+                  </button>
+                  {helpingOpen && <>
                   <div className="settings-row">
                     <span className="settings-label--hint caregiver-block-hint">
                       Близкие других пользователей, к которым вы подключились по коду доступа
@@ -965,6 +1007,7 @@ export default function SettingsPage({ onReplayTour }: { onReplayTour?: () => vo
                       )}
                     </div>
                   ))}
+                  </>}
                 </div>
               )}
             </>
