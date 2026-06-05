@@ -36,7 +36,7 @@
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  margin: 12px 16px 4px;
+  margin: calc(env(safe-area-inset-top, 0px) + 12px) 16px 4px;
   padding: 12px 14px;
   background: color-mix(in srgb, var(--button-color) 12%, transparent);
   border: 1px solid color-mix(in srgb, var(--button-color) 30%, transparent);
@@ -68,12 +68,16 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  margin: 10px 12px 0;
+  margin: calc(env(safe-area-inset-top, 0px) + 14px) 12px 0;
   padding: 12px 14px;
   /* высота под 2 строки пожелания (15px×1.4×2 + padding) — карточка не «прыгает»
      между 1- и 2-строчными пожеланиями; короткий текст центрируется по align-items */
   min-height: 72px;
   background: var(--secondary-bg);
+}
+/* баннер уже взял safe-area → карточка под ним без двойного отступа */
+.tz-banner + .wish-card {
+  margin-top: 10px;
   border-radius: 12px;
 }
 
