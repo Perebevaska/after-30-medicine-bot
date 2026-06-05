@@ -71,7 +71,7 @@ function SettingsIcon() {
 
 function BottomNav({ active, onChange }: { active: NavPage; onChange: (p: NavPage) => void }) {
   return (
-    <nav className="bottom-nav">
+    <nav className="bottom-nav" style={{ ['--nav-i' as string]: NAV_PAGES.indexOf(active) }}>
       <button
         type="button"
         className={`nav-item${active === 'dashboard' ? ' nav-item--active' : ''}`}

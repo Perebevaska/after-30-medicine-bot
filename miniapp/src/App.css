@@ -3358,3 +3358,175 @@
   color: var(--text);
   font-size: 14px;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Фаза 18 — «новый вид» (design-v2). Тоггл в Настройках (design.ts).
+   Чисто визуал, ПОВЕРХ существующих правил, ВСЁ под body.design-v2 (откатываемо).
+   Принцип «приятно каждый день»: плоско + воздух + единые токены.
+   ВАЖНО: фон страницы НЕ трогаем (остаётся «как в Telegram»). Карточки отделяем
+   только мягкой тенью на том же фоне → нет серых промежутков, не-карточные слои
+   (инфографика Прогресса, меню) не растворяются.
+   ═══════════════════════════════════════════════════════════════════════════ */
+body.design-v2 {
+  --r-card: 16px;
+  --r-btn: 14px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 22px;
+  --dur: 200ms;
+  --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --elev: 0 1px 3px rgba(0,0,0,0.08);
+  --hairline: var(--separator);
+  /* Поверхность карточек/шапки. В светлой теме нужна чуть темнее (см. ниже). */
+  --v2-surface: var(--secondary-bg);
+}
+/* Светлая тема: secondary-bg почти белый → карточки/шапку чуть темним (подмешиваем чёрный) */
+html[data-theme="light"] body.design-v2 {
+  --v2-surface: color-mix(in srgb, var(--secondary-bg) 92%, #000);
+}
+
+/* Типографика: секции мягче (без капс-крика), чёткая иерархия */
+body.design-v2 .section-title {
+  text-transform: none;
+  letter-spacing: -0.01em;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  padding: var(--sp-5) var(--sp-4) var(--sp-2);
+}
+body.design-v2 .section-hint { line-height: 1.45; }
+
+/* Шапка — фон как у карточек (secondary-bg), тонкая линия из темы (не хардкод rgba) */
+body.design-v2 .page-header {
+  background: var(--v2-surface);
+  border-bottom: 1px solid var(--hairline);
+}
+
+/* Обёртка списка в классике = серый 1px-разделитель (rgba 0,0,0,.06) — в v2 при
+   зазорах между карточками он лезет в промежутки = «серые полосы». Гасим. */
+body.design-v2 .mlist-list { background: transparent; gap: 0; }
+
+/* Карточки списков → плавающие: единый радиус + мягкая тень + воздух */
+body.design-v2 .med-card,
+body.design-v2 .mlist-card {
+  background: var(--v2-surface);
+  margin: 0 var(--sp-3) var(--sp-2);
+  border-radius: var(--r-card);
+  box-shadow: var(--elev);
+}
+body.design-v2 .med-card:first-of-type,
+body.design-v2 .mlist-card:first-of-type {
+  margin-top: var(--sp-3);
+}
+body.design-v2 .med-card  { min-height: 56px; padding: 10px 14px; }
+body.design-v2 .mlist-card { min-height: 60px; padding: 10px 14px; }
+
+body.design-v2 .settings-block,
+body.design-v2 .wish-card {
+  background: var(--v2-surface);
+  border-radius: var(--r-card);
+  box-shadow: var(--elev);
+}
+body.design-v2 .settings-row { border-bottom-color: var(--hairline); }
+body.design-v2 .settings-row:last-child { border-bottom-color: transparent; }
+
+/* Меню лекарства: кнопки на secondary-bg → контраст внутри светлой карточки */
+body.design-v2 .mlist-action-btn {
+  background: var(--bg);
+  border-radius: 12px;
+}
+
+/* Слайдер «принять» и кнопка ✕ были secondary-bg → на secondary-карточке слились.
+   Возвращаем контраст: фон --bg. */
+body.design-v2 .slide-confirm,
+body.design-v2 .skip-circle { background: var(--bg); }
+
+/* Кнопки: единый радиус + тактильный отклик на нажатие */
+body.design-v2 .btn-primary {
+  border-radius: var(--r-btn);
+  transition: transform var(--dur) var(--ease), opacity 0.15s;
+}
+body.design-v2 .btn-primary:active:not(:disabled) { transform: scale(0.97); }
+body.design-v2 .seg-btn { border-radius: var(--r-btn); }
+
+/* Убрать обводку у сег-кнопок и полей форм (выбивается из стиля) — опора на заливку.
+   Поле secondary-bg на белой секции формы остаётся видимым без рамки.
+   TimePicker/числовые барабаны НЕ трогаем: там граница = индикатор активности. */
+body.design-v2 .seg-btn,
+body.design-v2 .field-input,
+body.design-v2 .field-select { border: none; }
+/* активная сег-кнопка читается заливкой-акцентом — рамка не нужна */
+body.design-v2 .seg-btn--active { border-color: transparent; }
+
+/* Плавающая навигация — отдельная скруглённая панель (язык скруглённых карточек):
+   отступ от краёв, радиус, стекло + тень. Контент скроллится под ней. */
+body.design-v2 .bottom-nav {
+  --nav-item-w: 60px;
+  left: 50%;
+  right: auto;
+  transform: translateX(-50%);
+  width: auto;
+  padding: 0 6px;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 10px);
+  height: 56px;
+  border: none;
+  border-radius: 20px;
+  box-shadow: 0 8px 28px rgba(0,0,0,0.20), 0 2px 6px rgba(0,0,0,0.10);
+  background: color-mix(in srgb, var(--bg) 97%, transparent);
+  -webkit-backdrop-filter: saturate(1.5) blur(22px);
+  backdrop-filter: saturate(1.5) blur(22px);
+}
+/* компактные пункты фикс-ширины → панель сжимается по контенту и центрируется */
+body.design-v2 .nav-item { flex: 0 0 var(--nav-item-w); width: var(--nav-item-w); }
+/* контент не должен заезжать под плавающую панель */
+body.design-v2 .page { padding-bottom: 96px; }
+
+/* Плавающая заливка-pill за активной вкладкой — едет при переходе (--nav-i из React).
+   Ширина = 1 вкладка − зазор; шаг сдвига = (100% своей ширины + зазор) = ширина вкладки. */
+body.design-v2 .bottom-nav::before {
+  content: '';
+  position: absolute;
+  z-index: 0;
+  top: 8px;
+  bottom: 8px;
+  left: 10px;
+  width: calc(var(--nav-item-w) - 8px);
+  border-radius: 14px;
+  background: var(--button-bg);
+  transform: translateX(calc(var(--nav-i, 0) * var(--nav-item-w)));
+  transition: transform var(--dur) var(--ease);
+}
+
+body.design-v2 .nav-item { gap: 0; padding: 0; position: relative; z-index: 1; }
+body.design-v2 .nav-item svg {
+  width: 23px;
+  height: 23px;
+  transition: transform var(--dur) var(--ease);
+}
+/* Подписи убраны — только иконки по центру */
+body.design-v2 .nav-label { display: none; }
+
+/* Активная вкладка: белая иконка на сплошном pill + лёгкое «оживление» */
+body.design-v2 .nav-item--active { color: var(--button-text); }
+body.design-v2 .nav-item--active svg { transform: translateY(-1px) scale(1.1); }
+/* Тап-отклик: лёгкое сжатие иконки при нажатии (перебивает active-scale) */
+body.design-v2 .nav-item:active svg { transform: scale(0.9); }
+
+/* Бейдж под новый стиль: круглый, с кольцом-отрывом от панели */
+body.design-v2 .nav-badge {
+  background: var(--destructive);
+  border-radius: 999px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--bg);
+  top: -6px;
+  right: -8px;
+}
+/* верхняя полоска-индикатор не нужна — заливка-pill её заменяет */
+body.design-v2 .nav-item--active::before { display: none; }
