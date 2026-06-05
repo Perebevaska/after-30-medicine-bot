@@ -1,4 +1,5 @@
 import { themeParams, viewport } from '@telegram-apps/sdk-react'
+import { refreshTheme } from './theme'
 import { useEffect, useRef, useState } from 'react'
 import { CalendarHeart, Pill, ChartNoAxesColumnIncreasing, Settings } from 'lucide-react'
 import { inTelegram } from './main'
@@ -159,7 +160,7 @@ export default function App() {
   useEffect(() => {
     if (!inTelegram) return
 
-    void themeParams.mount().then(() => themeParams.bindCssVars())
+    void themeParams.mount().then(() => { themeParams.bindCssVars(); refreshTheme() })
     void viewport.mount().then(() => {
       viewport.expand()
       viewport.bindCssVars()

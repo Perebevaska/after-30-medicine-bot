@@ -1,26 +1,30 @@
-// Фаза 13/18: тема = режим (auto/light/dark). Один фикс-акцент бренда.
-//  - Режим диктует ФОН/ТЕКСТ: auto = цвета Telegram, light/dark = нейтральные.
-//  - Акцент — единый бренд-цвет (sea-green: доверие/здоровье), не перекрашивается.
-// Переменные инъектируются в <html> из JS (applyTheme).
+// Тема = режим (auto/light/dark). Переменные инъектируются в <html> из JS (applyTheme).
+//  - auto  = ПОЛНОСТЬЮ цвета Telegram (поверхности + accent/link), live через var(--tg-theme-*).
+//  - light = фикс нейтральная светлая + бренд-акцент (sea-green).
+//  - dark  = фикс Telegram classic dark (синяя палитра), НЕ зависит от настроек ТГ.
 export type ThemePref = 'auto' | 'light' | 'dark'
 type Mode = 'light' | 'dark'
 
 const KEY_MODE = 'theme_pref'
 
-// Единый бренд-акцент. Свой оттенок для dark (светлее — контраст на тёмном фоне).
-const ACCENT: Record<Mode, string> = { light: '#2b8a9e', dark: '#4fb3c7' }
-
-// Стандартные нейтральные поверхности (когда режим задан явно light/dark).
-const SURFACE: Record<Mode, { bg: string; card: string; secondary: string; text: string; hint: string; separator: string }> = {
-  light: { bg: '#ffffff', card: '#ffffff', secondary: '#f1f3f5', text: '#000000', hint: '#8e8e93', separator: 'rgba(0,0,0,0.08)' },
-  dark: { bg: '#17212b', card: '#1d2733', secondary: '#232e3c', text: '#ffffff', hint: '#8a9aa9', separator: 'rgba(255,255,255,0.08)' },
+type Palette = {
+  bg: string; secondary: string; text: string; hint: string; separator: string
+  accent: string; link: string; destructive: string
 }
 
-const DESTRUCTIVE: Record<Mode, string> = { light: '#d64c3c', dark: '#f0796a' }
+// Telegram classic dark — официальные themeParams. Фикс «тёмной» темы.
+const DARK: Palette = {
+  bg: '#17212b', secondary: '#232e3c', text: '#ffffff', hint: '#708499',
+  separator: 'rgba(255,255,255,0.08)', accent: '#5288c1', link: '#6ab7ff', destructive: '#ec3942',
+}
+// Нейтральная светлая + бренд-акцент.
+const LIGHT: Palette = {
+  bg: '#ffffff', secondary: '#f1f3f5', text: '#000000', hint: '#8e8e93',
+  separator: 'rgba(0,0,0,0.08)', accent: '#2b8a9e', link: '#2b8a9e', destructive: '#d64c3c',
+}
 
-type TgWebApp = { colorScheme?: 'light' | 'dark'; onEvent?: (e: string, cb: () => void) => void }
-function tg(): TgWebApp | undefined {
-  return (window as unknown as { Telegram?: { WebApp?: TgWebApp } }).Telegram?.WebApp
+function readVar(name: string): string {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim()
 }
 
 export function getThemePref(): ThemePref {
@@ -28,14 +32,24 @@ export function getThemePref(): ThemePref {
   return v === 'light' || v === 'dark' ? v : 'auto'
 }
 
-function systemIsDark(): boolean {
-  const scheme = tg()?.colorScheme
-  if (scheme === 'dark') return true
-  if (scheme === 'light') return false
-  return window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false
+// Тёмный ли hex-цвет (по относительной яркости). Telegram отдаёт #rrggbb.
+function isDarkColor(hex: string): boolean {
+  const m = hex.replace('#', '')
+  const v = m.length === 3 ? m.split('').map((c) => c + c).join('') : m
+  if (v.length < 6) return false
+  const r = parseInt(v.slice(0, 2), 16), g = parseInt(v.slice(2, 4), 16), b = parseInt(v.slice(4, 6), 16)
+  return (0.2126 * r + 0.7152 * g + 0.0722 * b) < 128
 }
+
+// Режим для auto: по реальному фону Telegram (после bindCssVars), иначе prefers-color-scheme.
+function autoMode(): Mode {
+  const bg = readVar('--tg-theme-bg-color')
+  if (bg) return isDarkColor(bg) ? 'dark' : 'light'
+  return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+}
+
 function resolveMode(pref: ThemePref): Mode {
-  return pref === 'auto' ? (systemIsDark() ? 'dark' : 'light') : pref
+  return pref === 'auto' ? autoMode() : pref
 }
 
 export function applyTheme(): void {
@@ -45,38 +59,51 @@ export function applyTheme(): void {
   root.setAttribute('data-theme', mode)
   const set = (k: string, v: string) => root.style.setProperty(k, v)
 
+  const f = mode === 'dark' ? DARK : LIGHT
+
   if (pref === 'auto') {
-    // Цвета Telegram (фоллбэк по resolved-режиму, если клиент не задал var).
-    const f = SURFACE[mode]
+    // Всё из Telegram (live), фоллбэк — палитра по resolved-режиму.
     set('--bg', `var(--tg-theme-bg-color, ${f.bg})`)
-    set('--card', `var(--tg-theme-bg-color, ${f.card})`)
+    set('--card', `var(--tg-theme-bg-color, ${f.bg})`)
     set('--secondary-bg', `var(--tg-theme-secondary-bg-color, ${f.secondary})`)
     set('--text', `var(--tg-theme-text-color, ${f.text})`)
     set('--hint', `var(--tg-theme-hint-color, ${f.hint})`)
     set('--separator', `var(--tg-theme-section-separator-color, ${f.separator})`)
+    const acc = `var(--tg-theme-button-color, ${f.accent})`
+    const link = `var(--tg-theme-link-color, ${f.link})`
+    set('--accent', acc)
+    set('--button-bg', acc)
+    set('--button-color', acc)
+    set('--link', link)
+    set('--link-color', link)
+    set('--destructive', `var(--tg-theme-destructive-text-color, ${f.destructive})`)
   } else {
-    const s = SURFACE[mode]
-    set('--bg', s.bg)
-    set('--card', s.card)
-    set('--secondary-bg', s.secondary)
-    set('--text', s.text)
-    set('--hint', s.hint)
-    set('--separator', s.separator)
+    // Фикс-палитра (light/dark) — не зависит от Telegram.
+    set('--bg', f.bg)
+    set('--card', f.bg)
+    set('--secondary-bg', f.secondary)
+    set('--text', f.text)
+    set('--hint', f.hint)
+    set('--separator', f.separator)
+    set('--accent', f.accent)
+    set('--button-bg', f.accent)
+    set('--button-color', f.accent)
+    set('--link', f.link)
+    set('--link-color', f.link)
+    set('--destructive', f.destructive)
   }
 
-  const accent = ACCENT[mode]
-  set('--destructive', DESTRUCTIVE[mode])
-  set('--accent', accent)
-  set('--button-bg', accent)
-  set('--button-color', accent)
   set('--button-text', '#ffffff')
   set('--button-text-color', '#ffffff')
-  set('--link', accent)
-  set('--link-color', accent)
 }
 
 export function setThemePref(pref: ThemePref): void {
   localStorage.setItem(KEY_MODE, pref)
+  applyTheme()
+}
+
+// Перерисовать (после bindCssVars / на themeChanged) — auto перечитает реальные ТГ-цвета.
+export function refreshTheme(): void {
   applyTheme()
 }
 
@@ -85,7 +112,5 @@ export function initTheme(): void {
   applyTheme()
   if (bound) return
   bound = true
-  const onChange = () => { if (getThemePref() === 'auto') applyTheme() }
-  tg()?.onEvent?.('themeChanged', onChange)
-  window.matchMedia?.('(prefers-color-scheme: dark)').addEventListener?.('change', onChange)
+  window.matchMedia?.('(prefers-color-scheme: dark)').addEventListener?.('change', () => refreshTheme())
 }
