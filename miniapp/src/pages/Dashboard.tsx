@@ -336,16 +336,32 @@ function SkipButton({ onConfirm, disabled }: { onConfirm: () => void; disabled?:
   )
 }
 
+// Полоска приёмов за день: по пилюле на каждый слот лекарства, цвет = статус
+// (принят=зелёный, пропущен=красный, ожидает=светлый). Одна и та же для всех
+// карточек одного лекарства — показывает прогресс дня. Скрыта при 1 приёме.
+function MedPills({ slots }: { slots?: TodayItem['status'][] }) {
+  if (!slots || slots.length < 2) return null
+  return (
+    <span className="med-pills" aria-hidden="true">
+      {slots.map((s, i) => (
+        <Pill key={i} size={13} strokeWidth={2.4} className={`med-pill med-pill--${s}`} />
+      ))}
+    </span>
+  )
+}
+
 function MedCard({
   item,
   entering,
   onTaken,
   onSkipped,
+  daySlots,
 }: {
   item: TodayItem
   entering?: boolean
   onTaken?: () => void
   onSkipped?: () => void
+  daySlots?: TodayItem['status'][]
 }) {
   const { mutate, isPending } = useLogIntake()
 
@@ -378,6 +394,7 @@ function MedCard({
         <div className="mlist-name mlist-name--withtime">
           <span className="mlist-nm">{item.name}</span>
           <span className="mlist-time">{item.reminder_time}</span>
+          <MedPills slots={daySlots} />
         </div>
         <div className="mlist-meta">
           {item.dosage} · {MEAL_LABELS[item.meal_relation] ?? item.meal_relation}
@@ -502,9 +519,20 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (p: 'medication
 
   // Раскладка приёмов по секциям — пересчитывается только при смене данных ['today'].
   const {
-    localDepGroups, linkedGroups, sharedDepGroups, dueItems, otherItems, linkedItems, sharedDepItems,
+    localDepGroups, linkedGroups, sharedDepGroups, dueItems, otherItems, linkedItems, sharedDepItems, dayStatusByMed,
   } = useMemo(() => {
     const allItems = data ?? []
+
+    // Прогресс дня по лекарству: все слоты, отсортированы по времени → массив статусов.
+    // Одна полоска пилюль на лекарство (общая для всех его карточек).
+    const byMed: Record<number, TodayItem[]> = {}
+    for (const i of allItems) (byMed[i.medication_id] ??= []).push(i)
+    const dayStatusByMed: Record<number, TodayItem['status'][]> = {}
+    for (const [mid, arr] of Object.entries(byMed)) {
+      dayStatusByMed[+mid] = [...arr]
+        .sort((a, b) => a.reminder_time.localeCompare(b.reminder_time))
+        .map((x) => x.status)
+    }
     // F7: separate own items from linked dependents' items
     const ownItems = allItems.filter((i) => !i.linked_user_id && !i.dep_share_id && !i.dependent_id)
     // Свои локальные близкие — отдельным блоком (как F7/F8)
@@ -544,7 +572,7 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (p: 'medication
       .filter(isDuePending)
       .sort((a, b) => b.reminder_time.localeCompare(a.reminder_time))
     const otherItems = sortDisplay(ownItems.filter((i) => !isDuePending(i)))
-    return { localDepGroups, linkedGroups, sharedDepGroups, dueItems, otherItems, linkedItems, sharedDepItems }
+    return { localDepGroups, linkedGroups, sharedDepGroups, dueItems, otherItems, linkedItems, sharedDepItems, dayStatusByMed }
   }, [data])
 
   const clickTakeAll = () => {
@@ -664,6 +692,7 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (p: 'medication
                   <MedCard
                     key={itemKey(item)}
                     item={item}
+                    daySlots={dayStatusByMed[item.medication_id]}
                     onTaken={() => { wishRef.current?.celebrate(); learnHold() }}
                     onSkipped={() => { wishRef.current?.skipped(); learnHold() }}
                   />
@@ -693,6 +722,7 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (p: 'medication
                   key={itemKey(item)}
                   item={item}
                   entering={item.status === 'pending'}
+                  daySlots={dayStatusByMed[item.medication_id]}
                   onTaken={() => wishRef.current?.celebrate()}
                   onSkipped={() => wishRef.current?.skipped()}
                 />
@@ -712,6 +742,7 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (p: 'medication
             <MedCard
               key={itemKey(item)}
               item={item}
+              daySlots={dayStatusByMed[item.medication_id]}
               onTaken={() => wishRef.current?.celebrate()}
               onSkipped={() => wishRef.current?.skipped()}
             />
@@ -734,6 +765,7 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (p: 'medication
                 <div className="mlist-name mlist-name--withtime">
                   <span className="mlist-nm">{item.name}</span>
                   <span className="mlist-time">{item.reminder_time}</span>
+                  <MedPills slots={dayStatusByMed[item.medication_id]} />
                 </div>
                 <div className="mlist-meta">
                   {item.dosage}
@@ -766,6 +798,7 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (p: 'medication
             <MedCard
               key={itemKey(item)}
               item={item}
+              daySlots={dayStatusByMed[item.medication_id]}
               onTaken={() => wishRef.current?.celebrate()}
               onSkipped={() => wishRef.current?.skipped()}
             />

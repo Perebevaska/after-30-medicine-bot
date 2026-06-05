@@ -712,6 +712,32 @@
   color: var(--hint);
 }
 
+/* Полоска приёмов за день (правый верх карточки «Приёмы»): пилюля = слот,
+   цвет = статус. margin-left:auto уводит вправо, имя сжимается эллипсисом. */
+.med-pills {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: auto;
+  flex-shrink: 0;
+  align-self: center;
+}
+.med-pill {
+  color: var(--hint);
+  opacity: 0.38;
+  fill: none;
+}
+.med-pill--taken {
+  color: #4caf50;
+  opacity: 1;
+  fill: color-mix(in srgb, #4caf50 20%, transparent);
+}
+.med-pill--skipped {
+  color: #e0533d;
+  opacity: 1;
+  fill: color-mix(in srgb, #e0533d 20%, transparent);
+}
+
 .mlist-badge-paused {
   display: inline-block;
   font-size: 11px;
