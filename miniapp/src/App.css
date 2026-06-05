@@ -3380,10 +3380,17 @@ body.design-v2 {
   --hairline: var(--separator);
   /* Поверхность карточек/шапки. В светлой теме нужна чуть темнее (см. ниже). */
   --v2-surface: var(--secondary-bg);
+  /* Фон навигации — тональный, отличается от фона страницы (fallback) */
+  --nav-bg: var(--secondary-bg);
 }
 /* Светлая тема: secondary-bg почти белый → карточки/шапку чуть темним (подмешиваем чёрный) */
 html[data-theme="light"] body.design-v2 {
   --v2-surface: color-mix(in srgb, var(--secondary-bg) 92%, #000);
+  --nav-bg: color-mix(in srgb, var(--bg) 90%, #000);
+}
+/* Тёмная тема: панель чуть СВЕТЛЕЕ фона → отрыв */
+html[data-theme="dark"] body.design-v2 {
+  --nav-bg: color-mix(in srgb, var(--bg) 84%, #fff);
 }
 
 /* Типографика: секции мягче (без капс-крика), чёткая иерархия */
@@ -3462,18 +3469,18 @@ body.design-v2 .seg-btn--active { border-color: transparent; }
 /* Плавающая навигация — отдельная скруглённая панель (язык скруглённых карточек):
    отступ от краёв, радиус, стекло + тень. Контент скроллится под ней. */
 body.design-v2 .bottom-nav {
-  --nav-item-w: 60px;
+  --nav-item-w: 68px;
   left: 50%;
   right: auto;
   transform: translateX(-50%);
   width: auto;
   padding: 0 6px;
   bottom: calc(env(safe-area-inset-bottom, 0px) + 10px);
-  height: 56px;
+  height: 62px;
   border: none;
   border-radius: 20px;
   box-shadow: 0 8px 28px rgba(0,0,0,0.20), 0 2px 6px rgba(0,0,0,0.10);
-  background: color-mix(in srgb, var(--bg) 97%, transparent);
+  background: var(--nav-bg);
   -webkit-backdrop-filter: saturate(1.5) blur(22px);
   backdrop-filter: saturate(1.5) blur(22px);
 }
@@ -3500,8 +3507,8 @@ body.design-v2 .bottom-nav::before {
 
 body.design-v2 .nav-item { gap: 0; padding: 0; position: relative; z-index: 1; }
 body.design-v2 .nav-item svg {
-  width: 23px;
-  height: 23px;
+  width: 25px;
+  height: 25px;
   transition: transform var(--dur) var(--ease);
 }
 /* Подписи убраны — только иконки по центру */
