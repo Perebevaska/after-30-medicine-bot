@@ -1,16 +1,16 @@
 import { useState, useRef, useEffect } from 'react'
 import { Send, Flame, Trophy, Clock, Lock, Check, ClipboardList, Calendar, Stethoscope, Loader2, AlertTriangle, TrendingUp, Activity, Pill, Target, Handshake, type LucideIcon } from 'lucide-react'
 import { useAdherence, useStreak, useSendExport, useStatsOverview, useSettings } from '../api/hooks'
-import type { StreakItem, StatsOverview, WeeklyAdherence, AchievementsBlock, RiskSignal } from '../api/types'
+import type { StreakItem, StatsOverview, AchievementsBlock, RiskSignal } from '../api/types'
 
 // Коды, по которым тост уже показан в этой сессии — защита от повтора при
 // ремаунте вкладки с кэш-ответом (newly остаётся в кэше React Query).
 const _toasted = new Set<string>()
 
 function pctColor(pct: number): string {
-  if (pct >= 80) return '#4caf50'
-  if (pct >= 50) return '#ff9800'
-  return '#f44336'
+  if (pct >= 80) return 'var(--ok)'
+  if (pct >= 50) return 'var(--warn)'
+  return 'var(--bad)'
 }
 
 function pluralDays(n: number): string {
@@ -75,39 +75,7 @@ function StreakCard({
   )
 }
 
-// ─── Соблюдение: окна 7/30/90 + график по дням ────────────────────────────
-
-function shortDate(iso: string): string {
-  const [, m, d] = iso.split('-')
-  return `${Number(d)}.${m}`
-}
-
-function WeeklyGraph({ weekly }: { weekly: WeeklyAdherence[] }) {
-  const last = weekly.length - 1
-  return (
-    <div className="adh-week">
-      <div className="adh-week-title">Соблюдение по неделям</div>
-      <div className="adh-week-bars" role="img" aria-label="Соблюдение по неделям">
-        {weekly.map((w, i) => (
-          <div key={w.start} className="adh-week-col" title={`${shortDate(w.start)}–${shortDate(w.end)}: ${w.pct === null ? 'нет приёмов' : w.pct + '%'}`}>
-            <span className="adh-week-pct">{w.pct === null ? '' : `${w.pct}%`}</span>
-            <div className="adh-week-track">
-              {w.pct === null
-                ? <div className="adh-week-fill adh-week-fill--empty" />
-                : <div className="adh-week-fill" style={{ height: `${Math.max(w.pct, 4)}%`, background: pctColor(w.pct) }} />}
-            </div>
-            <span className="adh-week-x">{i === 0 ? shortDate(w.start) : i === last ? 'тек.' : ''}</span>
-          </div>
-        ))}
-      </div>
-      <div className="adh-legend">
-        <span><i className="lg-dot" style={{ background: '#4caf50' }} />≥80%</span>
-        <span><i className="lg-dot" style={{ background: '#ff9800' }} />50–79%</span>
-        <span><i className="lg-dot" style={{ background: '#f44336' }} />&lt;50%</span>
-      </div>
-    </div>
-  )
-}
+// ─── Соблюдение: окна 7/30/90 ──────────────────────────────────────────────
 
 function WinCell({ label, pct }: { label: string; pct: number | null }) {
   return (
@@ -121,8 +89,7 @@ function WinCell({ label, pct }: { label: string; pct: number | null }) {
 }
 
 function AdherenceCard({ adherence }: { adherence: StatsOverview['adherence'] }) {
-  const { windows, weekly } = adherence
-  const hasData = weekly.some((w) => w.due > 0)
+  const { windows } = adherence
   return (
     <div className="stats-card adh-card">
       <h3 className="adh-title">Соблюдение приёма</h3>
@@ -132,9 +99,6 @@ function AdherenceCard({ adherence }: { adherence: StatsOverview['adherence'] })
         <WinCell label="30 дней" pct={windows['30']} />
         <WinCell label="90 дней" pct={windows['90']} />
       </div>
-      {hasData
-        ? <WeeklyGraph weekly={weekly} />
-        : <p className="hint">Начни отмечать приёмы — здесь появится график</p>}
     </div>
   )
 }
@@ -164,8 +128,8 @@ function PunctualityCard({ punct }: { punct: StatsOverview['punctuality'] }) {
       {hasDist ? (
         <>
           <p className="punct-sub">Когда отмечаешь приём относительно плана:</p>
-          <DistRow label="Вовремя" pct={punct.ontime_pct!} color="#4caf50" />
-          <DistRow label="Позже" pct={punct.late_pct!} color="#ff9800" />
+          <DistRow label="Вовремя" pct={punct.ontime_pct!} color="var(--ok)" />
+          <DistRow label="Позже" pct={punct.late_pct!} color="var(--warn)" />
           <p className="punct-hint">«Вовремя» — в течение 30 мин после напоминания; «Позже» — спустя 30 мин</p>
         </>
       ) : (

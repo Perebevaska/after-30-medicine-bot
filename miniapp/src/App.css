@@ -3507,6 +3507,15 @@ body.design-v2 .wish-card {
   border-radius: var(--r-card);
   box-shadow: var(--elev);
 }
+
+/* WP3.1: единая плотность карточек «Прогресс» — токены spacing/радиус/тень.
+   Фон оставляем --secondary-bg (единый фон карточек между вкладками, см. light-rule). */
+body.design-v2 .stats-card {
+  margin: var(--sp-2) var(--sp-3) 0;
+  padding: var(--sp-4);
+  border-radius: var(--r-card);
+  box-shadow: var(--elev);
+}
 /* Меню Настроек = фон как у seg-кнопок «Внешний вид» (--secondary-bg),
    не затемнённый --v2-surface → единообразие в светлой теме. */
 body.design-v2 .settings-block {

@@ -118,7 +118,7 @@ type ResetKeys = Record<NavPage, number>
 
 export default function App() {
   const [navPage, setNavPage] = useState<NavPage>('dashboard')
-  const [resetKeys, setResetKeys] = useState<ResetKeys>({ dashboard: 0, medications: 0, stats: 0, settings: 0 })
+  const [resetKeys] = useState<ResetKeys>({ dashboard: 0, medications: 0, stats: 0, settings: 0 })
   const [editMedId, setEditMedId] = useState<number | undefined>()
   const [editLinkedUserId, setEditLinkedUserId] = useState<number | undefined>()
   const [editForDepShareId, setEditForDepShareId] = useState<number | undefined>()
@@ -236,7 +236,10 @@ export default function App() {
         active={navPage}
         onChange={(p) => {
           if (p === navPage) {
-            setResetKeys((k) => ({ ...k, [p]: k[p] + 1 }))
+            // Повторный тап по активной вкладке → плавный скролл панели наверх
+            // (без remount: переключение/возврат сохраняют позицию скролла).
+            const panel = document.querySelectorAll<HTMLElement>('.tab-panel')[NAV_PAGES.indexOf(p)]
+            panel?.scrollTo({ top: 0, behavior: 'smooth' })
           } else {
             setNavPage(p)
           }
