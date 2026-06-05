@@ -330,13 +330,13 @@ function MedCard({
       className={`mlist-card${statusClass}${due ? ' mlist-card--due' : ''}${extraClass}${pending ? ' mlist-card--slide' : ''}`}
     >
       <div className="mlist-info">
-        <div className="mlist-name">
-          {item.name}
+        <div className="mlist-name mlist-name--withtime">
+          <span className="mlist-nm">{item.name}</span>
+          <span className="mlist-time">{item.reminder_time}</span>
         </div>
         <div className="mlist-meta">
           {item.dosage} · {MEAL_LABELS[item.meal_relation] ?? item.meal_relation}
         </div>
-        <div className="mlist-schedule">{item.reminder_time}</div>
       </div>
 
       {pending ? (
@@ -673,11 +673,13 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (p: 'medication
                 className={`mlist-card${item.status === 'skipped' ? ' mlist-card--skipped' : item.status === 'taken' ? ' mlist-card--taken' : ''}${item.is_due && item.status === 'pending' ? ' mlist-card--due' : ''}`}
               >
                 <div className="mlist-info">
-                  <div className="mlist-name">{item.name}</div>
+                  <div className="mlist-name mlist-name--withtime">
+                    <span className="mlist-nm">{item.name}</span>
+                    <span className="mlist-time">{item.reminder_time}</span>
+                  </div>
                   <div className="mlist-meta">
                     {item.dosage}
                   </div>
-                  <div className="mlist-schedule">{item.reminder_time}</div>
                 </div>
                 <div className="med-actions">
                   {item.status === 'pending' ? (

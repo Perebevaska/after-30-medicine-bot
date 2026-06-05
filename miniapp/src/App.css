@@ -686,6 +686,32 @@
   text-overflow: ellipsis;
 }
 
+/* Приёмы: имя + время в одной строке (время справа, тот же цвет что имя) */
+.mlist-name--withtime {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  overflow: visible;
+}
+.mlist-name--withtime .mlist-nm {
+  min-width: 0;
+  flex-shrink: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mlist-name--withtime .mlist-time {
+  flex-shrink: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: inherit;
+  font-variant-numeric: tabular-nums;
+}
+.mlist-name--withtime .mlist-time::before {
+  content: "· ";
+  color: var(--hint);
+}
+
 .mlist-badge-paused {
   display: inline-block;
   font-size: 11px;
@@ -749,7 +775,7 @@
 .mlist-card-main {
   display: flex;
   align-items: center;
-  padding: 14px 16px;
+  padding: 11px 14px;
   gap: 12px;
 }
 
@@ -760,6 +786,7 @@
 .mlist-card-body {
   display: grid;
   grid-template-rows: 0fr;
+  min-height: 0;
   transition: grid-template-rows 0.22s ease;
   overflow: hidden;
   background: var(--secondary-bg);
@@ -3428,7 +3455,11 @@ body.design-v2 .mlist-card:first-of-type {
   margin-top: var(--sp-3);
 }
 body.design-v2 .med-card  { min-height: 56px; padding: 10px 14px; }
+/* Вкладка «Приёмы» (Dashboard) — плоская карта-строка. */
 body.design-v2 .mlist-card { min-height: 60px; padding: 10px 14px; }
+/* Вкладка «Лекарства» (mlist-card--col, есть раскрытие): вертикаль/высоту задаёт
+   ТОЛЬКО .mlist-card-main → нет двойного padding/min-height = нет пустоты. */
+body.design-v2 .mlist-card--col { min-height: 0; padding: 0; }
 
 /* Светлая тема: карточки Приёмов/Лекарств — как карточки Прогресса (.stats-card =
    --secondary-bg), а не затемнённый --v2-surface. Единый фон карточек между вкладками.

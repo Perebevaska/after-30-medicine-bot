@@ -38,7 +38,7 @@ MEAL_LABELS_TEXT = {
     "before": "до еды",
     "after": "после еды",
     "with": "во время еды",
-    "any": "независимо",
+    "any": "не зависит от еды",
 }
 
 MONTHS_GEN = {
