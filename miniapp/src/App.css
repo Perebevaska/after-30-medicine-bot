@@ -3478,6 +3478,9 @@ body.design-v2 .mlist-card {
   margin: 0 var(--sp-3) var(--sp-2);
   border-radius: var(--r-card);
   box-shadow: var(--elev);
+  /* Тело раскрытия (.mlist-card-body, квадратные нижние углы) клипуется по радиусу —
+     иначе при раскрытии меню вылазит за скруглённую карточку = острые углы. */
+  overflow: hidden;
 }
 body.design-v2 .med-card:first-of-type,
 body.design-v2 .mlist-card:first-of-type {
@@ -3654,6 +3657,16 @@ body.design-v2 .form-section {
 
 /* rule-card выбивается чуть сильнее — это вложенный блок приёма */
 body.design-v2 .rule-card { box-shadow: var(--elev); }
+
+/* Форма = как остальные экраны: страница на фоне приложения (--bg), секции —
+   поверхность карточек (--v2-surface; светлая → --secondary-bg, как med/mlist-card),
+   поля = --bg (контраст внутри карточки). Вложенная rule-card = --bg (под-блок). */
+body.design-v2 .form-page { background: var(--bg); }
+body.design-v2 .form-section { background: var(--v2-surface); }
+html[data-theme="light"] body.design-v2 .form-section { background: var(--secondary-bg); }
+body.design-v2 .field-input,
+body.design-v2 .field-select,
+body.design-v2 .drum-col { background: var(--bg); }
 
 /* Хинты приглушены, чтобы не спорить с лейблами */
 body.design-v2 .field-hint {
