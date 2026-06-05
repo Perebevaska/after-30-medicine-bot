@@ -461,7 +461,7 @@ function WishZone({ enabled }: { enabled: boolean }) {
       )}
 
       {justSent ? (
-        <div className="wish-sent-toast"><Heart size={15} strokeWidth={2} className="ic" /> Поддержка отправлена</div>
+        <div className="wish-sent-inline"><Heart size={15} strokeWidth={2} className="ic" /> Поддержка отправлена</div>
       ) : canSend ? (
         <div className="wish-send">
           {!open ? (

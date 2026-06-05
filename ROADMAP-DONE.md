@@ -170,6 +170,9 @@ v1 только `daily`; взаимоисключает с поприёмной 
 - **WP1 Формы** ✅ — sticky «Сохранить», ритм секций, hairline.
 - **WP2 Dashboard** ✅ — `.section-title--now` точка `--accent`+пульс, due-pill, `.slide-fill` градиент, `.btn-take-all` press-scale.
 - **WP3 StatsPage** ✅ — единый `.stats-card`; токены `--ok/--warn/--bad`; график «по неделям» удалён.
+- **WP4 Забота** ✅ (`SettingsPage.tsx`) — «Мои близкие»/«Помогаю» в сворачиваемые подсекции (локальный state, без API).
+- **WP5 Чипы + TimePicker** ✅ — `haptic()` вынесен в `src/lib/haptic.ts`; `haptic('light')` в `DrumColumn.handleScroll` гейтится `fromScroll` (не дёргает на программном скролле).
+- **WP6 Единый тост** ✅ — `components/Toast.tsx` (плавающий, `position:fixed`, токены `--dur/--ease`, опц. авто-скрытие/крестик); `AchievementToast` на нём. Контекстные подтверждения у кнопки (`.wish-sent-inline`, `report-send-btn--sent`) остаются inline by design — не плавающие тосты.
 - **Курс:** плоско, близко к Telegram, на `themeParams`; не редизайн в чужую эстетику (iOS-скевоморфизм/Ubuntu-Yaru отброшены). Glass только на плавающих слоях. Реализация = token-first + scope-класс `.design-v2` (v1 в `:root`, v2 переопределяет); v2-стили ТОЛЬКО под `.design-v2`.
 
 ## Фаза 15 v1 — Соцмеханика пожеланий ✅ (за тоглом)
