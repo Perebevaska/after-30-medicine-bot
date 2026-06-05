@@ -32,7 +32,6 @@ export interface AdherenceMed {
 
 export interface AdherenceResponse {
   medications: AdherenceMed[]
-  total_pct: number | null
 }
 
 export interface StreakItem {
@@ -146,13 +145,6 @@ export interface Medication {
   dep_share_name?: string
 }
 
-export interface StockInfo {
-  stock_qty: number | null
-  units_per_dose: number
-  low_stock_days: number
-  days_left: number | null
-}
-
 export interface MedicationIn {
   name: string
   dosage: string
@@ -172,15 +164,6 @@ export interface MedicationIn {
 export interface Dependent {
   id: number
   name: string
-}
-
-export interface WeekStatRow {
-  name: string
-  dosage: string
-  day: string
-  taken: number
-  skipped: number
-  total: number
 }
 
 export interface CaregiverRequest {

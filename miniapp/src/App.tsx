@@ -34,8 +34,9 @@ function TodayIcon() {
 
 function MedsIcon() {
   const { data } = useMedications()
-  // завершённые курсы (course_done) — ждут «Продолжить/Удалить»
-  const done = data?.filter((m) => m.course_done).length ?? 0
+  // завершённые курсы — ждут «Продолжить/Удалить». course_done = COUNT(taken),
+  // шлётся всегда при заданном course_total → завершён только при done ≥ total.
+  const done = data?.filter((m) => m.course_total != null && (m.course_done ?? 0) >= m.course_total).length ?? 0
   return (
     <span className="nav-icon-wrap">
       <Pill size={22} strokeWidth={1.75} />

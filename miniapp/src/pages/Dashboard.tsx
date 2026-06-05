@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, forwardRef, useImperativeHandle } from 'react'
+import { useState, useRef, useEffect, useMemo, forwardRef, useImperativeHandle } from 'react'
 import { createPortal } from 'react-dom'
 import { Check, X, Globe, Pill, Pause, ArrowRight, Heart, Send } from 'lucide-react'
 import { postEvent } from '@telegram-apps/sdk-react'
@@ -212,8 +212,10 @@ function SlideToConfirm({ onConfirm, disabled }: { onConfirm: () => void; disabl
     draggingRef.current = true
     doneRef.current = false
     maxRef.current = computeMax()
-    const cur = knobRef.current
-      ? new DOMMatrixReadOnly(getComputedStyle(knobRef.current).transform).m41 : 0
+    // getComputedStyle до mount-effect может вернуть 'none' (нет transform в CSS) —
+    // DOMMatrixReadOnly('none') кидает SyntaxError, поэтому гасим явно.
+    const tr = knobRef.current ? getComputedStyle(knobRef.current).transform : 'none'
+    const cur = tr && tr !== 'none' ? new DOMMatrixReadOnly(tr).m41 : 0
     offsetRef.current = e.clientX - cur
     e.currentTarget.setPointerCapture?.(e.pointerId)
   }
@@ -305,7 +307,7 @@ function MedCard({
   const { mutate, isPending } = useLogIntake()
 
   // Undo убран намеренно: отмена приёма ломала «курс завершён» (COUNT taken).
-  // Приём подтверждается долгим нажатием — случайный тап не отметит.
+  // Приём подтверждается слайдером (SlideToConfirm) — случайный тап не отметит.
   const log = (status: 'taken' | 'skipped') => {
     if (status === 'taken') onTaken?.()
     if (status === 'skipped') onSkipped?.()
@@ -455,42 +457,48 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (p: 'medication
 
   const learnHold = () => { markSlideLearned(); setShowHoldHint(false) }
 
-  const allItems = data ?? []
-  // F7: separate own items from linked dependents' items
-  const ownItems = allItems.filter((i) => !i.linked_user_id && !i.dep_share_id && !i.dependent_id)
-  // Свои локальные близкие — отдельным блоком (как F7/F8)
-  const localDepItems = allItems.filter((i) => !i.linked_user_id && !i.dep_share_id && !!i.dependent_id)
-  const linkedItems = allItems.filter((i) => !!i.linked_user_id)
-  const sharedDepItems = allItems.filter((i) => !!i.dep_share_id)
+  // Раскладка приёмов по секциям — пересчитывается только при смене данных ['today'].
+  const {
+    localDepGroups, linkedGroups, sharedDepGroups, dueItems, otherItems, linkedItems, sharedDepItems,
+  } = useMemo(() => {
+    const allItems = data ?? []
+    // F7: separate own items from linked dependents' items
+    const ownItems = allItems.filter((i) => !i.linked_user_id && !i.dep_share_id && !i.dependent_id)
+    // Свои локальные близкие — отдельным блоком (как F7/F8)
+    const localDepItems = allItems.filter((i) => !i.linked_user_id && !i.dep_share_id && !!i.dependent_id)
+    const linkedItems = allItems.filter((i) => !!i.linked_user_id)
+    const sharedDepItems = allItems.filter((i) => !!i.dep_share_id)
 
-  // Группировка своих локальных близких по dependent_id
-  const localDepGroups = localDepItems.reduce<Record<number, { name: string; items: TodayItem[] }>>((acc, item) => {
-    const did = item.dependent_id!
-    if (!acc[did]) acc[did] = { name: item.dependent_name ?? `№${did}`, items: [] }
-    acc[did].items.push(item)
-    return acc
-  }, {})
+    // Группировка своих локальных близких по dependent_id
+    const localDepGroups = localDepItems.reduce<Record<number, { name: string; items: TodayItem[] }>>((acc, item) => {
+      const did = item.dependent_id!
+      if (!acc[did]) acc[did] = { name: item.dependent_name ?? `№${did}`, items: [] }
+      acc[did].items.push(item)
+      return acc
+    }, {})
 
-  // Group linked items by linked_user_id
-  const linkedGroups = linkedItems.reduce<Record<number, { name: string; items: TodayItem[] }>>((acc, item) => {
-    const uid = item.linked_user_id!
-    if (!acc[uid]) acc[uid] = { name: item.linked_user_name ?? `id${uid}`, items: [] }
-    acc[uid].items.push(item)
-    return acc
-  }, {})
+    // Group linked items by linked_user_id
+    const linkedGroups = linkedItems.reduce<Record<number, { name: string; items: TodayItem[] }>>((acc, item) => {
+      const uid = item.linked_user_id!
+      if (!acc[uid]) acc[uid] = { name: item.linked_user_name ?? `id${uid}`, items: [] }
+      acc[uid].items.push(item)
+      return acc
+    }, {})
 
-  // F8: group shared dep items by dep_share_id
-  const sharedDepGroups = sharedDepItems.reduce<Record<number, { name: string; items: TodayItem[] }>>((acc, item) => {
-    const did = item.dep_share_id!
-    if (!acc[did]) acc[did] = { name: item.dep_share_name ?? `dep${did}`, items: [] }
-    acc[did].items.push(item)
-    return acc
-  }, {})
+    // F8: group shared dep items by dep_share_id
+    const sharedDepGroups = sharedDepItems.reduce<Record<number, { name: string; items: TodayItem[] }>>((acc, item) => {
+      const did = item.dep_share_id!
+      if (!acc[did]) acc[did] = { name: item.dep_share_name ?? `dep${did}`, items: [] }
+      acc[did].items.push(item)
+      return acc
+    }, {})
 
-  const dueItems = ownItems
-    .filter(isDuePending)
-    .sort((a, b) => b.reminder_time.localeCompare(a.reminder_time))
-  const otherItems = ownItems.filter((i) => !isDuePending(i))
+    const dueItems = ownItems
+      .filter(isDuePending)
+      .sort((a, b) => b.reminder_time.localeCompare(a.reminder_time))
+    const otherItems = ownItems.filter((i) => !isDuePending(i))
+    return { localDepGroups, linkedGroups, sharedDepGroups, dueItems, otherItems, linkedItems, sharedDepItems }
+  }, [data])
 
   const clickTakeAll = () => {
     if (takingAll || !dueItems.length) return
@@ -511,10 +519,13 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (p: 'medication
     setTakingAll(true)
     learnHold()
     wishRef.current?.celebrate()
+    // Метим только СВОИ due-приёмы (как dueItems) — кнопка «Принять всё»
+    // постит лишь own. Иначе due локальных близких/shared мигали бы «принято».
+    const dueKeys = new Set(dueItems.map(itemKey))
     const prev = qc.getQueryData<TodayItem[]>(['today'])
     qc.setQueryData<TodayItem[]>(['today'], (old) =>
       old?.map((item) =>
-        isDuePending(item) ? { ...item, status: 'taken' as const } : item
+        dueKeys.has(itemKey(item)) ? { ...item, status: 'taken' as const } : item
       )
     )
     try {
