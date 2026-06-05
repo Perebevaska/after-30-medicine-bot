@@ -646,8 +646,13 @@
   animation: enterFromTop 0.32s ease;
 }
 
-.mlist-card--paused,
-.mlist-card--taken { opacity: 0.6; }
+.mlist-card--paused { opacity: 0.6; }
+/* Принятый: зелёная подсветка + серая полупрозрачность */
+.mlist-card--taken {
+  opacity: 0.6;
+  border-left: 4px solid #4caf50;
+  background: rgba(76, 175, 80, 0.08);
+}
 .mlist-card--due {
   border-left: 4px solid #4caf50;
   background: rgba(76, 175, 80, 0.08);
@@ -663,6 +668,7 @@
 }
 
 .mlist-card--skipped {
+  opacity: 0.6;
   border-left: 4px solid #ef5350;
   background: rgba(239, 83, 80, 0.07);
 }
@@ -1333,10 +1339,16 @@
   padding: 18px;
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
 }
+/* Цель в нижней половине → карточка переезжает наверх, чтоб не перекрыть подсветку */
+.tour-card--top {
+  bottom: auto;
+  top: calc(env(safe-area-inset-top, 0px) + 16px);
+}
 .tour-step-count { font-size: 12px; color: var(--hint); margin-bottom: 4px; }
 .tour-title { font-size: 17px; font-weight: 700; color: var(--text); margin-bottom: 6px; }
 .tour-text { font-size: 14px; color: var(--text); line-height: 1.45; margin-bottom: 14px; }
 .tour-actions { display: flex; justify-content: space-between; align-items: center; }
+.tour-nav-btns { display: flex; align-items: center; gap: 8px; }
 .tour-skip {
   background: none;
   border: none;
@@ -1344,6 +1356,15 @@
   font-size: 14px;
   cursor: pointer;
   padding: 6px;
+}
+.tour-back {
+  background: none;
+  border: none;
+  color: var(--link);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 10px 14px;
 }
 .tour-next {
   background: var(--button-bg);
@@ -2545,6 +2566,14 @@
 
 .btn-detach:active { opacity: 0.7; }
 
+/* Взведённое состояние (1-й тап) — сплошная заливка, сигнал «нажми ещё раз» */
+.btn-detach--armed {
+  background: var(--destructive);
+  border-color: var(--destructive);
+  color: #fff;
+  font-weight: 600;
+}
+
 .caregiver-divider {
   height: 1px;
   background: var(--hint);
@@ -3544,6 +3573,18 @@ body.design-v2 .mlist-card--col { min-height: 0; padding: 0; }
 html[data-theme="light"] body.design-v2 .med-card,
 html[data-theme="light"] body.design-v2 .mlist-card {
   background: var(--secondary-bg);
+}
+/* Статусные подсветки «Приёмов» должны перекрыть v2-фон карточки (--v2-surface /
+   светлый --secondary-bg). Дублируем селектор для обеих тем (специфичность ≥
+   базовых v2-правил). Принятый — зелёный тон, пропущенный — красный; полоса слева
+   и opacity заданы в базовых .mlist-card--taken/--skipped. */
+body.design-v2 .mlist-card--taken,
+html[data-theme="light"] body.design-v2 .mlist-card--taken {
+  background: rgba(76, 175, 80, 0.12);
+}
+body.design-v2 .mlist-card--skipped,
+html[data-theme="light"] body.design-v2 .mlist-card--skipped {
+  background: rgba(239, 83, 80, 0.10);
 }
 
 body.design-v2 .wish-card {

@@ -561,7 +561,7 @@ export default function SettingsPage({ onReplayTour }: { onReplayTour?: () => vo
         ))}
       </div>
 
-      <h2 className="section-title">Забота</h2>
+      <h2 className="section-title" id="tour-care">Забота</h2>
       <p className="section-hint">
         Следите за приёмами близких и управляйте их аптечкой прямо из приложения. Другой пользователь бота может стать вашим помощником или взять заботу о конкретном близком.
       </p>
@@ -751,31 +751,28 @@ export default function SettingsPage({ onReplayTour }: { onReplayTour?: () => vo
                             {hasPending ? <Bell size={16} strokeWidth={2} /> : hasViewer ? <User size={16} strokeWidth={2} /> : <Link2 size={16} strokeWidth={2} />}
                           </button>
                           <button
-                            className="btn-detach"
-                            onClick={() => hasViewer ? deleteDep.mutate(d.id) : setDeleteDepConfirmId(d.id)}
+                            className={`btn-detach${!hasViewer && deleteDepConfirmId === d.id ? ' btn-detach--armed' : ''}`}
+                            onClick={() => {
+                              if (hasViewer) { deleteDep.mutate(d.id); return }
+                              // 2-тапа по одной кнопке: 1-й → предупреждение, 2-й → удаление
+                              if (deleteDepConfirmId === d.id) {
+                                deleteDep.mutate(d.id)
+                                setDeleteDepConfirmId(null)
+                              } else {
+                                setDeleteDepConfirmId(d.id)
+                              }
+                            }}
                             disabled={deleteDep.isPending}
                           >
-                            {hasViewer ? 'Отвязать' : 'Удалить'}
+                            {hasViewer ? 'Отвязать' : deleteDepConfirmId === d.id ? 'Точно удалить' : 'Удалить'}
                           </button>
                         </div>
                       </div>
                       {deleteDepConfirmId === d.id && (
                         <div className="inline-confirm">
                           <p className="inline-confirm-text">
-                            «{d.name}» и все его препараты будут удалены <b>полностью и безвозвратно</b>.
+                            «{d.name}» и все его препараты будут удалены <b>полностью и безвозвратно</b>. Нажмите «Точно удалить» ещё раз для подтверждения.
                           </p>
-                          <div className="inline-confirm-actions">
-                            <button className="inline-confirm-btn inline-confirm-btn--cancel" onClick={() => setDeleteDepConfirmId(null)} disabled={deleteDep.isPending}>
-                              Отмена
-                            </button>
-                            <button
-                              className="inline-confirm-btn inline-confirm-btn--danger"
-                              onClick={() => { deleteDep.mutate(d.id); setDeleteDepConfirmId(null) }}
-                              disabled={deleteDep.isPending}
-                            >
-                              Удалить
-                            </button>
-                          </div>
                         </div>
                       )}
                       {isShareOpen && (

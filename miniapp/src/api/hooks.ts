@@ -13,6 +13,20 @@ export function useRequestCaregiverLink() {
   })
 }
 
+// Онбординг: создать демо-препарат «Счастьепин» новому юзеру (идемпотентно на сервере)
+export function useCreateDemoMed() {
+  const qc = useQueryClient()
+  return useMutation<{ created: boolean; medication_id: number | null }, Error, void>({
+    mutationFn: () => api.post('/onboarding/demo'),
+    onSuccess: (res) => {
+      if (res.created) {
+        qc.invalidateQueries({ queryKey: ['medications'] })
+        qc.invalidateQueries({ queryKey: ['today'] })
+      }
+    },
+  })
+}
+
 export function useConfirmCaregiverLink() {
   const qc = useQueryClient()
   return useMutation<void, Error, number>({

@@ -1344,6 +1344,24 @@ def add_schedule(medication_id: int, reminder_time: str):
     add_schedule_rule(medication_id, reminder_time, "daily")
 
 
+def create_demo_medication(user_id: int) -> int | None:
+    """Онбординг: создаёт демо-препарат «Счастьепин» новому юзеру, чтобы туру было
+    что показать (карточка приёма + расписание). Идемпотентно: если у юзера уже
+    есть активные лекарства — ничего не делает и возвращает None."""
+    with get_connection() as conn:
+        existing = conn.execute(
+            "SELECT 1 FROM medications WHERE user_id = %s AND active = 1 LIMIT 1",
+            (user_id,)
+        ).fetchone()
+        if existing:
+            return None
+    med_id = add_medication(
+        user_id, "Счастьепин", "1 таблетка", "after", 1,
+    )
+    add_schedule_rule(med_id, "09:00", "daily")
+    return med_id
+
+
 def add_schedule_rule(medication_id: int, reminder_time: str, frequency: str,
                       interval_days: int = None, weekdays: str = None,
                       month_day: int = None, anchor_date: str = None, dosage: str = None,
@@ -2027,6 +2045,8 @@ def delete_user_data(telegram_id: int) -> list:
             "DELETE FROM wishes_sent WHERE sender_id = %s OR recipient_id = %s",
             (user_id, user_id),
         )
+        # F12a: ачивки (FK без ON DELETE CASCADE — иначе блокируют удаление users)
+        conn.execute("DELETE FROM achievements WHERE user_id = %s", (user_id,))
         conn.execute("DELETE FROM users WHERE telegram_id = %s", (telegram_id,))
         return med_ids
 

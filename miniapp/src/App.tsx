@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { CalendarHeart, Pill, ChartNoAxesColumnIncreasing, Settings } from 'lucide-react'
 import { inTelegram } from './main'
 import { useQueryClient } from '@tanstack/react-query'
-import { useToday, useMedications, useStatsOverview, useSettings } from './api/hooks'
+import { useToday, useMedications, useStatsOverview, useSettings, useCreateDemoMed } from './api/hooks'
 import { markAchievementsSeen, useSeenAchievements } from './notifications'
 import Dashboard from './pages/Dashboard'
 import MedicationList from './pages/MedicationList'
@@ -173,6 +173,17 @@ export default function App() {
     }
   }, [])
 
+  // Новый юзер (тур показывается) → создаём демо-препарат «Счастьепин», чтобы
+  // туру было что показать на «Аптечке»/«Приёмах». Идемпотентно на сервере.
+  const createDemo = useCreateDemoMed()
+  const demoFired = useRef(false)
+  useEffect(() => {
+    if (showTour && !demoFired.current) {
+      demoFired.current = true
+      createDemo.mutate()
+    }
+  }, [showTour, createDemo])
+
   const handleTouchStart = (e: React.TouchEvent) => {
     const t = e.touches[0]
     touchStart.current = { x: t.clientX, y: t.clientY }
@@ -246,7 +257,7 @@ export default function App() {
           }
         }}
       />
-      {showTour && !showForm && <OnboardingTour onClose={() => setShowTour(false)} />}
+      {showTour && !showForm && <OnboardingTour onClose={() => setShowTour(false)} onNavigate={setNavPage} />}
       <AchievementToast />
     </div>
   )

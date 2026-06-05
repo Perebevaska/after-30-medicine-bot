@@ -324,7 +324,7 @@ export default function StatsPage() {
 
       <h2 className="section-title">Отчёты</h2>
       <p className="section-hint">Файл придёт прямо в чат с ботом</p>
-      <div className="reports-list">
+      <div className="reports-list" id="tour-reports">
         {REPORTS.map((r) => (
           <ReportRow key={r.slot} {...r} />
         ))}
