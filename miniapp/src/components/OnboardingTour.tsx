@@ -42,7 +42,10 @@ export default function OnboardingTour({ onClose }: { onClose: () => void }) {
       const items = document.querySelectorAll('.bottom-nav .nav-item')
       const el = items[cur.navIndex] as HTMLElement | undefined
       if (el) {
-        const r = el.getBoundingClientRect()
+        // Меряем иконку пункта, а не весь .nav-item: панель компактная,
+        // видимая «таблетка» меньше кнопки → подсветка по иконке точнее.
+        const icon = el.querySelector('svg') as SVGElement | null
+        const r = (icon ?? el).getBoundingClientRect()
         setRect({ left: r.left, top: r.top, width: r.width, height: r.height })
       }
     }
@@ -57,7 +60,7 @@ export default function OnboardingTour({ onClose }: { onClose: () => void }) {
   }
   const next = () => (step < STEPS.length - 1 ? setStep((s) => s + 1) : finish())
 
-  const pad = 8
+  const pad = 13 // иконка ~25px → подсветка ~51px (форма «таблетки» вокруг пункта)
   return (
     <div className="tour-overlay" onClick={next}>
       {rect && (

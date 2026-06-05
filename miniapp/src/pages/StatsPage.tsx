@@ -1,11 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
-import { Send, Flame, Trophy, Clock, Lock, Check, ClipboardList, Calendar, Stethoscope, Loader2, AlertTriangle, TrendingUp, Activity, Pill, Target, Handshake, type LucideIcon } from 'lucide-react'
+import { Send, Flame, Trophy, Clock, Check, ClipboardList, Calendar, Stethoscope, Loader2, AlertTriangle, TrendingUp, Activity, type LucideIcon } from 'lucide-react'
 import { useAdherence, useStreak, useSendExport, useStatsOverview, useSettings } from '../api/hooks'
 import type { StreakItem, StatsOverview, AchievementsBlock, RiskSignal } from '../api/types'
-
-// Коды, по которым тост уже показан в этой сессии — защита от повтора при
-// ремаунте вкладки с кэш-ответом (newly остаётся в кэше React Query).
-const _toasted = new Set<string>()
+import { AchMedal } from '../components/AchMedal'
 
 function pctColor(pct: number): string {
   if (pct >= 80) return 'var(--ok)'
@@ -176,31 +173,6 @@ function RiskCard({ risk }: { risk: StatsOverview['risk'] }) {
 
 // ─── Достижения (F12a) ────────────────────────────────────────────────────
 
-// Ф18: медальон вместо эмодзи. code → {глиф группы, уровень-градиент}.
-// Уровни по сложности: bronze→silver→gold→diamond; забота — бренд-бирюза.
-const ACH_VISUAL: Record<string, { tier: string; Icon: LucideIcon }> = {
-  intake_10:  { tier: 'bronze',  Icon: Pill },
-  intake_100: { tier: 'silver',  Icon: Pill },
-  intake_500: { tier: 'gold',    Icon: Pill },
-  streak_7:   { tier: 'bronze',  Icon: Flame },
-  streak_30:  { tier: 'silver',  Icon: Flame },
-  streak_100: { tier: 'diamond', Icon: Flame },
-  adh_30:     { tier: 'silver',  Icon: Target },
-  adh_90:     { tier: 'gold',    Icon: Target },
-  care_first: { tier: 'care',    Icon: Handshake },
-}
-
-function AchMedal({ code, locked, large }: { code: string; locked: boolean; large?: boolean }) {
-  const v = ACH_VISUAL[code]
-  const cls = `ach-medal${large ? ' ach-medal--lg' : ''}`
-  const sz = large ? 26 : 22
-  if (locked || !v) {
-    return <span className={`${cls} ach-medal--locked`}><Lock size={sz} strokeWidth={2} /></span>
-  }
-  const { tier, Icon } = v
-  return <span className={`${cls} ach-medal--${tier}`}><Icon size={sz} strokeWidth={2} /></span>
-}
-
 function AchievementsCard({ block }: { block: AchievementsBlock }) {
   const [selected, setSelected] = useState<string | null>(null)
   const unlocked = new Set(block.unlocked)
@@ -243,37 +215,6 @@ function AchievementsCard({ block }: { block: AchievementsBlock }) {
   )
 }
 
-function AchievementToast({ block }: { block: AchievementsBlock }) {
-  const [shown, setShown] = useState<{ code: string; title: string; extra: number } | null>(null)
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  useEffect(() => {
-    const fresh = block.newly.filter((c) => !_toasted.has(c))
-    if (fresh.length === 0) return
-    fresh.forEach((c) => _toasted.add(c))
-    const first = block.catalog.find((a) => a.code === fresh[0])
-    if (!first) return
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setShown({ code: first.code, title: first.title, extra: fresh.length - 1 })
-    if (timerRef.current) clearTimeout(timerRef.current)
-    timerRef.current = setTimeout(() => setShown(null), 4500)
-  }, [block.newly, block.catalog])
-
-  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current) }, [])
-
-  if (!shown) return null
-  return (
-    <div className="ach-toast" role="status">
-      <span className="ach-toast-icon"><AchMedal code={shown.code} locked={false} /></span>
-      <div className="ach-toast-body">
-        <span className="ach-toast-head">Новое достижение!</span>
-        <span className="ach-toast-title">
-          {shown.title}{shown.extra > 0 && ` +${shown.extra}`}
-        </span>
-      </div>
-    </div>
-  )
-}
 
 // ─── Report row ───────────────────────────────────────────────────────────
 
@@ -351,10 +292,7 @@ export default function StatsPage() {
           <PunctualityCard punct={overview.punctuality} />
           <RiskCard risk={overview.risk} />
           {overview.achievements && (
-            <>
-              <AchievementsCard block={overview.achievements} />
-              <AchievementToast block={overview.achievements} />
-            </>
+            <AchievementsCard block={overview.achievements} />
           )}
         </>
       )}

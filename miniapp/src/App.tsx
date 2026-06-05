@@ -12,6 +12,7 @@ import MedicationForm from './pages/MedicationForm'
 import StatsPage from './pages/StatsPage'
 import SettingsPage from './pages/SettingsPage'
 import OnboardingTour, { shouldShowOnboarding } from './components/OnboardingTour'
+import { AchievementToast } from './components/AchievementToast'
 import './App.css'
 
 type NavPage = 'dashboard' | 'medications' | 'stats' | 'settings'
@@ -246,6 +247,7 @@ export default function App() {
         }}
       />
       {showTour && !showForm && <OnboardingTour onClose={() => setShowTour(false)} />}
+      <AchievementToast />
     </div>
   )
 }
