@@ -197,9 +197,10 @@
 }
 
 .page-header-title {
-  font-size: 17px;
+  font-size: 20px;
   font-weight: 700;
-  color: var(--text);
+  letter-spacing: -0.01em;
+  color: var(--link);
 }
 
 /* Section title */
@@ -748,9 +749,8 @@
 .mlist-card-main {
   display: flex;
   align-items: center;
-  padding: 12px 16px;
+  padding: 14px 16px;
   gap: 12px;
-  min-height: 72px;
 }
 
 .mlist-card--open .mlist-card-main {
@@ -2820,14 +2820,15 @@
 /* F8: dep share */
 .dep-row-actions { display: flex; gap: 6px; align-items: center; }
 .btn-dep-share {
-  background: none;
+  background: var(--secondary-bg);
   border: 1px solid var(--hint);
   border-radius: 6px;
   font-size: 14px;
+  color: var(--text);
   cursor: pointer;
   padding: 2px 8px;
-  opacity: 0.7;
-  transition: opacity 0.15s;
+  opacity: 1;
+  transition: opacity 0.15s, border-color 0.15s;
 }
 .btn-dep-share--active { opacity: 1; border-color: var(--link-color); }
 .btn-dep-share--notify { opacity: 1; border-color: #e6900a; }
@@ -3429,9 +3430,24 @@ body.design-v2 .mlist-card:first-of-type {
 body.design-v2 .med-card  { min-height: 56px; padding: 10px 14px; }
 body.design-v2 .mlist-card { min-height: 60px; padding: 10px 14px; }
 
-body.design-v2 .settings-block,
+/* Светлая тема: карточки Приёмов/Лекарств — как карточки Прогресса (.stats-card =
+   --secondary-bg), а не затемнённый --v2-surface. Единый фон карточек между вкладками.
+   Тело раскрытия (.mlist-card-body) уже --secondary-bg → совпадает с карточкой;
+   кнопки действий (.mlist-action-btn) = --bg (белый) → контраст, не сливаются. */
+html[data-theme="light"] body.design-v2 .med-card,
+html[data-theme="light"] body.design-v2 .mlist-card {
+  background: var(--secondary-bg);
+}
+
 body.design-v2 .wish-card {
   background: var(--v2-surface);
+  border-radius: var(--r-card);
+  box-shadow: var(--elev);
+}
+/* Меню Настроек = фон как у seg-кнопок «Внешний вид» (--secondary-bg),
+   не затемнённый --v2-surface → единообразие в светлой теме. */
+body.design-v2 .settings-block {
+  background: var(--secondary-bg);
   border-radius: var(--r-card);
   box-shadow: var(--elev);
 }
@@ -3447,7 +3463,25 @@ body.design-v2 .mlist-action-btn {
 /* Слайдер «принять» и кнопка ✕ были secondary-bg → на secondary-карточке слились.
    Возвращаем контраст: фон --bg. */
 body.design-v2 .slide-confirm,
-body.design-v2 .skip-circle { background: var(--bg); }
+body.design-v2 .skip-circle:not(.skip-circle--armed) { background: var(--bg); }
+/* Взведённый ✕ — красная заливка (иначе спец-ть design-v2 перебивала --armed → белый) */
+body.design-v2 .skip-circle--armed { background: var(--destructive); }
+
+/* «Забота»: чип кода, share-панель и ghost/dep-share кнопки были secondary-bg /
+   rgba(0,0,0,.05) / background:none → на secondary-карточке (--v2-surface) слились,
+   особенно в тёмной теме. Возвращаем контраст фоном --bg + видимой рамкой. */
+body.design-v2 .caregiver-code-chip { background: var(--bg); }
+/* Панель share локального близкого вложена в карточку (--v2-surface) → фон карточки,
+   не фон приложения. Чип кода внутри = --bg (контраст). */
+body.design-v2 .dep-share-panel { background: var(--v2-surface); }
+body.design-v2 .caregiver-add-btn--ghost {
+  background: var(--bg);
+  border: 1px solid var(--hairline);
+}
+body.design-v2 .btn-dep-share {
+  background: var(--bg);
+  border-color: var(--hairline);
+}
 
 /* Кнопки: единый радиус + тактильный отклик на нажатие */
 body.design-v2 .btn-primary {

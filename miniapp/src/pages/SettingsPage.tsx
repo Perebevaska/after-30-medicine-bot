@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, type ReactNode } from 'react'
-import { Sun, Moon, User, Check, X, Clock, Copy, Bell, Link2, AlertTriangle, MapPin, Trophy, Languages, Search, GraduationCap, Sparkles } from 'lucide-react'
+import { Sun, Moon, User, Check, X, Clock, Copy, Bell, Link2, AlertTriangle, MapPin, Trophy, Languages, Search, GraduationCap } from 'lucide-react'
 import {
   useSettings, useSetReminderMode, useSetDailyPlan, useSetCaregiver,
   useDependents, useCreateDependent, useDeleteDependent,
@@ -12,7 +12,6 @@ import {
 } from '../api/hooks'
 import TimePicker from '../components/TimePicker'
 import { getThemePref, setThemePref, type ThemePref } from '../theme'
-import { getDesignPref, setDesignPref, type DesignPref } from '../design'
 import { resetOnboarding } from '../components/OnboardingTour'
 
 // Маска кода: только A-Z0-9, разбивка по 4 через «-», максимум 12 символов (XXXX-XXXX-XXXX)
@@ -138,7 +137,6 @@ export default function SettingsPage({ onReplayTour }: { onReplayTour?: () => vo
   const deleteAccount = useDeleteAccount()
   const { data: adminStats, refetch: refetchAdmin } = useAdminStats(!!data?.is_admin)
   const [theme, setTheme] = useState<ThemePref>(getThemePref())
-  const [design, setDesign] = useState<DesignPref>(getDesignPref())
   const [dailyPlanTime, setDailyPlanTime] = useState('08:00')
   const [planTimeEditing, setPlanTimeEditing] = useState(false)
   const [strictTime, setStrictTime] = useState('02:00')
@@ -350,25 +348,6 @@ export default function SettingsPage({ onReplayTour }: { onReplayTour?: () => vo
             type="button"
             className={`seg-btn${theme === val ? ' seg-btn--active' : ''}`}
             onClick={() => { setTheme(val); setThemePref(val) }}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-
-      <p className="section-hint">
-        Новый вид — обновлённые карточки, отступы и анимации. Тестовый, можно вернуть классический.
-      </p>
-      <div className="theme-seg">
-        {([
-          ['v1', <>Классический</>],
-          ['v2', <><Sparkles size={15} strokeWidth={2} /> Новый вид</>],
-        ] as [DesignPref, ReactNode][]).map(([val, label]) => (
-          <button
-            key={val}
-            type="button"
-            className={`seg-btn${design === val ? ' seg-btn--active' : ''}`}
-            onClick={() => { setDesign(val); setDesignPref(val) }}
           >
             {label}
           </button>
@@ -857,6 +836,14 @@ export default function SettingsPage({ onReplayTour }: { onReplayTour?: () => vo
                     <span className="caregiver-status-badge pending">ожидает</span>
                   </div>
                 ))}
+
+                {!deps?.length && !data.active_dependents?.length && !data.pending_sent?.length && (
+                  <div className="settings-row">
+                    <span className="settings-label--hint caregiver-block-hint">
+                      Пока никого нет. Добавьте близкого или подключитесь по коду.
+                    </span>
+                  </div>
+                )}
 
                 <div className="caregiver-divider" />
 
