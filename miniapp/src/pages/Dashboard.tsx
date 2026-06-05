@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useMemo, forwardRef, useImperativeHandle } from 'react'
+import type { ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { Check, X, Globe, Pill, Pause, ArrowRight, Heart, Send } from 'lucide-react'
+import { Check, X, Globe, Pill, Pause, ArrowRight, Heart, Send, ChevronDown } from 'lucide-react'
 import { postEvent } from '@telegram-apps/sdk-react'
 import { useToday, useLogIntake, useHearts, useSettings, useMedications, useWishesStatus, useWishInbox, useSendWish, useReactWish } from '../api/hooks'
 import { useQueryClient } from '@tanstack/react-query'
@@ -105,13 +106,13 @@ const WishCard = forwardRef<WishCardHandle>(function WishCard(_, ref) {
   return (
     <>
       <div className="wish-card">
-        <div className="wish-text-wrap">
-          <span className="wish-text">{wish}</span>
-        </div>
         <span className="wish-heart-wrap">
           <span ref={heartRef} className={`wish-heart${shaking ? ' wish-heart--shake' : ''}`} aria-hidden="true">❤️</span>
           <span className="wish-heart-count">{hearts}</span>
         </span>
+        <div className="wish-text-wrap">
+          <span className="wish-text">{wish}</span>
+        </div>
       </div>
       {createPortal(
         <div className="hearts-overlay" aria-hidden="true">
@@ -141,6 +142,48 @@ const WishCard = forwardRef<WishCardHandle>(function WishCard(_, ref) {
 const itemKey = (i: TodayItem) => `${i.medication_id}-${i.reminder_time}`
 // AX5: is_due приходит с сервера (TZ аккаунта), не считаем по времени браузера.
 const isDuePending = (i: TodayItem) => i.status === 'pending' && i.is_due
+
+// Порядок в списке: due-pending (пора) → pending (запланировано) → принято/пропущено.
+// Внутри ранга — по времени приёма. Фикс бага: у близких due-карточки тонули под pending.
+const displayRank = (i: TodayItem) => (isDuePending(i) ? 0 : i.status === 'pending' ? 1 : 2)
+const sortDisplay = (items: TodayItem[]) =>
+  [...items].sort((a, b) => displayRank(a) - displayRank(b) || a.reminder_time.localeCompare(b.reminder_time))
+
+// Секция приёмов: весь список (включая непринятые) сворачивается тогглом
+// рядом с заголовком. Счётчик в шапке = сколько ещё нужно принять (pending).
+function MedSection({ title, items, renderItem }: {
+  title: ReactNode
+  items: TodayItem[]
+  renderItem: (item: TodayItem) => ReactNode
+}) {
+  const [open, setOpen] = useState(false)
+  const active = items.filter((i) => i.status === 'pending')
+  const done = items.filter((i) => i.status !== 'pending')
+  return (
+    <div>
+      <div className="section-head-row">
+        {title}
+        {active.length > 0 && <span className="section-count">{active.length}</span>}
+        <button
+          type="button"
+          className="done-toggle"
+          aria-expanded={open}
+          aria-label={open ? 'Свернуть' : 'Развернуть'}
+          onClick={() => setOpen((v) => !v)}
+        >
+          <ChevronDown size={18} strokeWidth={2.4}
+            className={`done-toggle-ic${open ? ' done-toggle-ic--open' : ''}`} />
+        </button>
+      </div>
+      {open && (
+        <div className="mlist-list">
+          {active.map(renderItem)}
+          {done.map(renderItem)}
+        </div>
+      )}
+    </div>
+  )
+}
 
 // Вибрация в конце удержания: нативный Telegram haptic (impact heavy).
 // Требует web_app_ready при старте (main.tsx), иначе Android-клиент игнорит событие.
@@ -493,10 +536,14 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (p: 'medication
       return acc
     }, {})
 
+    // Внутри каждой группы близкого — единый порядок (due → pending → done)
+    for (const g of [...Object.values(localDepGroups), ...Object.values(linkedGroups), ...Object.values(sharedDepGroups)])
+      g.items = sortDisplay(g.items)
+
     const dueItems = ownItems
       .filter(isDuePending)
       .sort((a, b) => b.reminder_time.localeCompare(a.reminder_time))
-    const otherItems = ownItems.filter((i) => !isDuePending(i))
+    const otherItems = sortDisplay(ownItems.filter((i) => !isDuePending(i)))
     return { localDepGroups, linkedGroups, sharedDepGroups, dueItems, otherItems, linkedItems, sharedDepItems }
   }, [data])
 
@@ -606,7 +653,7 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (p: 'medication
         <>
           {dueItems.length > 0 && (
             <>
-              <h2 className="section-title">Сейчас</h2>
+              <h2 className="section-title section-title--now">Сейчас</h2>
               {showHoldHint && (
                 <p className="hold-caption">
                   Сдвиньте бегунок вправо, чтобы отметить приём
@@ -638,93 +685,92 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (p: 'medication
           )}
 
           {otherItems.length > 0 && (
-            <>
-              <h2 className="section-title">Сегодня</h2>
-              <div className="mlist-list">
-                {otherItems.map((item) => (
-                  <MedCard
-                    key={itemKey(item)}
-                    item={item}
-                    entering
-                    onTaken={() => wishRef.current?.celebrate()}
-                    onSkipped={() => wishRef.current?.skipped()}
-                  />
-                ))}
-              </div>
-            </>
+            <MedSection
+              title={<h2 className="section-title">Сегодня</h2>}
+              items={otherItems}
+              renderItem={(item) => (
+                <MedCard
+                  key={itemKey(item)}
+                  item={item}
+                  entering={item.status === 'pending'}
+                  onTaken={() => wishRef.current?.celebrate()}
+                  onSkipped={() => wishRef.current?.skipped()}
+                />
+              )}
+            />
           )}
         </>
       )}
 
       {/* Свои локальные близкие — активные карточки (владелец отмечает приём) */}
       {Object.entries(localDepGroups).map(([did, group]) => (
-        <div key={did}>
-          <DepSectionTitle name={group.name} />
-          <div className="mlist-list">
-            {group.items.map((item) => (
-              <MedCard
-                key={itemKey(item)}
-                item={item}
-                onTaken={() => wishRef.current?.celebrate()}
-                onSkipped={() => wishRef.current?.skipped()}
-              />
-            ))}
-          </div>
-        </div>
+        <MedSection
+          key={did}
+          title={<DepSectionTitle name={group.name} />}
+          items={group.items}
+          renderItem={(item) => (
+            <MedCard
+              key={itemKey(item)}
+              item={item}
+              onTaken={() => wishRef.current?.celebrate()}
+              onSkipped={() => wishRef.current?.skipped()}
+            />
+          )}
+        />
       ))}
 
       {/* F7: read-only sections for linked dependents */}
       {hasLinked && Object.entries(linkedGroups).map(([uid, group]) => (
-        <div key={uid}>
-          <DepSectionTitle name={group.name} account />
-          <div className="mlist-list">
-            {group.items.map((item) => (
-              <div
-                key={itemKey(item)}
-                className={`mlist-card${item.status === 'skipped' ? ' mlist-card--skipped' : item.status === 'taken' ? ' mlist-card--taken' : ''}${item.is_due && item.status === 'pending' ? ' mlist-card--due' : ''}`}
-              >
-                <div className="mlist-info">
-                  <div className="mlist-name mlist-name--withtime">
-                    <span className="mlist-nm">{item.name}</span>
-                    <span className="mlist-time">{item.reminder_time}</span>
-                  </div>
-                  <div className="mlist-meta">
-                    {item.dosage}
-                  </div>
+        <MedSection
+          key={uid}
+          title={<DepSectionTitle name={group.name} account />}
+          items={group.items}
+          renderItem={(item) => (
+            <div
+              key={itemKey(item)}
+              className={`mlist-card${item.status === 'skipped' ? ' mlist-card--skipped' : item.status === 'taken' ? ' mlist-card--taken' : ''}${item.is_due && item.status === 'pending' ? ' mlist-card--due' : ''}`}
+            >
+              <div className="mlist-info">
+                <div className="mlist-name mlist-name--withtime">
+                  <span className="mlist-nm">{item.name}</span>
+                  <span className="mlist-time">{item.reminder_time}</span>
                 </div>
-                <div className="med-actions">
-                  {item.status === 'pending' ? (
-                    <>
-                      <button className="btn-take" disabled><Check size={18} strokeWidth={2.5} /></button>
-                      <button className="btn-skip" disabled><X size={18} strokeWidth={2.5} /></button>
-                    </>
-                  ) : (
-                    <button className="btn-undo" disabled>
-                      {item.status === 'taken' ? <Check size={18} strokeWidth={2.5} /> : <X size={18} strokeWidth={2.5} />}
-                    </button>
-                  )}
+                <div className="mlist-meta">
+                  {item.dosage}
                 </div>
               </div>
-            ))}
-          </div>
-        </div>
+              <div className="med-actions">
+                {item.status === 'pending' ? (
+                  <>
+                    <button className="btn-take" disabled><Check size={18} strokeWidth={2.5} /></button>
+                    <button className="btn-skip" disabled><X size={18} strokeWidth={2.5} /></button>
+                  </>
+                ) : (
+                  <button className="btn-undo" disabled>
+                    {item.status === 'taken' ? <Check size={18} strokeWidth={2.5} /> : <X size={18} strokeWidth={2.5} />}
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+        />
       ))}
 
       {/* F8: shared local dependents — помощник №2 отмечает приёмы (CRUD-доступ) */}
       {hasSharedDeps && Object.entries(sharedDepGroups).map(([did, group]) => (
-        <div key={did}>
-          <DepSectionTitle name={group.name} />
-          <div className="mlist-list">
-            {group.items.map((item) => (
-              <MedCard
-                key={itemKey(item)}
-                item={item}
-                onTaken={() => wishRef.current?.celebrate()}
-                onSkipped={() => wishRef.current?.skipped()}
-              />
-            ))}
-          </div>
-        </div>
+        <MedSection
+          key={did}
+          title={<DepSectionTitle name={group.name} />}
+          items={group.items}
+          renderItem={(item) => (
+            <MedCard
+              key={itemKey(item)}
+              item={item}
+              onTaken={() => wishRef.current?.celebrate()}
+              onSkipped={() => wishRef.current?.skipped()}
+            />
+          )}
+        />
       ))}
 
       <WishZone enabled={!!settings?.wishes_enabled} />

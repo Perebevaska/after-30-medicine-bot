@@ -3431,6 +3431,9 @@ body.design-v2 .section-title {
   padding: var(--sp-5) var(--sp-4) var(--sp-2);
 }
 body.design-v2 .section-hint { line-height: 1.45; }
+/* Строка заголовка секции в v2: padding на строке, заголовок без своего → ровный центр */
+body.design-v2 .section-head-row { padding: var(--sp-5) var(--sp-4) var(--sp-2); }
+body.design-v2 .section-head-row .section-title { padding: 0; }
 
 /* Шапка — фон как у карточек (secondary-bg), тонкая линия из темы (не хардкод rgba) */
 body.design-v2 .page-header {
@@ -3647,3 +3650,81 @@ body.design-v2 .form-section--actions {
   padding: var(--sp-3) var(--sp-4) calc(var(--sp-3) + env(safe-area-inset-bottom, 0px));
   z-index: 5;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Ф18 · WP2 — Dashboard «Сейчас/Сегодня». Только под body.design-v2.
+   «Сейчас» акцентный (точка + счётчик), слайдер контрастнее, take-all полирован.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* «Сейчас» выделяется на фоне нейтрального «Сегодня»: точка-индикатор + счётчик */
+body.design-v2 .section-title--now {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+body.design-v2 .section-title--now::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: nowPulse 1.6s ease-in-out infinite;
+}
+@keyframes nowPulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 45%, transparent); }
+  50%      { box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 0%, transparent); }
+}
+body.design-v2 .section-count {
+  font-size: 12px;
+  font-weight: 700;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  background: var(--accent);
+  color: var(--button-text);
+}
+
+/* Слайдер: насыщеннее fill + объёмнее knob */
+body.design-v2 .slide-fill {
+  background: linear-gradient(90deg, #34c759, #248a3d);
+}
+body.design-v2 .slide-knob {
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.22), 0 0 0 1px rgba(0, 0, 0, 0.04);
+}
+
+/* «Принять всё» — общий радиус кнопок + отклик нажатия */
+body.design-v2 .btn-take-all {
+  border-radius: var(--r-btn);
+  transition: opacity 0.15s, transform var(--dur) var(--ease);
+}
+body.design-v2 .btn-take-all:active:not(:disabled) { transform: scale(0.96); }
+
+/* Строка заголовка секции: заголовок + счётчик + тоггл — одна базовая линия.
+   Вертикальный padding на строке (не на заголовке) → центр по вертикали ровный. */
+.section-head-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 16px 8px;
+}
+.section-head-row .section-title { flex: 0 1 auto; padding: 0; }
+
+/* Тоггл свёртки секции — только chevron, придвинут к заголовку/счётчику */
+.done-toggle {
+  display: inline-flex;
+  align-items: center;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--hint);
+  padding: 4px;
+  border-radius: var(--r-btn, 12px);
+}
+.done-toggle:active { opacity: 0.6; }
+.done-toggle-ic { transition: transform var(--dur, 200ms) var(--ease, ease); }
+.done-toggle-ic--open { transform: rotate(180deg); }
