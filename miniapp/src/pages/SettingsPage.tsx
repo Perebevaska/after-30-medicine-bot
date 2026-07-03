@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, type ReactNode } from 'react'
-import { Sun, Moon, User, Check, X, Clock, Copy, Bell, Link2, AlertTriangle, MapPin, Trophy, Heart, Languages, Search, GraduationCap } from 'lucide-react'
+import { Sun, Moon, User, Check, X, Clock, Copy, Bell, Link2, AlertTriangle, MapPin, Trophy, Languages, Search, GraduationCap } from 'lucide-react'
 import {
   useSettings, useSetReminderMode, useSetDailyPlan, useSetCaregiver,
   useDependents, useCreateDependent, useDeleteDependent,
@@ -8,7 +8,7 @@ import {
   useDeclineCaregiverLink, useDeleteCaregiverLink, useRequestLinkBreak,
   useSetDependentReminderMode, useSetDependentStrictMode,
   useEnsureDepShareCode, useJoinDepShare, useConfirmDepShare, useDeclineDepShare,
-  useRevokeDepShare, useLeaveDepShare,
+  useRevokeDepShare, useLeaveDepShare, useSetWishes, useSetWishesTg,
 } from '../api/hooks'
 import TimePicker from '../components/TimePicker'
 import { getThemePref, setThemePref, type ThemePref } from '../theme'
@@ -124,6 +124,8 @@ export default function SettingsPage({ onReplayTour }: { onReplayTour?: () => vo
   const setDailyPlan = useSetDailyPlan()
   const setCaregiver = useSetCaregiver()
   const setStrict = useSetStrictMode()
+  const setWishes = useSetWishes()
+  const setWishesTg = useSetWishesTg()
 
   const { data: deps } = useDependents()
   const createDep = useCreateDependent()
@@ -181,6 +183,11 @@ export default function SettingsPage({ onReplayTour }: { onReplayTour?: () => vo
   const [shareCopiedId, setShareCopiedId] = useState<number | null>(null)
   const [leaveConfirmId, setLeaveConfirmId] = useState<number | null>(null)
   const [shareCodeError, setShareCodeError] = useState<Record<number, boolean>>({})
+  // WP4: сворачиваемые подсекции «Забота» (локально, без API). Default — открыты.
+  const [myDepsOpen, setMyDepsOpen] = useState(true)
+  const [helpingOpen, setHelpingOpen] = useState(true)
+  // Подтверждение жёсткого удаления локального близкого (без viewer = удаляется из БД полностью)
+  const [deleteDepConfirmId, setDeleteDepConfirmId] = useState<number | null>(null)
 
   const handleCopyCode = () => {
     if (!data?.caregiver_code) return
@@ -554,6 +561,7 @@ export default function SettingsPage({ onReplayTour }: { onReplayTour?: () => vo
         ))}
       </div>
 
+      <div id="tour-care-section">
       <h2 className="section-title">Забота</h2>
       <p className="section-hint">
         Следите за приёмами близких и управляйте их аптечкой прямо из приложения. Другой пользователь бота может стать вашим помощником или взять заботу о конкретном близком.
@@ -663,6 +671,11 @@ export default function SettingsPage({ onReplayTour }: { onReplayTour?: () => vo
                 <span className="toggle-track" />
               </label>
             </div>
+            <div className="settings-row">
+              <span className="settings-label--hint caregiver-block-hint">
+                Создаёт ваш код-приглашение и показывает близких и подопечных в приложении. Выключение скрывает их и уведомления — связи при этом сохраняются.
+              </span>
+            </div>
 
             {caregiverOffConfirm && (
               <div className="inline-confirm">
@@ -710,10 +723,16 @@ export default function SettingsPage({ onReplayTour }: { onReplayTour?: () => vo
             <>
               {/* Мои близкие */}
               <div className="settings-block">
-                <div className="settings-row">
+                <button
+                  className="settings-row care-section-toggle"
+                  onClick={() => setMyDepsOpen((v) => !v)}
+                  aria-expanded={myDepsOpen}
+                >
                   <span className="settings-label caregiver-block-label">Мои близкие</span>
-                </div>
+                  <span className="care-section-chevron">{myDepsOpen ? '⌄' : '›'}</span>
+                </button>
 
+                {myDepsOpen && <>
                 {deps?.map((d) => {
                   const share = data.dep_shares?.[String(d.id)]
                   const isShareOpen = shareOpenId === d.id
@@ -733,14 +752,30 @@ export default function SettingsPage({ onReplayTour }: { onReplayTour?: () => vo
                             {hasPending ? <Bell size={16} strokeWidth={2} /> : hasViewer ? <User size={16} strokeWidth={2} /> : <Link2 size={16} strokeWidth={2} />}
                           </button>
                           <button
-                            className="btn-detach"
-                            onClick={() => deleteDep.mutate(d.id)}
+                            className={`btn-detach${!hasViewer && deleteDepConfirmId === d.id ? ' btn-detach--armed' : ''}`}
+                            onClick={() => {
+                              if (hasViewer) { deleteDep.mutate(d.id); return }
+                              // 2-тапа по одной кнопке: 1-й → предупреждение, 2-й → удаление
+                              if (deleteDepConfirmId === d.id) {
+                                deleteDep.mutate(d.id)
+                                setDeleteDepConfirmId(null)
+                              } else {
+                                setDeleteDepConfirmId(d.id)
+                              }
+                            }}
                             disabled={deleteDep.isPending}
                           >
-                            {hasViewer ? 'Отвязать' : 'Удалить'}
+                            {hasViewer ? 'Отвязать' : deleteDepConfirmId === d.id ? 'Точно удалить' : 'Удалить'}
                           </button>
                         </div>
                       </div>
+                      {deleteDepConfirmId === d.id && (
+                        <div className="inline-confirm">
+                          <p className="inline-confirm-text">
+                            «{d.name}» и все его препараты будут удалены <b>полностью и безвозвратно</b>. Нажмите «Точно удалить» ещё раз для подтверждения.
+                          </p>
+                        </div>
+                      )}
                       {isShareOpen && (
                         <div className="dep-share-panel">
                           <p className="dep-share-hint">
@@ -835,6 +870,14 @@ export default function SettingsPage({ onReplayTour }: { onReplayTour?: () => vo
                   </div>
                 ))}
 
+                {!deps?.length && !data.active_dependents?.length && !data.pending_sent?.length && (
+                  <div className="settings-row caregiver-empty-row">
+                    <span className="settings-label--hint caregiver-block-hint">
+                      Пока никого нет. Добавьте близкого или подключитесь по коду.
+                    </span>
+                  </div>
+                )}
+
                 <div className="caregiver-divider" />
 
                 {addMode === 'none' && (
@@ -895,14 +938,21 @@ export default function SettingsPage({ onReplayTour }: { onReplayTour?: () => vo
                     </div>
                   </div>
                 )}
+                </>}
               </div>
 
               {/* Помогаю (viewer side) */}
               {(!!data.viewing_deps?.length || !!data.pending_viewing_deps?.length) && (
                 <div className="settings-block">
-                  <div className="settings-row">
+                  <button
+                    className="settings-row care-section-toggle"
+                    onClick={() => setHelpingOpen((v) => !v)}
+                    aria-expanded={helpingOpen}
+                  >
                     <span className="settings-label caregiver-block-label">Помогаю</span>
-                  </div>
+                    <span className="care-section-chevron">{helpingOpen ? '⌄' : '›'}</span>
+                  </button>
+                  {helpingOpen && <>
                   <div className="settings-row">
                     <span className="settings-label--hint caregiver-block-hint">
                       Близкие других пользователей, к которым вы подключились по коду доступа
@@ -955,12 +1005,14 @@ export default function SettingsPage({ onReplayTour }: { onReplayTour?: () => vo
                       )}
                     </div>
                   ))}
+                  </>}
                 </div>
               )}
             </>
           )}
         </>
       )}
+      </div>
 
       <h2 className="section-title">Часовой пояс</h2>
       <p className="section-hint">
@@ -1121,6 +1173,43 @@ export default function SettingsPage({ onReplayTour }: { onReplayTour?: () => vo
         </>
       )}
 
+      <h2 className="section-title">
+        Слова поддержки <span className="settings-test-badge">тест</span>
+      </h2>
+      <p className="section-hint">
+        Передавай тёплые пожелания случайным людям и получай их сам — полностью
+        анонимно. Это тестовая функция: включи, чтобы попробовать.
+      </p>
+      <div className="settings-block">
+        <div className="settings-row">
+          <span className="settings-label">Участвовать</span>
+          <label className="toggle-switch">
+            <input
+              type="checkbox"
+              checked={!!data.wishes_enabled}
+              onChange={(e) => setWishes.mutate(e.target.checked)}
+            />
+            <span className="toggle-track" />
+          </label>
+        </div>
+        {!!data.wishes_enabled && (
+          <div className="settings-row">
+            <span className="settings-label">
+              Уведомлять в Telegram
+              <span className="settings-sublabel">сводка откликов раз в день; в приложении видно всегда</span>
+            </span>
+            <label className="toggle-switch">
+              <input
+                type="checkbox"
+                checked={!!data.wishes_tg_notify}
+                onChange={(e) => setWishesTg.mutate(e.target.checked)}
+              />
+              <span className="toggle-track" />
+            </label>
+          </div>
+        )}
+      </div>
+
       <h2 className="section-title">Обучение</h2>
       <button type="button" className="replay-tour-btn" onClick={() => onReplayTour?.()}>
         <GraduationCap size={18} strokeWidth={2} className="ic" />
@@ -1134,13 +1223,6 @@ export default function SettingsPage({ onReplayTour }: { onReplayTour?: () => vo
           <div className="roadmap-body">
             <span className="roadmap-title">Достижения по уровням</span>
             <span className="roadmap-desc">Один бейдж растёт по ступеням с прогрессом до следующей</span>
-          </div>
-        </div>
-        <div className="roadmap-item">
-          <span className="roadmap-icon"><Heart size={18} strokeWidth={2} /></span>
-          <div className="roadmap-body">
-            <span className="roadmap-title">Слова поддержки</span>
-            <span className="roadmap-desc">Отправляй и получай тёплые пожелания от других анонимно</span>
           </div>
         </div>
         <div className="roadmap-item">

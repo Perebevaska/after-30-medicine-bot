@@ -16,6 +16,11 @@
   --hint: var(--tg-theme-hint-color, #8e8e93);
   --separator: var(--tg-theme-section-separator-color, rgba(0,0,0,0.08));
   --destructive: #d64c3c;
+  /* Семантик-тона метрик (WP3.2): соблюдение/пунктуальность. Не из themeParams —
+     фикс-палитра, читаемая в обеих темах. */
+  --ok: #4caf50;
+  --warn: #ff9800;
+  --bad: #f44336;
   --accent: var(--tg-theme-button-color, #3390ec);
   --button-bg: var(--accent);
   --button-color: var(--accent);

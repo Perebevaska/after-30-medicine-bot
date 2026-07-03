@@ -5,10 +5,12 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { setInitData } from './api/client'
 import { initTheme } from './theme'
+import { applyDesign } from './design'
 import './index.css'
 import App from './App.tsx'
 
 initTheme()
+applyDesign()
 
 const queryClient = new QueryClient({
   defaultOptions: {

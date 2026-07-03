@@ -32,7 +32,6 @@ export interface AdherenceMed {
 
 export interface AdherenceResponse {
   medications: AdherenceMed[]
-  total_pct: number | null
 }
 
 export interface StreakItem {
@@ -146,13 +145,6 @@ export interface Medication {
   dep_share_name?: string
 }
 
-export interface StockInfo {
-  stock_qty: number | null
-  units_per_dose: number
-  low_stock_days: number
-  days_left: number | null
-}
-
 export interface MedicationIn {
   name: string
   dosage: string
@@ -172,15 +164,6 @@ export interface MedicationIn {
 export interface Dependent {
   id: number
   name: string
-}
-
-export interface WeekStatRow {
-  name: string
-  dosage: string
-  day: string
-  taken: number
-  skipped: number
-  total: number
 }
 
 export interface CaregiverRequest {
@@ -233,6 +216,31 @@ export interface UserSettings {
   dep_shares: Record<string, DepShareInfo>
   viewing_deps: ViewingDepInfo[]
   pending_viewing_deps: PendingViewingDepInfo[]
+  wishes_enabled: number
+  wishes_tg_notify: number
+}
+
+// Ф15: соцмеханика пожеланий
+export interface WishPreset {
+  code: string
+  text: string
+}
+
+export interface WishesStatus {
+  enabled: boolean
+  presets: WishPreset[]
+  pool_size: number
+  pool_ready: boolean
+  sent_today: number
+  daily_limit: number
+  ack_helped: number
+  ack_supported: number
+}
+
+export interface WishInboxItem {
+  id: number
+  text: string
+  created_at: string
 }
 
 export interface DepShareInfo {

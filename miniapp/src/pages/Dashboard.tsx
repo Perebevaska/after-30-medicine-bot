@@ -1,8 +1,9 @@
-import { useState, useRef, useEffect, forwardRef, useImperativeHandle } from 'react'
+import { useState, useRef, useEffect, useMemo, forwardRef, useImperativeHandle } from 'react'
+import type { ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { Check, X, Globe, Pill, Pause, ArrowRight } from 'lucide-react'
-import { postEvent } from '@telegram-apps/sdk-react'
-import { useToday, useLogIntake, useHearts, useSettings, useMedications } from '../api/hooks'
+import { Check, X, Globe, Pill, Pause, ArrowRight, Heart, Send, ChevronDown } from 'lucide-react'
+import { haptic } from '../lib/haptic'
+import { useToday, useLogIntake, useHearts, useSettings, useMedications, useWishesStatus, useWishInbox, useSendWish, useReactWish } from '../api/hooks'
 import { useQueryClient } from '@tanstack/react-query'
 import { api, apiErrorMessage } from '../api/client'
 import type { TodayItem } from '../api/types'
@@ -105,13 +106,13 @@ const WishCard = forwardRef<WishCardHandle>(function WishCard(_, ref) {
   return (
     <>
       <div className="wish-card">
-        <div className="wish-text-wrap">
-          <span className="wish-text">{wish}</span>
-        </div>
         <span className="wish-heart-wrap">
           <span ref={heartRef} className={`wish-heart${shaking ? ' wish-heart--shake' : ''}`} aria-hidden="true">❤️</span>
           <span className="wish-heart-count">{hearts}</span>
         </span>
+        <div className="wish-text-wrap">
+          <span className="wish-text">{wish}</span>
+        </div>
       </div>
       {createPortal(
         <div className="hearts-overlay" aria-hidden="true">
@@ -142,16 +143,48 @@ const itemKey = (i: TodayItem) => `${i.medication_id}-${i.reminder_time}`
 // AX5: is_due приходит с сервера (TZ аккаунта), не считаем по времени браузера.
 const isDuePending = (i: TodayItem) => i.status === 'pending' && i.is_due
 
-// Вибрация в конце удержания: нативный Telegram haptic (impact heavy).
-// Требует web_app_ready при старте (main.tsx), иначе Android-клиент игнорит событие.
-function haptic(style: 'heavy' | 'light' = 'heavy') {
-  try {
-    postEvent('web_app_trigger_haptic_feedback', { type: 'impact', impact_style: style })
-    return
-  } catch { /* noop */ }
-  // Веб-фоллбэк (вне Telegram)
-  try { navigator.vibrate?.(style === 'light' ? 12 : 35) } catch { /* noop */ }
+// Сортировка по времени приёма — поздние сверху (desc).
+const byTimeDesc = (items: TodayItem[]) =>
+  [...items].sort((a, b) => b.reminder_time.localeCompare(a.reminder_time))
+
+// Секция приёмов: весь список (включая непринятые) сворачивается тогглом
+// рядом с заголовком. Счётчик в шапке = сколько ещё нужно принять (pending).
+function MedSection({ title, items, renderItem, defaultOpen = false }: {
+  title: ReactNode
+  items: TodayItem[]
+  renderItem: (item: TodayItem) => ReactNode
+  defaultOpen?: boolean
+}) {
+  const [open, setOpen] = useState(defaultOpen)
+  const active = items.filter((i) => i.status === 'pending')
+  const done = items.filter((i) => i.status !== 'pending')
+  return (
+    <div>
+      <div
+        className="section-head-row section-head-row--btn"
+        role="button"
+        tabIndex={0}
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen((v) => !v) } }}
+      >
+        {title}
+        {active.length > 0 && <span className="section-count">{active.length}</span>}
+        <span className="done-toggle" aria-hidden="true">
+          <ChevronDown size={18} strokeWidth={2.4}
+            className={`done-toggle-ic${open ? ' done-toggle-ic--open' : ''}`} />
+        </span>
+      </div>
+      {open && (
+        <div className="mlist-list">
+          {active.map(renderItem)}
+          {done.map(renderItem)}
+        </div>
+      )}
+    </div>
+  )
 }
+
 
 // Подсказка-инструкция показывается, пока юзер не отметит первый приём.
 const SLIDE_LEARNED_KEY = 'slide_learned'
@@ -212,8 +245,10 @@ function SlideToConfirm({ onConfirm, disabled }: { onConfirm: () => void; disabl
     draggingRef.current = true
     doneRef.current = false
     maxRef.current = computeMax()
-    const cur = knobRef.current
-      ? new DOMMatrixReadOnly(getComputedStyle(knobRef.current).transform).m41 : 0
+    // getComputedStyle до mount-effect может вернуть 'none' (нет transform в CSS) —
+    // DOMMatrixReadOnly('none') кидает SyntaxError, поэтому гасим явно.
+    const tr = knobRef.current ? getComputedStyle(knobRef.current).transform : 'none'
+    const cur = tr && tr !== 'none' ? new DOMMatrixReadOnly(tr).m41 : 0
     offsetRef.current = e.clientX - cur
     e.currentTarget.setPointerCapture?.(e.pointerId)
   }
@@ -291,21 +326,37 @@ function SkipButton({ onConfirm, disabled }: { onConfirm: () => void; disabled?:
   )
 }
 
+// Полоска приёмов за день: по пилюле на каждый слот лекарства, цвет = статус
+// (принят=зелёный, пропущен=красный, ожидает=светлый). Одна и та же для всех
+// карточек одного лекарства — показывает прогресс дня. Скрыта при 1 приёме.
+function MedPills({ slots }: { slots?: TodayItem['status'][] }) {
+  if (!slots || slots.length < 2) return null
+  return (
+    <span className="med-pills" aria-hidden="true">
+      {slots.map((s, i) => (
+        <Pill key={i} size={13} strokeWidth={2.4} className={`med-pill med-pill--${s}`} />
+      ))}
+    </span>
+  )
+}
+
 function MedCard({
   item,
   entering,
   onTaken,
   onSkipped,
+  daySlots,
 }: {
   item: TodayItem
   entering?: boolean
   onTaken?: () => void
   onSkipped?: () => void
+  daySlots?: TodayItem['status'][]
 }) {
   const { mutate, isPending } = useLogIntake()
 
   // Undo убран намеренно: отмена приёма ломала «курс завершён» (COUNT taken).
-  // Приём подтверждается долгим нажатием — случайный тап не отметит.
+  // Приём подтверждается слайдером (SlideToConfirm) — случайный тап не отметит.
   const log = (status: 'taken' | 'skipped') => {
     if (status === 'taken') onTaken?.()
     if (status === 'skipped') onSkipped?.()
@@ -330,13 +381,14 @@ function MedCard({
       className={`mlist-card${statusClass}${due ? ' mlist-card--due' : ''}${extraClass}${pending ? ' mlist-card--slide' : ''}`}
     >
       <div className="mlist-info">
-        <div className="mlist-name">
-          {item.name}
+        <div className="mlist-name mlist-name--withtime">
+          <span className="mlist-nm">{item.name}</span>
+          <span className="mlist-time">{item.reminder_time}</span>
+          <MedPills slots={daySlots} />
         </div>
         <div className="mlist-meta">
           {item.dosage} · {MEAL_LABELS[item.meal_relation] ?? item.meal_relation}
         </div>
-        <div className="mlist-schedule">{item.reminder_time}</div>
       </div>
 
       {pending ? (
@@ -351,6 +403,91 @@ function MedCard({
           </span>
         </div>
       )}
+    </div>
+  )
+}
+
+// Ф15: соцмеханика пожеланий (тестовый функционал). Самодостаточный блок —
+// рендерится только если в настройках включён тогл «Слова поддержки».
+function WishZone({ enabled }: { enabled: boolean }) {
+  const { data: inbox } = useWishInbox(enabled)
+  const { data: status } = useWishesStatus(enabled)
+  const sendWish = useSendWish()
+  const reactWish = useReactWish()
+  const [open, setOpen] = useState(false)
+  const [justSent, setJustSent] = useState(false)
+
+  if (!enabled) return null
+
+  const incoming = inbox?.[0]
+  const canSend = !!status?.pool_ready && (status?.sent_today ?? 0) < (status?.daily_limit ?? 0)
+  const ackHelped = status?.ack_helped ?? 0
+  const ackSupported = status?.ack_supported ?? 0
+  const ackTotal = ackHelped + ackSupported
+
+  const onSend = async (code: string) => {
+    try {
+      await sendWish.mutateAsync(code)
+      haptic('light')
+      setOpen(false)
+      setJustSent(true)
+      setTimeout(() => setJustSent(false), 2500)
+    } catch { /* ошибка — тихо, статус обновится */ }
+  }
+
+  const onReact = (id: number, reaction: 'helped' | 'supported') => {
+    haptic('light')
+    reactWish.mutate({ id, reaction })
+  }
+
+  return (
+    <div className="wish-zone">
+      {incoming && (
+        <div className="wish-inbox">
+          <div className="wish-inbox-head"><Heart size={15} strokeWidth={2} className="ic" /> Вам передали поддержку</div>
+          <div className="wish-inbox-text">{incoming.text}</div>
+          <div className="wish-inbox-actions">
+            <button className="wish-react-btn" onClick={() => onReact(incoming.id, 'helped')}>👍 Помогло</button>
+            <button className="wish-react-btn wish-react-btn--love" onClick={() => onReact(incoming.id, 'supported')}>❤️ Очень поддержало</button>
+          </div>
+        </div>
+      )}
+
+      {ackTotal > 0 && (
+        <div className="wish-ack">
+          <Heart size={15} strokeWidth={2} className="ic" />
+          <span>Вашу поддержку оценили {ackTotal}&nbsp;раз{ackHelped ? ` · 👍 ${ackHelped}` : ''}{ackSupported ? ` · ❤️ ${ackSupported}` : ''}</span>
+        </div>
+      )}
+
+      {justSent ? (
+        <div className="wish-sent-inline"><Heart size={15} strokeWidth={2} className="ic" /> Поддержка отправлена</div>
+      ) : canSend ? (
+        <div className="wish-send">
+          {!open ? (
+            <button className="wish-send-btn" onClick={() => setOpen(true)}>
+              <Send size={15} strokeWidth={2} className="ic" /> Передать поддержку незнакомцу
+            </button>
+          ) : (
+            <div className="wish-send-presets">
+              <div className="wish-send-head">Выберите пожелание — оно уйдёт случайному человеку:</div>
+              {(status?.presets ?? []).map((p) => (
+                <button
+                  key={p.code}
+                  className="wish-preset-chip"
+                  disabled={sendWish.isPending}
+                  onClick={() => onSend(p.code)}
+                >
+                  {p.text}
+                </button>
+              ))}
+              <button className="wish-send-cancel" onClick={() => setOpen(false)}>Отмена</button>
+            </div>
+          )}
+        </div>
+      ) : status && !status.pool_ready ? (
+        <div className="wish-pool-hint">Пока мало участников — поддержку можно будет передать позже</div>
+      ) : null}
     </div>
   )
 }
@@ -370,42 +507,61 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (p: 'medication
 
   const learnHold = () => { markSlideLearned(); setShowHoldHint(false) }
 
-  const allItems = data ?? []
-  // F7: separate own items from linked dependents' items
-  const ownItems = allItems.filter((i) => !i.linked_user_id && !i.dep_share_id && !i.dependent_id)
-  // Свои локальные близкие — отдельным блоком (как F7/F8)
-  const localDepItems = allItems.filter((i) => !i.linked_user_id && !i.dep_share_id && !!i.dependent_id)
-  const linkedItems = allItems.filter((i) => !!i.linked_user_id)
-  const sharedDepItems = allItems.filter((i) => !!i.dep_share_id)
+  // Раскладка приёмов по секциям — пересчитывается только при смене данных ['today'].
+  const {
+    localDepGroups, linkedGroups, sharedDepGroups, dueItems, otherItems, linkedItems, sharedDepItems, dayStatusByMed,
+  } = useMemo(() => {
+    const allItems = data ?? []
 
-  // Группировка своих локальных близких по dependent_id
-  const localDepGroups = localDepItems.reduce<Record<number, { name: string; items: TodayItem[] }>>((acc, item) => {
-    const did = item.dependent_id!
-    if (!acc[did]) acc[did] = { name: item.dependent_name ?? `№${did}`, items: [] }
-    acc[did].items.push(item)
-    return acc
-  }, {})
+    // Прогресс дня по лекарству: все слоты, отсортированы по времени → массив статусов.
+    // Одна полоска пилюль на лекарство (общая для всех его карточек).
+    const byMed: Record<number, TodayItem[]> = {}
+    for (const i of allItems) (byMed[i.medication_id] ??= []).push(i)
+    const dayStatusByMed: Record<number, TodayItem['status'][]> = {}
+    for (const [mid, arr] of Object.entries(byMed)) {
+      dayStatusByMed[+mid] = [...arr]
+        .sort((a, b) => a.reminder_time.localeCompare(b.reminder_time))
+        .map((x) => x.status)
+    }
+    // F7: separate own items from linked dependents' items
+    const ownItems = allItems.filter((i) => !i.linked_user_id && !i.dep_share_id && !i.dependent_id)
+    // Свои локальные близкие — отдельным блоком (как F7/F8)
+    const localDepItems = allItems.filter((i) => !i.linked_user_id && !i.dep_share_id && !!i.dependent_id)
+    const linkedItems = allItems.filter((i) => !!i.linked_user_id)
+    const sharedDepItems = allItems.filter((i) => !!i.dep_share_id)
 
-  // Group linked items by linked_user_id
-  const linkedGroups = linkedItems.reduce<Record<number, { name: string; items: TodayItem[] }>>((acc, item) => {
-    const uid = item.linked_user_id!
-    if (!acc[uid]) acc[uid] = { name: item.linked_user_name ?? `id${uid}`, items: [] }
-    acc[uid].items.push(item)
-    return acc
-  }, {})
+    // Группировка своих локальных близких по dependent_id
+    const localDepGroups = localDepItems.reduce<Record<number, { name: string; items: TodayItem[] }>>((acc, item) => {
+      const did = item.dependent_id!
+      if (!acc[did]) acc[did] = { name: item.dependent_name ?? `№${did}`, items: [] }
+      acc[did].items.push(item)
+      return acc
+    }, {})
 
-  // F8: group shared dep items by dep_share_id
-  const sharedDepGroups = sharedDepItems.reduce<Record<number, { name: string; items: TodayItem[] }>>((acc, item) => {
-    const did = item.dep_share_id!
-    if (!acc[did]) acc[did] = { name: item.dep_share_name ?? `dep${did}`, items: [] }
-    acc[did].items.push(item)
-    return acc
-  }, {})
+    // Group linked items by linked_user_id
+    const linkedGroups = linkedItems.reduce<Record<number, { name: string; items: TodayItem[] }>>((acc, item) => {
+      const uid = item.linked_user_id!
+      if (!acc[uid]) acc[uid] = { name: item.linked_user_name ?? `id${uid}`, items: [] }
+      acc[uid].items.push(item)
+      return acc
+    }, {})
 
-  const dueItems = ownItems
-    .filter(isDuePending)
-    .sort((a, b) => b.reminder_time.localeCompare(a.reminder_time))
-  const otherItems = ownItems.filter((i) => !isDuePending(i))
+    // F8: group shared dep items by dep_share_id
+    const sharedDepGroups = sharedDepItems.reduce<Record<number, { name: string; items: TodayItem[] }>>((acc, item) => {
+      const did = item.dep_share_id!
+      if (!acc[did]) acc[did] = { name: item.dep_share_name ?? `dep${did}`, items: [] }
+      acc[did].items.push(item)
+      return acc
+    }, {})
+
+    // Внутри каждой группы близкого — по времени приёма desc
+    for (const g of [...Object.values(localDepGroups), ...Object.values(linkedGroups), ...Object.values(sharedDepGroups)])
+      g.items = byTimeDesc(g.items)
+
+    const dueItems = byTimeDesc(ownItems.filter(isDuePending))
+    const otherItems = byTimeDesc(ownItems.filter((i) => !isDuePending(i)))
+    return { localDepGroups, linkedGroups, sharedDepGroups, dueItems, otherItems, linkedItems, sharedDepItems, dayStatusByMed }
+  }, [data])
 
   const clickTakeAll = () => {
     if (takingAll || !dueItems.length) return
@@ -426,10 +582,13 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (p: 'medication
     setTakingAll(true)
     learnHold()
     wishRef.current?.celebrate()
+    // Метим только СВОИ due-приёмы (как dueItems) — кнопка «Принять всё»
+    // постит лишь own. Иначе due локальных близких/shared мигали бы «принято».
+    const dueKeys = new Set(dueItems.map(itemKey))
     const prev = qc.getQueryData<TodayItem[]>(['today'])
     qc.setQueryData<TodayItem[]>(['today'], (old) =>
       old?.map((item) =>
-        isDuePending(item) ? { ...item, status: 'taken' as const } : item
+        dueKeys.has(itemKey(item)) ? { ...item, status: 'taken' as const } : item
       )
     )
     try {
@@ -510,7 +669,7 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (p: 'medication
         <>
           {dueItems.length > 0 && (
             <>
-              <h2 className="section-title">Сейчас</h2>
+              <h2 className="section-title section-title--now">Сейчас</h2>
               {showHoldHint && (
                 <p className="hold-caption">
                   Сдвиньте бегунок вправо, чтобы отметить приём
@@ -521,6 +680,7 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (p: 'medication
                   <MedCard
                     key={itemKey(item)}
                     item={item}
+                    daySlots={dayStatusByMed[item.medication_id]}
                     onTaken={() => { wishRef.current?.celebrate(); learnHold() }}
                     onSkipped={() => { wishRef.current?.skipped(); learnHold() }}
                   />
@@ -542,92 +702,100 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (p: 'medication
           )}
 
           {otherItems.length > 0 && (
-            <>
-              <h2 className="section-title">Сегодня</h2>
-              <div className="mlist-list">
-                {otherItems.map((item) => (
-                  <MedCard
-                    key={itemKey(item)}
-                    item={item}
-                    entering
-                    onTaken={() => wishRef.current?.celebrate()}
-                    onSkipped={() => wishRef.current?.skipped()}
-                  />
-                ))}
-              </div>
-            </>
+            <MedSection
+              title={<h2 className="section-title">Сегодня</h2>}
+              defaultOpen={dueItems.length === 0}
+              items={otherItems}
+              renderItem={(item) => (
+                <MedCard
+                  key={itemKey(item)}
+                  item={item}
+                  entering={item.status === 'pending'}
+                  daySlots={dayStatusByMed[item.medication_id]}
+                  onTaken={() => wishRef.current?.celebrate()}
+                  onSkipped={() => wishRef.current?.skipped()}
+                />
+              )}
+            />
           )}
         </>
       )}
 
       {/* Свои локальные близкие — активные карточки (владелец отмечает приём) */}
       {Object.entries(localDepGroups).map(([did, group]) => (
-        <div key={did}>
-          <DepSectionTitle name={group.name} />
-          <div className="mlist-list">
-            {group.items.map((item) => (
-              <MedCard
-                key={itemKey(item)}
-                item={item}
-                onTaken={() => wishRef.current?.celebrate()}
-                onSkipped={() => wishRef.current?.skipped()}
-              />
-            ))}
-          </div>
-        </div>
+        <MedSection
+          key={did}
+          title={<DepSectionTitle name={group.name} />}
+          items={group.items}
+          renderItem={(item) => (
+            <MedCard
+              key={itemKey(item)}
+              item={item}
+              daySlots={dayStatusByMed[item.medication_id]}
+              onTaken={() => wishRef.current?.celebrate()}
+              onSkipped={() => wishRef.current?.skipped()}
+            />
+          )}
+        />
       ))}
 
       {/* F7: read-only sections for linked dependents */}
       {hasLinked && Object.entries(linkedGroups).map(([uid, group]) => (
-        <div key={uid}>
-          <DepSectionTitle name={group.name} account />
-          <div className="mlist-list">
-            {group.items.map((item) => (
-              <div
-                key={itemKey(item)}
-                className={`mlist-card${item.status === 'skipped' ? ' mlist-card--skipped' : item.status === 'taken' ? ' mlist-card--taken' : ''}${item.is_due && item.status === 'pending' ? ' mlist-card--due' : ''}`}
-              >
-                <div className="mlist-info">
-                  <div className="mlist-name">{item.name}</div>
-                  <div className="mlist-meta">
-                    {item.dosage}
-                  </div>
-                  <div className="mlist-schedule">{item.reminder_time}</div>
+        <MedSection
+          key={uid}
+          title={<DepSectionTitle name={group.name} account />}
+          items={group.items}
+          renderItem={(item) => (
+            <div
+              key={itemKey(item)}
+              className={`mlist-card${item.status === 'skipped' ? ' mlist-card--skipped' : item.status === 'taken' ? ' mlist-card--taken' : ''}${item.is_due && item.status === 'pending' ? ' mlist-card--due' : ''}`}
+            >
+              <div className="mlist-info">
+                <div className="mlist-name mlist-name--withtime">
+                  <span className="mlist-nm">{item.name}</span>
+                  <span className="mlist-time">{item.reminder_time}</span>
+                  <MedPills slots={dayStatusByMed[item.medication_id]} />
                 </div>
-                <div className="med-actions">
-                  {item.status === 'pending' ? (
-                    <>
-                      <button className="btn-take" disabled><Check size={18} strokeWidth={2.5} /></button>
-                      <button className="btn-skip" disabled><X size={18} strokeWidth={2.5} /></button>
-                    </>
-                  ) : (
-                    <button className="btn-undo" disabled>
-                      {item.status === 'taken' ? <Check size={18} strokeWidth={2.5} /> : <X size={18} strokeWidth={2.5} />}
-                    </button>
-                  )}
+                <div className="mlist-meta">
+                  {item.dosage}
                 </div>
               </div>
-            ))}
-          </div>
-        </div>
+              <div className="med-actions">
+                {item.status === 'pending' ? (
+                  <>
+                    <button className="btn-take" disabled><Check size={18} strokeWidth={2.5} /></button>
+                    <button className="btn-skip" disabled><X size={18} strokeWidth={2.5} /></button>
+                  </>
+                ) : (
+                  <button className="btn-undo" disabled>
+                    {item.status === 'taken' ? <Check size={18} strokeWidth={2.5} /> : <X size={18} strokeWidth={2.5} />}
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+        />
       ))}
 
       {/* F8: shared local dependents — помощник №2 отмечает приёмы (CRUD-доступ) */}
       {hasSharedDeps && Object.entries(sharedDepGroups).map(([did, group]) => (
-        <div key={did}>
-          <DepSectionTitle name={group.name} />
-          <div className="mlist-list">
-            {group.items.map((item) => (
-              <MedCard
-                key={itemKey(item)}
-                item={item}
-                onTaken={() => wishRef.current?.celebrate()}
-                onSkipped={() => wishRef.current?.skipped()}
-              />
-            ))}
-          </div>
-        </div>
+        <MedSection
+          key={did}
+          title={<DepSectionTitle name={group.name} />}
+          items={group.items}
+          renderItem={(item) => (
+            <MedCard
+              key={itemKey(item)}
+              item={item}
+              daySlots={dayStatusByMed[item.medication_id]}
+              onTaken={() => wishRef.current?.celebrate()}
+              onSkipped={() => wishRef.current?.skipped()}
+            />
+          )}
+        />
       ))}
+
+      <WishZone enabled={!!settings?.wishes_enabled} />
     </div>
   )
 }

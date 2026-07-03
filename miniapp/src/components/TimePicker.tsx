@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { haptic } from '../lib/haptic'
 
 // ─── DrumPicker ──────────────────────────────────────────────────────────────
 // Общий компонент выбора времени (барабан HH:MM). Используется в форме
@@ -29,6 +30,26 @@ export function DrumColumn({ items, value, onChange }: {
     return () => clearTimeout(id)
   }, [value, items])
 
+  // Десктоп: нативный wheel + scroll-snap mandatory пролистывает по несколько
+  // позиций за «щелчок». Перехватываем wheel (non-passive) → ровно 1 шаг за нотч,
+  // с троттлом против momentum-серии событий.
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    let lock = 0
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault()
+      const now = Date.now()
+      if (now - lock < 110) return
+      lock = now
+      const cur = Math.round(el.scrollTop / DRUM_ITEM_H)
+      const next = Math.max(0, Math.min(items.length - 1, cur + (e.deltaY > 0 ? 1 : -1)))
+      el.scrollTo({ top: next * DRUM_ITEM_H, behavior: 'smooth' })
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+  }, [items.length])
+
   const handleScroll = () => {
     if (!ref.current) return
     const idx = Math.max(0, Math.min(
@@ -37,6 +58,7 @@ export function DrumColumn({ items, value, onChange }: {
     ))
     if (items[idx] !== value) {
       fromScroll.current = true
+      haptic('light') // тактильный щелчок барабана на смену значения (только от пользовательского скролла)
       onChange(items[idx])
     }
   }

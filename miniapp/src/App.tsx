@@ -1,9 +1,10 @@
 import { themeParams, viewport } from '@telegram-apps/sdk-react'
+import { refreshTheme } from './theme'
 import { useEffect, useRef, useState } from 'react'
 import { CalendarHeart, Pill, ChartNoAxesColumnIncreasing, Settings } from 'lucide-react'
 import { inTelegram } from './main'
 import { useQueryClient } from '@tanstack/react-query'
-import { useToday, useMedications, useStatsOverview, useSettings } from './api/hooks'
+import { useToday, useMedications, useStatsOverview, useSettings, useCreateDemoMed } from './api/hooks'
 import { markAchievementsSeen, useSeenAchievements } from './notifications'
 import Dashboard from './pages/Dashboard'
 import MedicationList from './pages/MedicationList'
@@ -11,6 +12,7 @@ import MedicationForm from './pages/MedicationForm'
 import StatsPage from './pages/StatsPage'
 import SettingsPage from './pages/SettingsPage'
 import OnboardingTour, { shouldShowOnboarding } from './components/OnboardingTour'
+import { AchievementToast } from './components/AchievementToast'
 import './App.css'
 
 type NavPage = 'dashboard' | 'medications' | 'stats' | 'settings'
@@ -34,8 +36,9 @@ function TodayIcon() {
 
 function MedsIcon() {
   const { data } = useMedications()
-  // завершённые курсы (course_done) — ждут «Продолжить/Удалить»
-  const done = data?.filter((m) => m.course_done).length ?? 0
+  // завершённые курсы — ждут «Продолжить/Удалить». course_done = COUNT(taken),
+  // шлётся всегда при заданном course_total → завершён только при done ≥ total.
+  const done = data?.filter((m) => m.course_total != null && (m.course_done ?? 0) >= m.course_total).length ?? 0
   return (
     <span className="nav-icon-wrap">
       <Pill size={22} strokeWidth={1.75} />
@@ -71,7 +74,7 @@ function SettingsIcon() {
 
 function BottomNav({ active, onChange }: { active: NavPage; onChange: (p: NavPage) => void }) {
   return (
-    <nav className="bottom-nav">
+    <nav className="bottom-nav" style={{ ['--nav-i' as string]: NAV_PAGES.indexOf(active) }}>
       <button
         type="button"
         className={`nav-item${active === 'dashboard' ? ' nav-item--active' : ''}`}
@@ -116,7 +119,7 @@ type ResetKeys = Record<NavPage, number>
 
 export default function App() {
   const [navPage, setNavPage] = useState<NavPage>('dashboard')
-  const [resetKeys, setResetKeys] = useState<ResetKeys>({ dashboard: 0, medications: 0, stats: 0, settings: 0 })
+  const [resetKeys] = useState<ResetKeys>({ dashboard: 0, medications: 0, stats: 0, settings: 0 })
   const [editMedId, setEditMedId] = useState<number | undefined>()
   const [editLinkedUserId, setEditLinkedUserId] = useState<number | undefined>()
   const [editForDepShareId, setEditForDepShareId] = useState<number | undefined>()
@@ -158,7 +161,7 @@ export default function App() {
   useEffect(() => {
     if (!inTelegram) return
 
-    void themeParams.mount().then(() => themeParams.bindCssVars())
+    void themeParams.mount().then(() => { themeParams.bindCssVars(); refreshTheme() })
     void viewport.mount().then(() => {
       viewport.expand()
       viewport.bindCssVars()
@@ -169,6 +172,10 @@ export default function App() {
       viewport.unmount()
     }
   }, [])
+
+  // Демо-препарат «Счастьепин» создаётся при запуске обучения (mount тура),
+  // чтобы туру было что показать на «Аптечке»/«Приёмах». Идемпотентно на сервере.
+  const createDemo = useCreateDemoMed()
 
   const handleTouchStart = (e: React.TouchEvent) => {
     const t = e.touches[0]
@@ -234,13 +241,17 @@ export default function App() {
         active={navPage}
         onChange={(p) => {
           if (p === navPage) {
-            setResetKeys((k) => ({ ...k, [p]: k[p] + 1 }))
+            // Повторный тап по активной вкладке → плавный скролл панели наверх
+            // (без remount: переключение/возврат сохраняют позицию скролла).
+            const panel = document.querySelectorAll<HTMLElement>('.tab-panel')[NAV_PAGES.indexOf(p)]
+            panel?.scrollTo({ top: 0, behavior: 'smooth' })
           } else {
             setNavPage(p)
           }
         }}
       />
-      {showTour && !showForm && <OnboardingTour onClose={() => setShowTour(false)} />}
+      {showTour && !showForm && <OnboardingTour onClose={() => setShowTour(false)} onNavigate={setNavPage} onStart={() => createDemo.mutate()} />}
+      <AchievementToast />
     </div>
   )
 }

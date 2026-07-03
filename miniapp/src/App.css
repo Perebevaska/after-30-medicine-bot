@@ -36,7 +36,7 @@
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  margin: 12px 16px 4px;
+  margin: calc(env(safe-area-inset-top, 0px) + 12px) 16px 4px;
   padding: 12px 14px;
   background: color-mix(in srgb, var(--button-color) 12%, transparent);
   border: 1px solid color-mix(in srgb, var(--button-color) 30%, transparent);
@@ -68,9 +68,16 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  margin: 10px 12px 0;
+  margin: calc(env(safe-area-inset-top, 0px) + 14px) 12px 0;
   padding: 12px 14px;
+  /* высота под 2 строки пожелания (15px×1.4×2 + padding) — карточка не «прыгает»
+     между 1- и 2-строчными пожеланиями; короткий текст центрируется по align-items */
+  min-height: 72px;
   background: var(--secondary-bg);
+}
+/* баннер уже взял safe-area → карточка под ним без двойного отступа */
+.tz-banner + .wish-card {
+  margin-top: 10px;
   border-radius: 12px;
 }
 
@@ -197,9 +204,10 @@
 }
 
 .page-header-title {
-  font-size: 17px;
+  font-size: 20px;
   font-weight: 700;
-  color: var(--text);
+  letter-spacing: -0.01em;
+  color: var(--link);
 }
 
 /* Section title */
@@ -645,8 +653,13 @@
   animation: enterFromTop 0.32s ease;
 }
 
-.mlist-card--paused,
-.mlist-card--taken { opacity: 0.6; }
+.mlist-card--paused { opacity: 0.6; }
+/* Принятый: зелёная подсветка + серая полупрозрачность */
+.mlist-card--taken {
+  opacity: 0.6;
+  border-left: 4px solid #4caf50;
+  background: rgba(76, 175, 80, 0.08);
+}
 .mlist-card--due {
   border-left: 4px solid #4caf50;
   background: rgba(76, 175, 80, 0.08);
@@ -662,6 +675,7 @@
 }
 
 .mlist-card--skipped {
+  opacity: 0.6;
   border-left: 4px solid #ef5350;
   background: rgba(239, 83, 80, 0.07);
 }
@@ -683,6 +697,58 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Приёмы: имя + время в одной строке (время справа, тот же цвет что имя) */
+.mlist-name--withtime {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  overflow: visible;
+}
+.mlist-name--withtime .mlist-nm {
+  min-width: 0;
+  flex-shrink: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mlist-name--withtime .mlist-time {
+  flex-shrink: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: inherit;
+  font-variant-numeric: tabular-nums;
+}
+.mlist-name--withtime .mlist-time::before {
+  content: "· ";
+  color: var(--hint);
+}
+
+/* Полоска приёмов за день (правый верх карточки «Приёмы»): пилюля = слот,
+   цвет = статус. margin-left:auto уводит вправо, имя сжимается эллипсисом. */
+.med-pills {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: auto;
+  flex-shrink: 0;
+  align-self: center;
+}
+.med-pill {
+  color: var(--hint);
+  opacity: 0.38;
+  fill: none;
+}
+.med-pill--taken {
+  color: #4caf50;
+  opacity: 1;
+  fill: color-mix(in srgb, #4caf50 20%, transparent);
+}
+.med-pill--skipped {
+  color: #e0533d;
+  opacity: 1;
+  fill: color-mix(in srgb, #e0533d 20%, transparent);
 }
 
 .mlist-badge-paused {
@@ -748,9 +814,8 @@
 .mlist-card-main {
   display: flex;
   align-items: center;
-  padding: 12px 16px;
+  padding: 11px 14px;
   gap: 12px;
-  min-height: 72px;
 }
 
 .mlist-card--open .mlist-card-main {
@@ -760,6 +825,7 @@
 .mlist-card-body {
   display: grid;
   grid-template-rows: 0fr;
+  min-height: 0;
   transition: grid-template-rows 0.22s ease;
   overflow: hidden;
   background: var(--secondary-bg);
@@ -1261,13 +1327,28 @@
   inset: 0;
   z-index: 1000;
 }
-.tour-spot {
+/* Интерактивный шаг: события проходят сквозь оверлей к подсвеченному элементу
+   (юзер свайпает карточку). Карточка тура остаётся кликабельной. */
+.tour-overlay--interactive { pointer-events: none; }
+.tour-overlay--interactive .tour-card { pointer-events: auto; }
+/* Затемнение с N дырками — через SVG-маску (box-shadow не складывается для 2+). */
+.tour-mask {
   position: fixed;
-  border-radius: 14px;
-  border: 2px solid var(--accent);
-  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.72);
+  inset: 0;
+  z-index: 1000;
   pointer-events: none;
-  transition: left 0.25s, top 0.25s, width 0.25s, height 0.25s;
+}
+/* Акцентная рамка вокруг каждой дырки — пульсирующее свечение для привлечения внимания */
+.tour-ring {
+  position: fixed;
+  z-index: 1000;
+  border: 2px solid var(--accent);
+  pointer-events: none;
+  animation: tour-ring-pulse 1.6s ease-in-out infinite;
+}
+@keyframes tour-ring-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 55%, transparent); }
+  50%      { box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent) 0%, transparent); }
 }
 .tour-card {
   position: fixed;
@@ -1280,10 +1361,17 @@
   padding: 18px;
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
 }
+/* Цель в нижней половине → карточка переезжает наверх, чтоб не перекрыть подсветку */
+.tour-card--top {
+  bottom: auto;
+  top: calc(env(safe-area-inset-top, 0px) + 16px);
+}
 .tour-step-count { font-size: 12px; color: var(--hint); margin-bottom: 4px; }
 .tour-title { font-size: 17px; font-weight: 700; color: var(--text); margin-bottom: 6px; }
 .tour-text { font-size: 14px; color: var(--text); line-height: 1.45; margin-bottom: 14px; }
+.tour-success { color: #4caf50; font-weight: 700; }
 .tour-actions { display: flex; justify-content: space-between; align-items: center; }
+.tour-nav-btns { display: flex; align-items: center; gap: 8px; }
 .tour-skip {
   background: none;
   border: none;
@@ -1291,6 +1379,15 @@
   font-size: 14px;
   cursor: pointer;
   padding: 6px;
+}
+.tour-back {
+  background: none;
+  border: none;
+  color: var(--link);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 10px 14px;
 }
 .tour-next {
   background: var(--button-bg);
@@ -1910,28 +2007,50 @@
   to   { opacity: 1; transform: translateY(0); }
 }
 
-.ach-toast {
+/* WP6: единый плавающий тост (компонент <Toast>). Контейнер общий, наполнение
+   разное (ach-toast-* — внутренние классы достижения). */
+.toast {
   position: fixed;
   left: 50%;
-  bottom: 78px;
+  /* Над плавающим нав-баром: его bottom = safe-area+10, высота 62 → верх ≈ +72.
+     Тост ставим выше с зазором. */
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 86px);
   transform: translateX(-50%);
   z-index: 1000;
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 12px 16px;
+  padding: 12px 14px 12px 16px;
   border-radius: 16px;
-  background: var(--accent, #4caf50);
   color: #fff;
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.28);
-  animation: ach-toast-in 0.32s cubic-bezier(0.18, 0.9, 0.3, 1.3);
+  animation: toast-in var(--dur, 280ms) var(--ease, cubic-bezier(0.18, 0.9, 0.3, 1.3));
   max-width: 88vw;
 }
+.toast--accent  { background: var(--accent, #4caf50); }
+.toast--success { background: #2e9d5b; }
+.toast-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  margin-left: 2px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+}
+.toast-close:active { background: rgba(255, 255, 255, 0.3); }
 .ach-toast-icon { display: inline-flex; flex-shrink: 0; }
 .ach-toast-body { display: flex; flex-direction: column; }
 .ach-toast-head { font-size: 11px; opacity: 0.85; text-transform: uppercase; letter-spacing: 0.4px; }
 .ach-toast-title { font-size: 15px; font-weight: 600; }
-@keyframes ach-toast-in {
+@keyframes toast-in {
   from { opacity: 0; transform: translate(-50%, 16px); }
   to   { opacity: 1; transform: translate(-50%, 0); }
 }
@@ -2470,11 +2589,19 @@
 
 .btn-detach:active { opacity: 0.7; }
 
+/* Взведённое состояние (1-й тап) — сплошная заливка, сигнал «нажми ещё раз» */
+.btn-detach--armed {
+  background: var(--destructive);
+  border-color: var(--destructive);
+  color: #fff;
+  font-weight: 600;
+}
+
 .caregiver-divider {
   height: 1px;
   background: var(--hint);
   opacity: 0.15;
-  margin: 6px 0;
+  margin: 0;
 }
 
 .caregiver-locked-hint {
@@ -2820,14 +2947,15 @@
 /* F8: dep share */
 .dep-row-actions { display: flex; gap: 6px; align-items: center; }
 .btn-dep-share {
-  background: none;
+  background: var(--secondary-bg);
   border: 1px solid var(--hint);
   border-radius: 6px;
   font-size: 14px;
+  color: var(--text);
   cursor: pointer;
   padding: 2px 8px;
-  opacity: 0.7;
-  transition: opacity 0.15s;
+  opacity: 1;
+  transition: opacity 0.15s, border-color 0.15s;
 }
 .btn-dep-share--active { opacity: 1; border-color: var(--link-color); }
 .btn-dep-share--notify { opacity: 1; border-color: #e6900a; }
@@ -2861,6 +2989,28 @@
   font-size: 12.5px;
   line-height: 1.45;
   flex: 1;
+}
+
+/* WP4: кликабельный заголовок подсекции «Забота» (сворачивание) */
+.care-section-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  background: none;
+  border: none;
+  border-bottom: 1px solid rgba(0,0,0,0.06); /* разделитель заголовок ↔ близкий (UA-рамка кнопки убрана) */
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  font: inherit;
+  text-align: left;
+}
+body.design-v2 .care-section-toggle { border-bottom-color: var(--hairline); }
+.care-section-chevron {
+  color: var(--hint);
+  font-size: 18px;
+  line-height: 1;
 }
 .caregiver-input-hint {
   font-size: 12px;
@@ -3048,7 +3198,7 @@
   width: 44px;
   height: 26px;
   border-radius: 13px;
-  background: var(--secondary-bg);
+  background: rgba(0,0,0,0.15);
   position: relative;
   cursor: pointer;
   transition: background 0.2s;
@@ -3066,7 +3216,7 @@
   transition: transform 0.2s;
   box-shadow: 0 1px 3px rgba(0,0,0,0.3);
 }
-.form-switch:checked { background: var(--link, #3390ec); }
+.form-switch:checked { background: var(--button-bg, #3390ec); }
 .form-switch:checked::after { transform: translateX(18px); }
 
 /* Карточка приёма «Приём №» */
@@ -3228,3 +3378,548 @@
 .mlist-course-delete { background: transparent; color: #cc3333; }
 .mlist-course-continue:disabled,
 .mlist-course-delete:disabled { opacity: 0.5; }
+
+/* ── Ф15: соцмеханика пожеланий (тестовый функционал) ── */
+.settings-test-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #fff;
+  background: #f59e0b;
+  border-radius: 6px;
+  padding: 1px 6px;
+  vertical-align: middle;
+  margin-left: 6px;
+}
+
+.wish-zone { margin-top: 18px; display: flex; flex-direction: column; gap: 12px; }
+
+.wish-inbox {
+  border: 1px solid var(--separator);
+  background: var(--card);
+  border-radius: 14px;
+  padding: 14px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.04);
+}
+.wish-inbox-head {
+  font-size: 13px;
+  color: var(--hint);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 8px;
+}
+.wish-inbox-text { font-size: 16px; line-height: 1.4; color: var(--text); margin-bottom: 12px; }
+.wish-inbox-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.wish-react-btn {
+  flex: 1;
+  min-width: 130px;
+  padding: 9px 12px;
+  border: 1px solid var(--separator);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+  cursor: pointer;
+}
+.wish-react-btn:active { opacity: 0.7; }
+.wish-react-btn--love { border-color: rgba(229,72,77,0.4); }
+
+.wish-send-btn {
+  width: 100%;
+  padding: 11px 14px;
+  border: 1px dashed var(--separator);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--accent);
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: pointer;
+}
+.wish-send-presets {
+  border: 1px solid var(--separator);
+  border-radius: 14px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.wish-send-head { font-size: 13px; color: var(--hint); margin-bottom: 2px; }
+.wish-preset-chip {
+  text-align: left;
+  padding: 11px 12px;
+  border: 1px solid var(--separator);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.35;
+  cursor: pointer;
+}
+.wish-preset-chip:active { opacity: 0.7; }
+.wish-preset-chip:disabled { opacity: 0.5; }
+.wish-send-cancel {
+  align-self: flex-end;
+  background: transparent;
+  border: none;
+  color: var(--hint);
+  font-size: 14px;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+/* Контекстное подтверждение отправки (inline, заменяет кнопку на 2.5с) —
+   НЕ плавающий тост (тот = .toast / <Toast>). Имя без «toast» чтобы не путать. */
+.wish-sent-inline {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 11px;
+  border-radius: var(--r-btn, 12px);
+  background: rgba(34,197,94,0.12);
+  color: #16a34a;
+  font-size: 14px;
+}
+.wish-pool-hint {
+  text-align: center;
+  font-size: 13px;
+  color: var(--hint);
+  padding: 8px;
+}
+
+.settings-label .settings-sublabel {
+  display: block;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--hint);
+  margin-top: 2px;
+  max-width: 240px;
+}
+.wish-ack {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(245,158,11,0.10);
+  color: var(--text);
+  font-size: 14px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Фаза 18 — «новый вид» (design-v2). Тоггл в Настройках (design.ts).
+   Чисто визуал, ПОВЕРХ существующих правил, ВСЁ под body.design-v2 (откатываемо).
+   Принцип «приятно каждый день»: плоско + воздух + единые токены.
+   ВАЖНО: фон страницы НЕ трогаем (остаётся «как в Telegram»). Карточки отделяем
+   только мягкой тенью на том же фоне → нет серых промежутков, не-карточные слои
+   (инфографика Прогресса, меню) не растворяются.
+   ═══════════════════════════════════════════════════════════════════════════ */
+body.design-v2 {
+  --r-card: 16px;
+  --r-btn: 14px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 22px;
+  --dur: 200ms;
+  --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --elev: 0 1px 3px rgba(0,0,0,0.08);
+  --hairline: var(--separator);
+  /* Поверхность карточек/шапки. В светлой теме нужна чуть темнее (см. ниже). */
+  --v2-surface: var(--secondary-bg);
+  /* Фон навигации — тональный, отличается от фона страницы (fallback) */
+  --nav-bg: var(--secondary-bg);
+}
+/* Светлая тема: secondary-bg почти белый → карточки/шапку чуть темним (подмешиваем чёрный) */
+html[data-theme="light"] body.design-v2 {
+  --v2-surface: color-mix(in srgb, var(--secondary-bg) 92%, #000);
+  --nav-bg: color-mix(in srgb, var(--bg) 90%, #000);
+}
+/* Тёмная тема: панель чуть СВЕТЛЕЕ фона → отрыв */
+html[data-theme="dark"] body.design-v2 {
+  --nav-bg: color-mix(in srgb, var(--bg) 84%, #fff);
+}
+
+/* Типографика: секции мягче (без капс-крика), чёткая иерархия */
+body.design-v2 .section-title {
+  text-transform: none;
+  letter-spacing: -0.01em;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  padding: var(--sp-5) var(--sp-4) var(--sp-2);
+}
+body.design-v2 .section-hint { line-height: 1.45; }
+/* Строка заголовка секции в v2: padding на строке, заголовок без своего → ровный центр */
+body.design-v2 .section-head-row { padding: var(--sp-5) var(--sp-4) var(--sp-2); }
+body.design-v2 .section-head-row .section-title { padding: 0; }
+
+/* Шапка — фон как у карточек (secondary-bg), тонкая линия из темы (не хардкод rgba) */
+body.design-v2 .page-header {
+  background: var(--v2-surface);
+  border-bottom: 1px solid var(--hairline);
+}
+
+/* Обёртка списка в классике = серый 1px-разделитель (rgba 0,0,0,.06) — в v2 при
+   зазорах между карточками он лезет в промежутки = «серые полосы». Гасим. */
+body.design-v2 .mlist-list { background: transparent; gap: 0; }
+
+/* Карточки списков → плавающие: единый радиус + мягкая тень + воздух */
+body.design-v2 .med-card,
+body.design-v2 .mlist-card {
+  background: var(--v2-surface);
+  margin: 0 var(--sp-3) var(--sp-2);
+  border-radius: var(--r-card);
+  box-shadow: var(--elev);
+  /* Тело раскрытия (.mlist-card-body, квадратные нижние углы) клипуется по радиусу —
+     иначе при раскрытии меню вылазит за скруглённую карточку = острые углы. */
+  overflow: hidden;
+}
+body.design-v2 .med-card:first-of-type,
+body.design-v2 .mlist-card:first-of-type {
+  margin-top: var(--sp-3);
+}
+body.design-v2 .med-card  { min-height: 56px; padding: 10px 14px; }
+/* Вкладка «Приёмы» (Dashboard) — плоская карта-строка. */
+body.design-v2 .mlist-card { min-height: 60px; padding: 10px 14px; }
+/* Вкладка «Лекарства» (mlist-card--col, есть раскрытие): вертикаль/высоту задаёт
+   ТОЛЬКО .mlist-card-main → нет двойного padding/min-height = нет пустоты. */
+body.design-v2 .mlist-card--col { min-height: 0; padding: 0; }
+
+/* Светлая тема: карточки Приёмов/Лекарств — как карточки Прогресса (.stats-card =
+   --secondary-bg), а не затемнённый --v2-surface. Единый фон карточек между вкладками.
+   Тело раскрытия (.mlist-card-body) уже --secondary-bg → совпадает с карточкой;
+   кнопки действий (.mlist-action-btn) = --bg (белый) → контраст, не сливаются. */
+html[data-theme="light"] body.design-v2 .med-card,
+html[data-theme="light"] body.design-v2 .mlist-card {
+  background: var(--secondary-bg);
+}
+/* Статусные подсветки «Приёмов» должны перекрыть v2-фон карточки (--v2-surface /
+   светлый --secondary-bg). Дублируем селектор для обеих тем (специфичность ≥
+   базовых v2-правил). Принятый — зелёный тон, пропущенный — красный; полоса слева
+   и opacity заданы в базовых .mlist-card--taken/--skipped. */
+body.design-v2 .mlist-card--taken,
+html[data-theme="light"] body.design-v2 .mlist-card--taken {
+  background: rgba(76, 175, 80, 0.12);
+}
+body.design-v2 .mlist-card--skipped,
+html[data-theme="light"] body.design-v2 .mlist-card--skipped {
+  background: rgba(239, 83, 80, 0.10);
+}
+
+body.design-v2 .wish-card {
+  background: var(--v2-surface);
+  border-radius: var(--r-card);
+  box-shadow: var(--elev);
+}
+
+/* WP3.1: единая плотность карточек «Прогресс» — токены spacing/радиус/тень.
+   Фон оставляем --secondary-bg (единый фон карточек между вкладками, см. light-rule). */
+body.design-v2 .stats-card {
+  margin: var(--sp-2) var(--sp-3) 0;
+  padding: var(--sp-4);
+  border-radius: var(--r-card);
+  box-shadow: var(--elev);
+}
+/* Меню Настроек = фон как у seg-кнопок «Внешний вид» (--secondary-bg),
+   не затемнённый --v2-surface → единообразие в светлой теме. */
+body.design-v2 .settings-block {
+  background: var(--secondary-bg);
+  border-radius: var(--r-card);
+  box-shadow: var(--elev);
+}
+body.design-v2 .settings-row { border-bottom-color: var(--hairline); }
+body.design-v2 .settings-row:last-child { border-bottom-color: transparent; }
+
+/* Меню лекарства: кнопки на secondary-bg → контраст внутри светлой карточки */
+body.design-v2 .mlist-action-btn {
+  background: var(--bg);
+  border-radius: 12px;
+}
+
+/* Слайдер «принять» и кнопка ✕ были secondary-bg → на secondary-карточке слились.
+   Возвращаем контраст: фон --bg. */
+body.design-v2 .slide-confirm,
+body.design-v2 .skip-circle:not(.skip-circle--armed) { background: var(--bg); }
+/* Взведённый ✕ — красная заливка (иначе спец-ть design-v2 перебивала --armed → белый) */
+body.design-v2 .skip-circle--armed { background: var(--destructive); }
+
+/* «Забота»: чип кода, share-панель и ghost/dep-share кнопки были secondary-bg /
+   rgba(0,0,0,.05) / background:none → на secondary-карточке (--v2-surface) слились,
+   особенно в тёмной теме. Возвращаем контраст фоном --bg + видимой рамкой. */
+body.design-v2 .caregiver-code-chip { background: var(--bg); }
+
+/* WP5: чипы времени (settings + rule-time-chip) — единый радиус --r-btn, без
+   обводки, база --bg (контраст на secondary-карточке), активный = заливка
+   --secondary-bg. Тайминги через общие токены. */
+body.design-v2 .settings-time-chip {
+  border: none;
+  border-radius: var(--r-btn);
+  background: var(--bg);
+  transition: background var(--dur) var(--ease);
+}
+body.design-v2 .settings-time-chip--active {
+  background: var(--secondary-bg);
+}
+body.design-v2 .settings-time-chip-chevron {
+  transition: color var(--dur) var(--ease);
+}
+/* Панель share локального близкого вложена в карточку (--v2-surface) → фон карточки,
+   не фон приложения. Чип кода внутри = --bg (контраст). */
+body.design-v2 .dep-share-panel { background: var(--v2-surface); }
+/* Кнопки добавления — как кнопки темы (seg-btn): радиус --r-btn, без обводки.
+   Primary = заливка кнопки Telegram, ghost = secondary-bg. */
+body.design-v2 .caregiver-add-btn,
+body.design-v2 .caregiver-add-cancel-btn,
+body.design-v2 .caregiver-add-done-btn {
+  border-radius: var(--r-btn);
+  border: none;
+}
+body.design-v2 .caregiver-add-btn--ghost,
+body.design-v2 .caregiver-add-cancel-btn {
+  background: var(--bg);
+  border: none;
+  color: var(--text);
+}
+/* Компактная пустая строка (нет близких) — без высокого settings-row padding */
+.caregiver-empty-row {
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+body.design-v2 .btn-dep-share {
+  background: var(--bg);
+  border-color: var(--hairline);
+}
+
+/* Кнопки: единый радиус + тактильный отклик на нажатие */
+body.design-v2 .btn-primary {
+  border-radius: var(--r-btn);
+  transition: transform var(--dur) var(--ease), opacity 0.15s;
+}
+body.design-v2 .btn-primary:active:not(:disabled) { transform: scale(0.97); }
+body.design-v2 .seg-btn { border-radius: var(--r-btn); }
+
+/* Убрать обводку у сег-кнопок и полей форм (выбивается из стиля) — опора на заливку.
+   Поле secondary-bg на белой секции формы остаётся видимым без рамки.
+   TimePicker/числовые барабаны НЕ трогаем: там граница = индикатор активности. */
+body.design-v2 .seg-btn,
+body.design-v2 .field-input,
+body.design-v2 .field-select { border: none; }
+/* активная сег-кнопка читается заливкой-акцентом — рамка не нужна */
+body.design-v2 .seg-btn--active { border-color: transparent; }
+
+/* Плавающая навигация — отдельная скруглённая панель (язык скруглённых карточек):
+   отступ от краёв, радиус, стекло + тень. Контент скроллится под ней. */
+body.design-v2 .bottom-nav {
+  --nav-item-w: 68px;
+  left: 50%;
+  right: auto;
+  transform: translateX(-50%);
+  width: auto;
+  padding: 0 6px;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 10px);
+  height: 62px;
+  border: none;
+  border-radius: 20px;
+  box-shadow: 0 8px 28px rgba(0,0,0,0.20), 0 2px 6px rgba(0,0,0,0.10);
+  background: var(--nav-bg);
+  -webkit-backdrop-filter: saturate(1.5) blur(22px);
+  backdrop-filter: saturate(1.5) blur(22px);
+}
+/* компактные пункты фикс-ширины → панель сжимается по контенту и центрируется */
+body.design-v2 .nav-item { flex: 0 0 var(--nav-item-w); width: var(--nav-item-w); }
+/* контент не должен заезжать под плавающую панель */
+body.design-v2 .page { padding-bottom: 96px; }
+
+/* Плавающая заливка-pill за активной вкладкой — едет при переходе (--nav-i из React).
+   Ширина = 1 вкладка − зазор; шаг сдвига = (100% своей ширины + зазор) = ширина вкладки. */
+body.design-v2 .bottom-nav::before {
+  content: '';
+  position: absolute;
+  z-index: 0;
+  top: 8px;
+  bottom: 8px;
+  left: 10px;
+  width: calc(var(--nav-item-w) - 8px);
+  border-radius: 14px;
+  background: var(--button-bg);
+  transform: translateX(calc(var(--nav-i, 0) * var(--nav-item-w)));
+  transition: transform var(--dur) var(--ease);
+}
+
+body.design-v2 .nav-item { gap: 0; padding: 0; position: relative; z-index: 1; }
+body.design-v2 .nav-item svg {
+  width: 25px;
+  height: 25px;
+  transition: transform var(--dur) var(--ease);
+}
+/* Подписи убраны — только иконки по центру */
+body.design-v2 .nav-label { display: none; }
+
+/* Активная вкладка: белая иконка на сплошном pill + лёгкое «оживление» */
+body.design-v2 .nav-item--active { color: var(--button-text); }
+body.design-v2 .nav-item--active svg { transform: translateY(-1px) scale(1.1); }
+/* Тап-отклик: лёгкое сжатие иконки при нажатии (перебивает active-scale) */
+body.design-v2 .nav-item:active svg { transform: scale(0.9); }
+
+/* Бейдж под новый стиль: круглый, с кольцом-отрывом от панели */
+body.design-v2 .nav-badge {
+  background: var(--destructive);
+  border-radius: 999px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--bg);
+  top: -6px;
+  right: -8px;
+}
+/* верхняя полоска-индикатор не нужна — заливка-pill её заменяет */
+body.design-v2 .nav-item--active::before { display: none; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Ф18 · WP1 — Формы (MedicationForm). Только под body.design-v2, откатываемо.
+   Плавающие секции-карточки, sticky «Сохранить», единый ритм, приглушённые хинты.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Ритм: единый вертикальный шаг между секциями */
+body.design-v2 .form-body {
+  gap: var(--sp-3);
+  padding: var(--sp-3) 0 var(--sp-4);
+}
+
+/* Секции = плавающие карточки: радиус + тень. Фон НЕ трогаем — базовый --bg
+   контрастит с фоном страницы (.form-page = --secondary-bg) во всех темах.
+   v2-surface здесь = secondary-bg → слился бы с фоном (тёмная/авто). */
+body.design-v2 .form-section {
+  margin: 0 var(--sp-3);
+  border-radius: var(--r-card);
+  box-shadow: var(--elev);
+}
+
+/* rule-card выбивается чуть сильнее — это вложенный блок приёма */
+body.design-v2 .rule-card { box-shadow: var(--elev); }
+
+/* Форма = как остальные экраны: страница на фоне приложения (--bg), секции —
+   поверхность карточек (--v2-surface; светлая → --secondary-bg, как med/mlist-card),
+   поля = --bg (контраст внутри карточки). Вложенная rule-card = --bg (под-блок). */
+body.design-v2 .form-page { background: var(--bg); }
+body.design-v2 .form-section { background: var(--v2-surface); }
+html[data-theme="light"] body.design-v2 .form-section { background: var(--secondary-bg); }
+body.design-v2 .field-input,
+body.design-v2 .field-select,
+body.design-v2 .drum-col { background: var(--bg); }
+
+/* Хинты приглушены, чтобы не спорить с лейблами */
+body.design-v2 .field-hint {
+  color: var(--hint);
+  font-size: 12px;
+  line-height: 1.4;
+  opacity: 0.85;
+}
+
+/* Sticky «Сохранить»: липнет к низу вьюпорта (bottom-nav на форме не рендерится).
+   Full-bleed бар с верхним hairline + safe-area — не теряется на длинной форме. */
+body.design-v2 .form-section--actions {
+  position: sticky;
+  bottom: 0;
+  margin: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: var(--bg);
+  border-top: 1px solid var(--hairline);
+  padding: var(--sp-3) var(--sp-4) calc(var(--sp-3) + env(safe-area-inset-bottom, 0px));
+  z-index: 5;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Ф18 · WP2 — Dashboard «Сейчас/Сегодня». Только под body.design-v2.
+   «Сейчас» акцентный (точка + счётчик), слайдер контрастнее, take-all полирован.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* «Сейчас» выделяется на фоне нейтрального «Сегодня»: точка-индикатор + счётчик */
+body.design-v2 .section-title--now {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+body.design-v2 .section-title--now::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: nowPulse 1.6s ease-in-out infinite;
+}
+@keyframes nowPulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 45%, transparent); }
+  50%      { box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 0%, transparent); }
+}
+body.design-v2 .section-count {
+  font-size: 12px;
+  font-weight: 700;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  background: var(--accent);
+  color: var(--button-text);
+}
+
+/* Слайдер: насыщеннее fill + объёмнее knob */
+body.design-v2 .slide-fill {
+  background: linear-gradient(90deg, #34c759, #248a3d);
+}
+body.design-v2 .slide-knob {
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.22), 0 0 0 1px rgba(0, 0, 0, 0.04);
+}
+
+/* «Принять всё» — общий радиус кнопок + отклик нажатия */
+body.design-v2 .btn-take-all {
+  border-radius: var(--r-btn);
+  transition: opacity 0.15s, transform var(--dur) var(--ease);
+}
+body.design-v2 .btn-take-all:active:not(:disabled) { transform: scale(0.96); }
+
+/* Строка заголовка секции: заголовок + счётчик + тоггл — одна базовая линия.
+   Вертикальный padding на строке (не на заголовке) → центр по вертикали ровный. */
+.section-head-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 16px 8px;
+}
+.section-head-row .section-title { flex: 0 1 auto; padding: 0; }
+.section-head-row--btn {
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.section-head-row--btn:active { opacity: 0.6; }
+
+/* Тоггл свёртки секции — только chevron, придвинут к заголовку/счётчику */
+.done-toggle {
+  display: inline-flex;
+  align-items: center;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--hint);
+  padding: 4px;
+  border-radius: var(--r-btn, 12px);
+}
+.done-toggle:active { opacity: 0.6; }
+.done-toggle-ic { transition: transform var(--dur, 200ms) var(--ease, ease); }
+.done-toggle-ic--open { transform: rotate(180deg); }
